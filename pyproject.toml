@@ -22,5 +22,32 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+dependencies = [
+    "pydantic>=2.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.25.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/example/multimodal_agentic_deep_research_assistant"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+select = ["E", "F", "W", "C90"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = True
+warn_unused_configs = True
+hide_error_codes = False
+show_error_codes = True
+strict = True
+exclude = ["tests", ".git", "__pycache__", "build", "dist"]
