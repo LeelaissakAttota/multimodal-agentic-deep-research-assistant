@@ -112,7 +112,7 @@ class MasterResearchOrchestrator:
             # Create a tool request from the task
             tool_request = ToolRequest(
                 tool_name=task.assigned_tool or "",
-                parameters=task.tool_input,
+                parameters=task.tool_input or {},
             )
             # Execute the task using the research agent
             tool_result = await self.research_agent.execute_task(task, tool_request)
