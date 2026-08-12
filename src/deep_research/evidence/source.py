@@ -16,7 +16,7 @@ class Source(BaseModel):
     title: Optional[str] = Field(default=None, description="Title or name of the source")
     description: Optional[str] = Field(default=None, description="Description of the source")
     retrieved_at: datetime = Field(default_factory=datetime.utcnow, description="When the source was accessed")
-    metadata: dict = Field(default_factory=dict, description="Additional metadata (e.g., author, publication)")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata (e.g., author, publication)")
 
     class Config:
         json_encoders = {

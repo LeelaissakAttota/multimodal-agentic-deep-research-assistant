@@ -38,16 +38,16 @@ test = [
 Homepage = "https://github.com/example/multimodal_agentic_deep_research_assistant"
 
 [tool.ruff]
-line-length = 88
+line-length = 140
 target-version = "py312"
 select = ["E", "F", "W", "C90"]
 ignore = []
 
 [tool.mypy]
 python_version = "3.12"
-warn_return_any = True
-warn_unused_configs = True
-hide_error_codes = False
-show_error_codes = True
-strict = True
+warn_return_any = true
+warn_unused_configs = true
+hide_error_codes = false
+show_error_codes = true
+strict = true
 exclude = ["tests", ".git", "__pycache__", "build", "dist"]
