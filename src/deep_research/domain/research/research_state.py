@@ -7,7 +7,6 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
-
 class ResearchState(BaseModel):
     """
     Represents the current state of a research session.
@@ -31,6 +30,13 @@ class ResearchState(BaseModel):
         ),
     )
     error: Optional[str] = Field(default=None, description="Error message if the research session failed")
+    iteration_number: int = Field(default=0, description="Current iteration number of the research loop")
+    evaluation_result: Optional[str] = Field(
+        default=None,
+        description=(
+            "Result of the last evaluation (e.g., CONTINUE, COMPLETE, BLOCKED, FAILED)"
+        ),
+    )
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     class Config:
