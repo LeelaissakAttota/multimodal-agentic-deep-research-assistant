@@ -3,7 +3,7 @@
 A resume-ready agentic AI system for performing deep research workflows autonomously.
 
 ## Project Phase
-**Current Phase:** Phase 1 — Core Foundation (Configuration, Core Domain Contracts, Model/Tool Interfaces, API Foundation, Testing Foundation)
+**Current Phase:** Phase 2 — Master Research Orchestrator **Current Phase:** Phase 1 — Core Foundation (Configuration, Core Domain Contracts, Model/Tool Interfaces, API Foundation, Testing Foundation) Agentic Core (Complete)
 
 ## Overview
 This project aims to build a multimodal agentic deep research assistant that can:
