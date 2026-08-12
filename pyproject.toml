@@ -7,7 +7,7 @@ name = "multimodal_agentic_deep_research_assistant"
 version = "0.1.0"
 description = "A multimodal agentic deep research assistant"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11,<3.13"
 license = {text = "MIT"}
 authors = [
     {name = "Principal Agentic AI Engineer", email = "engineer@example.com"}
