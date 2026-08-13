@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
+from deep_research.tools.definition import ToolDefinition
+
 
 class ToolRequest(BaseModel):
     """
@@ -61,5 +63,12 @@ class Tool(ABC):
     def name(self) -> str:
         """
         Return the name of the tool.
+        """
+        pass
+
+    @abstractmethod
+    def get_definition(self) -> ToolDefinition:
+        """
+        Return the tool's definition.
         """
         pass

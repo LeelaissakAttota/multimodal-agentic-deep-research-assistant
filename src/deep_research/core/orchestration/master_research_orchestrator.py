@@ -13,7 +13,6 @@ from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.analysis_agent import AnalysisAgent
 from deep_research.core.agents.evaluation_agent import EvaluationAgent, EvaluationResult
 from deep_research.core.agents.report_agent import ReportAgent
-from deep_research.tools.tool import ToolRequest
 
 
 class MasterResearchOrchestrator:
@@ -109,13 +108,8 @@ class MasterResearchOrchestrator:
         """
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
-            # Create a tool request from the task
-            tool_request = ToolRequest(
-                tool_name=task.assigned_tool or "",
-                parameters=task.tool_input or {},
-            )
-            # Execute the task using the research agent
-            tool_result = await self.research_agent.execute_task(task, tool_request)
+            # Execute the task using the research agent (which will select a tool based on the task)
+            tool_result = await self.research_agent.execute_task(task)
             # Update the task with the result
             if tool_result.success:
                 task.status = "completed"
