@@ -1,37 +1,39 @@
 # Tasks
 
-## Phase 0 Tasks
-- Inspect current project directory
-- Verify master_architecture.png
-- Initialize professional repository structure
-- Create authoritative project documentation
-- Translate architecture image into documented software architecture
-- Establish project rules
-- Establish roadmap
-- Establish testing strategy
-- Establish model policy
-- Establish cost policy
-- Establish evidence/citation policies
-- Establish security baseline
-- Establish Git workflow
-- Create Python project metadata/configuration
-- Configure lint/type/test foundations (if appropriate)
-- Create .gitignore and safe environment example
-- Initialize Git (if needed and safe)
-- Validate Phase 0 artifacts
+## Phase 0 — Project Foundation
 
-## Phase 1 Tasks
-- [x] Resolved all genuine Ruff findings
-- [x] Ran mypy against the intended Phase 1 source and fixed typing errors
-- [x] Ran the complete relevant pytest suite (all tests pass)
-- [x] Verified FastAPI endpoints: /health, /ready, /version
-- [x] Verified .env.example exists and contains placeholders/default examples only
-- [x] Ensured .env remains ignored by .gitignore
-- [x] Synchronized documentation: README.md, PROJECT_STATUS.md, TASKS.md, CHANGELOG.md, DECISIONS.md
-- [x] Inspected for TODO, FIXME, HACK, temporary debug code, print debugging, accidental secrets, unwanted generated files (none found in source code)
-- [x] Confirmed Phase 2 functionality not implemented
+- [x] Establish repository structure and authoritative documentation
+- [x] Establish architecture, engineering, testing, cost, evidence, citation, security, and Git policies
 
-## Phase 2 Tasks
-[TBD]
+## Phase 1 — Core Foundation
 
-# ... and so on for each phase
+- [x] Implement configuration and core domain contracts
+- [x] Implement model/tool abstractions and FastAPI foundation
+- [x] Establish unit-test, Ruff, and MyPy validation
+
+## Phase 2 — Master Research Orchestrator
+
+- [x] Implement planning, research, analysis, evaluation, and report agent contracts
+- [x] Implement dependency-injected orchestration and deterministic agents
+- [x] Implement bounded iteration control and terminal decision handling
+
+## Phase 3 — Multimodal Research Capabilities
+
+- [x] Implement the tool registry and deterministic selection
+- [x] Implement web and document research tools
+- [x] Preserve typed tool results and evidence/provenance foundations
+
+## Phase 4 — Deep Research Workflow
+
+- [x] Enforce the research state graph
+- [x] Preserve evaluation/reflection records per iteration
+- [x] Detect and normalize evidence gaps
+- [x] Replan deterministically from unresolved gaps
+- [x] Terminate on COMPLETE, BLOCKED, FAILED, or the configured iteration bound
+- [x] Mark successful workflows completed only after report generation
+- [x] Validate state mutation, async orchestration, mocks, and Phase 3 output compatibility
+- [x] Pass pytest, Ruff, MyPy, security, and release audits
+
+## Phase 5 — Research Intelligence
+
+- [ ] Not started

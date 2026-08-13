@@ -30,3 +30,20 @@
 
 ## Future Phases
 [TBD]
+
+## Phase 4 Decisions
+
+### Decision 006: Explicit Research State Graph
+- **Date**: 2026-08-13
+- **Decision**: Enforce legal workflow transitions in the orchestrator and record every visited state.
+- **Rationale**: Makes loop behavior deterministic, inspectable, and testable while preventing accidental terminal-state regressions.
+
+### Decision 007: Evaluation Feedback Is Loop State
+- **Date**: 2026-08-13
+- **Decision**: Retain the latest evaluation feedback for replanning and an ordered record of every evaluation for reflection evidence.
+- **Rationale**: Replanning requires current gaps, while auditability requires the prior records not be overwritten.
+
+### Decision 008: Bounded Deterministic Replanning
+- **Date**: 2026-08-13
+- **Decision**: Build follow-up plans from normalized, unique evaluation gaps and enforce a positive iteration limit.
+- **Rationale**: The research loop must make targeted progress and terminate predictably without introducing Phase 5 memory or Phase 6 retry/budget systems.

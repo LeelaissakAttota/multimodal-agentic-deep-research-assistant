@@ -1,30 +1,36 @@
 # Multimodal Agentic Deep Research Assistant
 
-A resume-ready agentic AI system for performing deep research workflows autonomously.
+A provider-neutral Python research engine for bounded, evidence-oriented, multimodal research workflows.
 
-## Project Phase
-**Current Phase:** Phase 2 — Master Research Orchestrator **Current Phase:** Phase 1 — Core Foundation (Configuration, Core Domain Contracts, Model/Tool Interfaces, API Foundation, Testing Foundation) Agentic Core (Complete)
+## Project Status
 
-## Overview
-This project aims to build a multimodal agentic deep research assistant that can:
-- Accept complex research questions
-- Autonomously perform controlled deep-research workflows
-- Collect and analyze multimodal information (web, documents, images, video, etc.)
-- Generate traceable, cited reports
+Phase 4 — Deep Research Workflow is complete. Phase 5 has not started.
 
-## Structure
-- `src/` - Source code
-- `tests/` - Test suites
-- `docs/` - Documentation
-- `scripts/` - Utility scripts
-- `data/` - Data files
-- `reports/` - Generated reports
+Implemented capabilities include:
 
-## Getting Started
-See [DEVELOPMENT.md](docs/development/) for setup instructions.
+- Core research, plan, task, state, evidence, source, claim, and citation contracts
+- Dependency-injected planning, research, analysis, evaluation, and reporting agents
+- Multimodal tool registry and deterministic web/document research tools
+- Explicit bounded research state graph and terminal-state handling
+- Evidence-gap detection, reflection history, and deterministic replanning
+- Mapping-based and typed Pydantic tool-output compatibility
+- FastAPI health, readiness, and version endpoints
 
-## License
-[To be added]
+## Validation
 
-## Contact
-[To be added]
+```powershell
+pytest -q
+ruff check .
+mypy src/deep_research
+```
+
+## Repository Structure
+
+- `src/deep_research/` — application source
+- `tests/` — automated tests
+- `docs/architecture/` — architecture assets
+- Root Markdown files — authoritative project policies, decisions, roadmap, and status
+
+## Phase Discipline
+
+See `ROADMAP.md` and `PROJECT_RULES.md`. Phase 5 functionality is intentionally excluded from the Phase 4 release.

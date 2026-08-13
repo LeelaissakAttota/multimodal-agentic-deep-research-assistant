@@ -59,6 +59,21 @@ Based on the approved master architecture (see `docs/architecture/master_archite
 7. If gaps found, Orchestrator may replan; otherwise, proceeds to Report Agent.
 8. Report Agent generates final report with citations from validated evidence.
 
+## Phase 4 Research State Graph
+
+The orchestrator enforces these legal transitions:
+
+`initialized → planning → researching → analyzing → evaluating`
+
+Evaluation then selects one of four bounded paths:
+
+- `CONTINUE`: return to `planning` with normalized evidence gaps and retained reflection context.
+- `COMPLETE`: transition through `reporting` to `completed` after the report is stored.
+- `BLOCKED`: terminate as `blocked`.
+- `FAILED`: terminate as `failed`.
+
+If `CONTINUE` consumes the configured iteration limit, the orchestrator terminates as `failed` with an explicit bound-exhaustion error. `ResearchState` retains plan IDs, visited statuses, and evaluation records so the workflow can be inspected without implementing Phase 5 persistence or memory.
+
 ## Failure Boundaries
 - Tool execution failures are caught and reported to Orchestrator for retry/replanning.
 - Model gateway includes fallback and retry logic.

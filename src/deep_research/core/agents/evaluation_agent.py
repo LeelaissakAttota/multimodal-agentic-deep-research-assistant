@@ -20,10 +20,16 @@ class EvaluationResult:
         gaps: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
+        valid_decisions = {"CONTINUE", "COMPLETE", "BLOCKED", "FAILED"}
+        if decision not in valid_decisions:
+            raise ValueError(f"Unsupported evaluation decision: {decision}")
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("Evaluation confidence must be between 0.0 and 1.0")
+
         self.decision = decision
         self.confidence = confidence
         self.reasoning = reasoning
-        self.gaps = gaps or []
+        self.gaps = list(dict.fromkeys(gap.strip() for gap in gaps or [] if gap.strip()))
         self.metadata = metadata or {}
 
 
@@ -53,7 +59,7 @@ class EvaluationAgent(ABC):
 
 class DeterministicEvaluationAgent(EvaluationAgent):
     """
-    Deterministic implementation of EvaluationAgent for Phase 2.
+    Deterministic implementation of EvaluationAgent for Phases 2 and 4.
     Implements a simple evaluation based on task completion and evidence.
     """
 
@@ -61,8 +67,7 @@ class DeterministicEvaluationAgent(EvaluationAgent):
         self, state: ResearchState, plan: ResearchPlan, analysis_result: Dict[str, Any]
     ) -> EvaluationResult:
         """
-        Perform deterministic evaluation.
-        For Phase 2, we check if all tasks are completed and if we have sufficient evidence.
+        Evaluate task completion and identify evidence gaps deterministically.
         """
         total_tasks = len(plan.tasks)
         completed_tasks = len(

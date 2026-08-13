@@ -1,24 +1,38 @@
-"""
-Master Research Orchestrator for coordinating the research workflow.
-"""
+"""Master Research Orchestrator for coordinating the research workflow."""
+
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from deep_research.domain.research_request import ResearchRequest
-from deep_research.domain.research.research_plan import ResearchPlan
-from deep_research.domain.research.research_state import ResearchState
-from deep_research.domain.research.research_task import ResearchTask
-from deep_research.core.agents.planning_agent import PlanningAgent
-from deep_research.core.agents.research_agent import ResearchAgent
+from pydantic import BaseModel
+
 from deep_research.core.agents.analysis_agent import AnalysisAgent
 from deep_research.core.agents.evaluation_agent import EvaluationAgent, EvaluationResult
+from deep_research.core.agents.planning_agent import PlanningAgent
+from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.report_agent import ReportAgent
+from deep_research.domain.research.research_plan import ResearchPlan
+from deep_research.domain.research.research_state import EvaluationRecord, ResearchState
+from deep_research.domain.research.research_task import ResearchTask
+from deep_research.domain.research_request import ResearchRequest
 
 
 class MasterResearchOrchestrator:
     """
-    Orchestrates the research workflow by delegating to specialized agents.
+    Orchestrates a bounded research state graph using specialized agents.
     """
+
+    _STATE_TRANSITIONS: Dict[str, frozenset[str]] = {
+        "initialized": frozenset({"planning"}),
+        "planning": frozenset({"researching"}),
+        "researching": frozenset({"analyzing"}),
+        "analyzing": frozenset({"evaluating"}),
+        "evaluating": frozenset({"planning", "reporting", "blocked", "failed"}),
+        "reporting": frozenset({"completed", "failed"}),
+        "completed": frozenset(),
+        "blocked": frozenset(),
+        "failed": frozenset(),
+    }
 
     def __init__(
         self,
@@ -29,6 +43,9 @@ class MasterResearchOrchestrator:
         report_agent: ReportAgent,
         max_iterations: int = 3,
     ):
+        if max_iterations < 1:
+            raise ValueError("max_iterations must be at least 1")
+
         self.planning_agent = planning_agent
         self.research_agent = research_agent
         self.analysis_agent = analysis_agent
@@ -37,7 +54,7 @@ class MasterResearchOrchestrator:
         self.max_iterations = max_iterations
         # Initialize with a dummy state; will be replaced in _initialize
         self.research_state: ResearchState = ResearchState(
-            request_id=UUID(int=0), status="dummy"
+            request_id=UUID(int=0), status="dummy", status_history=["dummy"]
         )
         self._request: Optional[ResearchRequest] = None
         self._plan: Optional[ResearchPlan] = None
@@ -60,7 +77,9 @@ class MasterResearchOrchestrator:
     def _initialize(self, request: ResearchRequest) -> None:
         self._request = request
         self.research_state = ResearchState(
-            request_id=request.id, status="initialized"
+            request_id=request.id,
+            status="initialized",
+            status_history=["initialized"],
         )
         self._plan = None
         self._analysis_result = None
@@ -74,18 +93,17 @@ class MasterResearchOrchestrator:
 
     async def _planning_phase(self) -> None:
         assert self._request is not None, "Request must be set before planning"
-        self.research_state.status = "planning"
+        self._transition_to("planning")
         self._plan = await self.planning_agent.create_plan(
             request=self._request,
             state=self.research_state,
         )
         self.research_state.current_plan_id = self._plan.id
         self.research_state.plan_history.append(self._plan.id)
-        self.research_state.status = "researching"
+        self._transition_to("researching")
 
     async def _research_phase(self) -> None:
         assert self._plan is not None, "No plan available for research phase"
-        self.research_state.status = "researching"
         completed_tasks = await self._execute_research_tasks(self._plan.tasks)
         # Update state with completed/failed tasks and gathered evidence/sources
         for task in completed_tasks:
@@ -108,17 +126,20 @@ class MasterResearchOrchestrator:
         """
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
-            # Execute the task using the research agent (which will select a tool based on the task)
             tool_result = await self.research_agent.execute_task(task)
-            # Update the task with the result
             if tool_result.success:
                 task.status = "completed"
-                task.result = tool_result.output.get("summary", "")
-                # Extract evidence and source IDs from the tool result if available
-                if "evidence_ids" in tool_result.output:
-                    task.evidence_gathered.extend(tool_result.output["evidence_ids"])
-                if "source_ids" in tool_result.output:
-                    task.sources_consulted.extend(tool_result.output["source_ids"])
+                output = self._normalize_tool_output(tool_result.output)
+                summary = output.get("summary")
+                task.result = summary if isinstance(summary, str) else ""
+
+                evidence_ids = output.get("evidence_ids")
+                if isinstance(evidence_ids, list):
+                    task.evidence_gathered.extend(evidence_ids)
+
+                source_ids = output.get("source_ids")
+                if isinstance(source_ids, list):
+                    task.sources_consulted.extend(source_ids)
             else:
                 task.status = "failed"
                 task.error = tool_result.error or "Unknown error"
@@ -127,7 +148,7 @@ class MasterResearchOrchestrator:
 
     async def _analysis_phase(self) -> None:
         assert self._plan is not None, "No plan available for analysis phase"
-        self.research_state.status = "analyzing"
+        self._transition_to("analyzing")
         self._analysis_result = await self.analysis_agent.analyze(
             self.research_state,
             self._plan,
@@ -135,41 +156,74 @@ class MasterResearchOrchestrator:
 
     async def _evaluation_phase(self) -> EvaluationResult:
         assert self._plan is not None, "No plan available for evaluation phase"
-        assert self._analysis_result is not None, "No analysis result available for evaluation phase"
-        self.research_state.status = "evaluating"
-        evaluation_result = await self.evaluation_agent.evaluate(
+        assert self._analysis_result is not None, (
+            "No analysis result available for evaluation phase"
+        )
+        self._transition_to("evaluating")
+        return await self.evaluation_agent.evaluate(
             self.research_state,
             self._plan,
             self._analysis_result,
         )
-        self.research_state.evaluation_result = evaluation_result.decision
-        return evaluation_result
 
     async def _handle_evaluation_result(self, evaluation_result: EvaluationResult) -> None:
+        self.research_state.last_evaluation_gaps = list(evaluation_result.gaps)
+        self.research_state.last_evaluation_reasoning = evaluation_result.reasoning
+        self.research_state.last_evaluation_confidence = evaluation_result.confidence
+        self.research_state.evaluation_result = evaluation_result.decision
+        self.research_state.evaluation_history.append(
+            EvaluationRecord(
+                iteration_number=self.research_state.iteration_number,
+                decision=evaluation_result.decision,
+                confidence=evaluation_result.confidence,
+                reasoning=evaluation_result.reasoning,
+                gaps=evaluation_result.gaps,
+            )
+        )
+
         if evaluation_result.decision == "COMPLETE":
-            self.research_state.status = "reporting"
+            self._transition_to("reporting")
             await self._reporting_phase()
         elif evaluation_result.decision == "BLOCKED":
-            self.research_state.status = "blocked"
+            self._transition_to("blocked")
         elif evaluation_result.decision == "FAILED":
-            self.research_state.status = "failed"
-        # For CONTINUE, we do nothing; the loop will continue and the state will be updated in the next iteration.
+            self._transition_to("failed")
 
     async def _reporting_phase(self) -> None:
-        assert self._analysis_result is not None, "No analysis result available for reporting phase"
+        assert self._analysis_result is not None, (
+            "No analysis result available for reporting phase"
+        )
         report = await self.report_agent.generate_report(
             self.research_state,
             self._analysis_result,
         )
         self.research_state.metadata["report"] = report
+        self._transition_to("completed")
 
     def _is_terminal_state(self) -> bool:
-        return self.research_state.status in ("completed", "failed", "blocked", "reporting")
+        return self.research_state.status in ("completed", "failed", "blocked")
 
     def _handle_max_iterations_exceeded(self) -> None:
         if not self._is_terminal_state():
-            # If we exited the loop due to max iterations and haven't reached a terminal state, mark as failed.
-            self.research_state.status = "failed"
+            self._transition_to("failed")
             self.research_state.error = (
                 f"Research failed to complete within {self.max_iterations} iterations"
             )
+
+    def _transition_to(self, next_status: str) -> None:
+        current_status = self.research_state.status
+        allowed_statuses = self._STATE_TRANSITIONS.get(current_status, frozenset())
+        if next_status not in allowed_statuses:
+            raise RuntimeError(
+                f"Invalid research state transition: {current_status} -> {next_status}"
+            )
+        self.research_state.status = next_status
+        self.research_state.status_history.append(next_status)
+
+    @staticmethod
+    def _normalize_tool_output(output: Any) -> Mapping[str, Any]:
+        if isinstance(output, BaseModel):
+            return output.model_dump()
+        if isinstance(output, Mapping):
+            return output
+        return {}
