@@ -10,11 +10,11 @@ from deep_research.tools.definition import (
 from deep_research.domain.modality import Modality
 
 
-class TestToolInput(ToolInput):
+class ExampleToolInput(ToolInput):
     query: str
 
 
-class TestToolOutput(ToolOutput):
+class ExampleToolOutput(ToolOutput):
     result: str
 
 
@@ -26,8 +26,8 @@ def test_tool_definition_creation():
         description="A test tool",
         modality=Modality.TEXT,
         capabilities=[ToolCapability.SEARCH],
-        input_schema=TestToolInput,
-        output_schema=TestToolOutput
+        input_schema=ExampleToolInput,
+        output_schema=ExampleToolOutput
     )
 
     assert definition.identifier == "test_tool"
@@ -35,8 +35,8 @@ def test_tool_definition_creation():
     assert definition.description == "A test tool"
     assert definition.modality == Modality.TEXT
     assert definition.capabilities == [ToolCapability.SEARCH]
-    assert definition.input_schema == TestToolInput
-    assert definition.output_schema == TestToolOutput
+    assert definition.input_schema == ExampleToolInput
+    assert definition.output_schema == ExampleToolOutput
 
 
 def test_tool_execution_result_creation():
@@ -44,7 +44,7 @@ def test_tool_execution_result_creation():
     result = ToolExecutionResult(
         tool_identifier="test_tool",
         success=True,
-        output=TestToolOutput(result="test"),
+        output=ExampleToolOutput(result="test"),
         execution_time_ms=100.0
     )
 

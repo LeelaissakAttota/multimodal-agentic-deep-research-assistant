@@ -42,6 +42,13 @@ Testing is integral to the development harness. Every phase must have measurable
 - **Mandatory paths**: Success; transient retry success; transient exhaustion; permanent failure; timeout; tool/model/token/external-API/emergency budget exhaustion; invalid policy; eligible and ineligible model fallback; persisted failure/report recovery; bounded context/provenance retention; API validation and lookup.
 - **Network/Cost**: Mandatory tests and the default product API use fake providers/tools only and cost $0.
 
+### Final Integration Tests
+- **Purpose**: Validate the released Phase 7 composition and its adversarial, security, performance-bound, and packaging contracts.
+- **Location**: `tests/integration/test_phase7_final_integration.py`, with regression coverage retained in `tests/unit/`.
+- **Method**: Compose deterministic agents, SQLite persistence, bounded memory/context, the execution harness, reports, recovery, and the product service in one offline workflow. Exercise malicious/oversized input, secret-like fields, credential-bearing URLs, raw exception messages, bounded registries, and bounded demo batches.
+- **Performance method**: Verify explicit cardinality/resource bounds in tests and record repeatable local wall-clock observations in the Phase 7 audit; do not use brittle machine-specific pass/fail timing thresholds.
+- **Network/Cost**: No live network, provider credential, paid API, or model call is permitted. Mandatory cost is $0.
+
 ### Regression Tests
 - **Purpose**: Ensure previously fixed issues do not reappear.
 - **Framework**: pytest (reuse unit/integration tests)
@@ -67,13 +74,14 @@ Testing is integral to the development harness. Every phase must have measurable
 - Phase 0: N/A (no functional code)
 - Phase 1: 80%+ on core domain contracts
 - Phase 2: 70%+ on orchestration logic
-- Phase 3-6: 60%+ overall, with focus on critical paths
+- Phase 3-7: 60%+ overall, with focus on critical paths
 - Phase 5: persistence round trips, immutable evidence history, retrieval relevance/order/limits, context budgets, recovery, and failure boundaries are mandatory
 - Phase 6: all finite-execution controls and failure categories, routing/fallback, runtime reports, API integration, and Phase 0–5 regressions are mandatory
+- Phase 7: composed end-to-end success, adversarial input, sensitive-data rejection, failure sanitization, bounded batches, recovery, context, provenance, runtime accounting, and Phase 0–6 regressions are mandatory
 
 ## Test Execution
 - Local development: `pytest`
-- CI: To be configured in later phases.
+- CI: `.github/workflows/quality.yml` runs pytest, Ruff, and strict MyPy on Python 3.12 for pushes and pull requests to `main`.
 
 ## Test Environment
 - Isolated environments using virtualenv or similar.

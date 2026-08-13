@@ -34,3 +34,8 @@
 - **No hardcoded API keys** in source code or configuration files.
 - **No direct imports** of provider-specific SDKs in core research logic (use the gateway).
 - **No assumption** of a specific model's capabilities beyond what is defined in the gateway interface.
+
+## Phase 7 Release Status
+- No provider SDK or hard-coded model was added.
+- The end-to-end suite and demo use deterministic agents behind existing abstractions and make no live model calls.
+- Ordered transient fallback remains tested with fake `ModelGateway` routes; live provider behavior is not claimed.

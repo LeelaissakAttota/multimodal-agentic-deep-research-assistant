@@ -48,6 +48,9 @@ The following limits will be configurable via environment variables or configura
 
 ## Mandatory Validation Cost
 - Phase 6 tests and the default API integration use deterministic fakes, require no network access or API credentials, and cost $0.
+- Phase 7 end-to-end, adversarial, demo, security, performance-bound, and regression validation also uses deterministic local adapters and costs $0.
+
+The offline demo accepts at most ten scenarios per invocation. Each scenario remains independently constrained by the Phase 6 runtime limits; demo batching does not replace or multiply hidden research loops.
 
 ## Responsible Use
 - Users are encouraged to set reasonable limits based on their budget and research needs.

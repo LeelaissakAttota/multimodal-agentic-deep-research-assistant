@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from deep_research.core.agents.analysis_agent import DeterministicAnalysisAgent
 from deep_research.core.agents.deterministic_research_agent import (
@@ -20,14 +21,18 @@ from deep_research.core.orchestration.master_research_orchestrator import (
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.domain.research_request import ResearchRequest
 from deep_research.runtime.harness import ExecutionHarness, InMemoryRuntimeObserver
+from deep_research.security import find_sensitive_data_path
 
 
 class ResearchSubmission(BaseModel):
     """Validated product request for one bounded research run."""
 
+    model_config = ConfigDict(extra="forbid")
+
     objective: str = Field(min_length=1, max_length=10_000)
     metadata: dict[str, str | int | float | bool | None] = Field(
-        default_factory=dict
+        default_factory=dict,
+        max_length=50,
     )
 
     @field_validator("objective")
@@ -36,7 +41,26 @@ class ResearchSubmission(BaseModel):
         objective = value.strip()
         if not objective:
             raise ValueError("objective cannot be blank")
+        if "\x00" in objective:
+            raise ValueError("objective cannot contain null characters")
         return objective
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(
+        cls, value: dict[str, str | int | float | bool | None]
+    ) -> dict[str, str | int | float | bool | None]:
+        sensitive_path = find_sensitive_data_path(value, "metadata")
+        if sensitive_path is not None:
+            raise ValueError(f"secret-like metadata is not accepted at {sensitive_path}")
+        for key, item in value.items():
+            if not key.strip() or len(key) > 100:
+                raise ValueError("metadata keys must contain 1 to 100 characters")
+            if isinstance(item, str) and len(item) > 2_000:
+                raise ValueError("metadata string values cannot exceed 2000 characters")
+            if isinstance(item, float) and not math.isfinite(item):
+                raise ValueError("metadata numbers must be finite")
+        return dict(value)
 
 
 class ResearchRunResponse(BaseModel):

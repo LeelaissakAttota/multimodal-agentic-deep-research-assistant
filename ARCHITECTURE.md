@@ -133,3 +133,20 @@ The product boundary is FastAPI: `POST /research` starts a bounded deterministic
 - Token enforcement is exact only when a provider reports `total_tokens`; agent calls without usage data remain request-count and time bounded.
 - Provider price catalogs and monetary cost estimation are not implemented because no authoritative pricing source is defined.
 - Automatic continuation of a partially completed recovered iteration remains unsupported.
+
+## Phase 7 Final Integration
+
+Phase 7 does not change the frozen state graph or introduce a new provider boundary. It validates the composed path:
+
+`validated request → orchestrator → bounded context → execution harness → deterministic agents/tools → report/runtime metadata → SQLite checkpoint/recovery`
+
+API metadata has independent item/key/value bounds and rejects secret-like fields before orchestration. A shared data-safety helper reports only the offending structural path; SQLite uses the same helper before serialization. Tool exceptions are normalized to a stable public message plus exception type and failure category, never the raw exception message.
+
+The offline demo composes `ResearchApplication` and existing deterministic agents. Its ten-scenario maximum is separate from research-iteration, retry, fallback, and recovery bounds. GitHub Actions reproduces the repository's pytest, Ruff, and strict MyPy gates on Python 3.12.
+
+### Phase 7 Limitations
+
+- The demo is synthetic/offline; its web and document tool implementations are deterministic fakes, not live retrieval.
+- The default full-stack deterministic run persists stable evidence/source identifiers but not full evidence/source objects because Phase 3 legacy tool output supplies identifiers only.
+- Live provider, paid API, and non-text media processing remain deferred and unverified.
+- The frozen roadmap defines no Phase 8 scope.

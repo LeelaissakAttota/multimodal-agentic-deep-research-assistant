@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -22,21 +20,7 @@ from deep_research.persistence.contracts import (
     ResearchSessionSnapshot,
     SecretDataError,
 )
-
-_SECRET_KEYS = frozenset(
-    {
-        "api_key",
-        "access_token",
-        "refresh_token",
-        "authorization",
-        "client_secret",
-        "cookie",
-        "password",
-        "private_key",
-        "secret",
-        "set_cookie",
-    }
-)
+from deep_research.security import find_sensitive_data_path
 
 
 class SQLiteResearchRepository:
@@ -236,7 +220,12 @@ class SQLiteResearchRepository:
     def _serialize(cls, snapshot: ResearchSessionSnapshot) -> str:
         try:
             payload_data = snapshot.model_dump(mode="json")
-            cls._reject_secret_material(payload_data)
+            sensitive_path = find_sensitive_data_path(payload_data, "snapshot")
+            if sensitive_path is not None:
+                raise SecretDataError(
+                    f"Refusing to persist secret-like field at {sensitive_path}",
+                    error_code="secret_data_rejected",
+                )
             return json.dumps(
                 payload_data,
                 ensure_ascii=False,
@@ -251,30 +240,6 @@ class SQLiteResearchRepository:
                 error_code="persistence_serialization_failed",
                 details={"exception_type": type(exc).__name__},
             ) from exc
-
-    @classmethod
-    def _reject_secret_material(cls, value: Any, path: str = "snapshot") -> None:
-        if isinstance(value, Mapping):
-            for raw_key, nested_value in value.items():
-                key = str(raw_key).strip().lower().replace("-", "_")
-                if key in _SECRET_KEYS or key.endswith(("_api_key", "_password", "_secret", "_token")):
-                    raise SecretDataError(
-                        f"Refusing to persist secret-like field at {path}.{raw_key}",
-                        error_code="secret_data_rejected",
-                    )
-                cls._reject_secret_material(nested_value, f"{path}.{raw_key}")
-            return
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            for index, nested_value in enumerate(value):
-                cls._reject_secret_material(nested_value, f"{path}[{index}]")
-            return
-        if isinstance(value, str) and value.startswith(("http://", "https://")):
-            parsed = urlsplit(value)
-            if parsed.username is not None or parsed.password is not None:
-                raise SecretDataError(
-                    f"Refusing to persist URL credentials at {path}",
-                    error_code="secret_data_rejected",
-                )
 
     @staticmethod
     def _ensure_history_is_immutable(

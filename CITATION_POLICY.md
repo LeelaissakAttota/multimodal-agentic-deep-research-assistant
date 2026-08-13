@@ -53,3 +53,8 @@ Each citation must include at minimum:
 - **Citing sources that were not actually consulted** during the research process.
 - **Omitting citations** for factual claims that require them.
 - **Using citations** to misrepresent the strength or consensus of evidence.
+
+## Phase 7 Validation
+- Blank citation identifiers are rejected at the domain boundary.
+- Phase 7 preserves claim/evidence/source identifiers through reporting and recovery but does not claim bibliography generation where the deterministic analysis path produces no citation objects.
+- Live citation/source verification remains deferred with live provider integrations.

@@ -258,19 +258,19 @@ class DeterministicResearchAgent(ResearchAgent):
         try:
             result = await tool_instance.execute(tool_request)
             return result
-        except Exception as e:
+        except Exception as exc:
             failure_kind = (
                 "timeout"
-                if isinstance(e, asyncio.TimeoutError)
-                else "transient" if isinstance(e, ConnectionError) else "permanent"
+                if isinstance(exc, asyncio.TimeoutError)
+                else "transient" if isinstance(exc, ConnectionError) else "permanent"
             )
             return ToolResult(
                 success=False,
-                error=f"Tool execution failed: {str(e)}",
+                error="Tool execution failed",
                 tool_name=tool_definition.identifier,
                 execution_time_ms=0.0,
                 metadata={
-                    "exception_type": type(e).__name__,
+                    "exception_type": type(exc).__name__,
                     "failure_kind": failure_kind,
                     "retryable": failure_kind in {"timeout", "transient"},
                 }

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
@@ -28,8 +28,14 @@ class ResearchState(BaseModel):
     consulted_sources: List[UUID] = Field(default_factory=list, description="List of source IDs that have been consulted")
     gathered_evidence: List[UUID] = Field(default_factory=list, description="List of evidence IDs that have been gathered")
     generated_claims: List[UUID] = Field(default_factory=list, description="List of claim IDs that have been generated")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="When the research session started")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="When the state was last updated")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the research session started",
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the state was last updated",
+    )
     status: str = Field(
         default="initialized",
         description=(
@@ -68,9 +74,3 @@ class ResearchState(BaseModel):
         description="Ordered states visited by the research state graph",
     )
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v),
-        }

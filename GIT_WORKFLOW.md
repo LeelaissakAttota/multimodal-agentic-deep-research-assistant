@@ -27,8 +27,8 @@
 - **Squash**: Squash and merge is preferred to keep history clean.
 
 ## Pre-commit Hooks
-- To be set up in Phase 0 or Phase 1.
-- Will include: Ruff linting, mypy type checking, and preventing large file commits.
+- Local hooks remain optional. The authoritative validation commands are pytest, Ruff, and strict MyPy.
+- GitHub Actions runs all three commands on pushes and pull requests to `main`.
 
 ## Ignored Files
 - See `.gitignore` for intentionally untracked files.
@@ -39,5 +39,5 @@
 - Tags created from `main` after release validation.
 
 ## Remote
-- No remote configured in Phase 0 (local-only development).
-- Remote to be added when ready for collaboration or backup.
+- `origin` is the GitHub repository documented in `pyproject.toml`.
+- Release completion requires local `HEAD` and `origin/main` to match with a clean working tree.

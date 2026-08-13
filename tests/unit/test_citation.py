@@ -1,8 +1,12 @@
 """
 Unit tests for Citation domain model.
 """
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from datetime import datetime
+
+import pytest
+from pydantic import ValidationError
+
 from deep_research.evidence.citation import Citation
 
 
@@ -14,7 +18,7 @@ def test_citation_creation():
         claim_id=claim_id,
         evidence_id=evidence_id,
         identifier="[1]",
-        access_timestamp=datetime.utcnow(),
+        access_timestamp=datetime.now(UTC),
     )
     assert isinstance(citation.id, UUID)
     assert citation.claim_id == claim_id
@@ -42,7 +46,7 @@ def test_citation_with_optional_fields():
         evidence_id=evidence_id,
         identifier="[1]",
         source_locator=source_locator,
-        access_timestamp=datetime.utcnow(),
+        access_timestamp=datetime.now(UTC),
         author=author,
         title=title,
         publication_name=publication_name,
@@ -56,18 +60,13 @@ def test_citation_with_optional_fields():
 
 
 def test_citation_invalid_identifier():
-    """Test that identifier is required."""
+    """Test that a blank report reference is rejected."""
     claim_id = uuid4()
     evidence_id = uuid4()
-    try:
+    with pytest.raises(ValidationError, match="at least 1 character"):
         Citation(
             claim_id=claim_id,
             evidence_id=evidence_id,
-            identifier="",  # empty string should be allowed? The policy doesn't forbid empty, but we can test.
-            access_timestamp=datetime.utcnow(),
+            identifier="",
+            access_timestamp=datetime.now(UTC),
         )
-        # If we get here, the identifier was accepted (empty string). We'll just note.
-        pass
-    except Exception:
-        # We don't expect an exception for empty string, but if there is one, we note.
-        pass

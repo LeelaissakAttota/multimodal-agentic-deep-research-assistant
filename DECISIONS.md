@@ -91,3 +91,20 @@
 - **Date**: 2026-08-14
 - **Decision**: Implement validated bounded FastAPI submission and process-local result lookup; do not invent a graphical frontend where the roadmap permits UI/API integration but defines no UI contract.
 - **Rationale**: The API supplies a real product boundary while respecting phase discipline and leaving Phase 7 demo/packaging work untouched.
+
+## Phase 7 Decisions
+
+### Decision 017: Final Integration Adds No Provider Capability
+- **Date**: 2026-08-14
+- **Decision**: Treat Phase 7 as integration, adversarial validation, stabilization, review, demo, and packaging work only. Do not add live providers, new modality pipelines, a graphical UI, or an undefined Phase 8 feature.
+- **Rationale**: ROADMAP.md freezes Phase 7 as Final Integration and contains no feature contract for later work.
+
+### Decision 018: Shared Sensitive-Data Detection
+- **Date**: 2026-08-14
+- **Decision**: Use one provider-neutral sensitive-data scanner at both API-validation and persistence boundaries, returning only a field path and never a discovered value. Bound metadata keys, values, and item counts; normalize tool exceptions without raw messages.
+- **Rationale**: Adversarial validation found that secret-like request metadata and raw deterministic-tool exception text required a common fail-closed control without coupling the API to SQLite.
+
+### Decision 019: Offline Demo Is the Release Demonstration
+- **Date**: 2026-08-14
+- **Decision**: Package a finite `madra-demo`/`python -m deep_research.demo` path through the existing deterministic API application, with a maximum of ten scenarios and explicit synthetic/offline labeling.
+- **Rationale**: This demonstrates the actual product boundary, runtime report, and evidence/source identifier flow at $0 without fabricating live multimodal or provider verification.

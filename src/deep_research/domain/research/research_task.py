@@ -1,12 +1,11 @@
 """
 Research Task domain model.
 """
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+
 from pydantic import BaseModel, Field
-
-
 
 class ResearchTask(BaseModel):
     """
@@ -21,15 +20,12 @@ class ResearchTask(BaseModel):
     sources_consulted: List[UUID] = Field(default_factory=list, description="List of source IDs consulted during this task")
     evidence_gathered: List[UUID] = Field(default_factory=list, description="List of evidence IDs gathered from this task")
     status: str = Field(default="pending", description="Current status of the task (pending, in_progress, completed, failed)")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="When the task was created")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the task was created",
+    )
     started_at: Optional[datetime] = Field(default=None, description="When the task started execution")
     completed_at: Optional[datetime] = Field(default=None, description="When the task completed")
     result: Optional[str] = Field(default=None, description="Brief summary of the task result")
     error: Optional[str] = Field(default=None, description="Error message if the task failed")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v),
-        }

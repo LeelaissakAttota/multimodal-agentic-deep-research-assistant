@@ -6,6 +6,7 @@
 - Use `.env` file for local development (excluded from Git via .gitignore).
 - In production, use secure secret management (e.g., HashiCorp Vault, AWS Secrets Manager).
 - Phase 5 persistence rejects secret-like metadata keys and URLs containing user information before writing a session payload.
+- Phase 7 centralizes this detection so API and persistence checks use the same recursive key/credential-URL rules and expose only the offending path, never the value.
 
 ## Environment Variables
 - Prefix environment variables with `MADRA_` (Multimodal Agentic Deep Research Assistant) to avoid collisions.
@@ -15,6 +16,7 @@
 - Validate all external inputs (user queries, API responses, file uploads).
 - Use allowlists where possible (e.g., allowed URL schemes, file types).
 - Reject or sanitize inputs that do not conform to expectations.
+- Phase 7 API submissions forbid unknown fields; bound objective length, metadata count, key length, and string-value length; reject null characters, non-finite numbers, and secret-like metadata names.
 
 ## Safe File Handling
 - Restrict file operations to designated directories (e.g., `data/`, `reports/`).
@@ -51,6 +53,7 @@
 - Avoid logging secrets or sensitive user data.
 - Log audit trails for security-relevant events (e.g., failed authentication attempts).
 - Runtime events contain operation labels, failure categories, attempt counts, delay values, and exception type names only; exception messages, prompts, tool inputs, provider responses, credentials, and evidence content are excluded.
+- Deterministic tool failure results expose a stable normalized message and exception type only; raw exception text is excluded from state and API error surfaces.
 
 ## Runtime Controls
 - `MADRA_EMERGENCY_STOP=true` fails closed before the next iteration or call.
@@ -61,3 +64,9 @@
 ## Model Security
 - Treat model outputs as untrusted; validate and sanitize before use in downstream components.
 - Be aware of prompt injection risks in agent architectures.
+
+## Phase 7 Security Review
+- Mandatory tests cover secret-like API metadata, nested persisted secret fields, credential-bearing URLs, normalized tool failures, and tracked runtime-artifact exclusions.
+- The offline demo and mandatory validation need no API keys or network access.
+- GitHub workflow permissions are read-only and no repository secrets are requested.
+- Dependency vulnerability scanning remains an operator/release-maintenance activity because no frozen Phase 7 dependency-scanner tool or vulnerability database is available offline.

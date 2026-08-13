@@ -78,6 +78,8 @@
 - UI/API integration
 
 ## Phase 7: Final Integration (Aug 16-17)
+**Status: Complete (2026-08-14)**
+
 - End-to-end testing
 - Adversarial testing
 - Stabilization
@@ -86,6 +88,8 @@
 - Demo scenarios
 - README/GitHub packaging
 - Resume release
+
+Phase 7 completes the frozen Phase 0–7 roadmap. No Phase 8 contract is defined here; Phase 8 is not started and requires a separately approved roadmap amendment before implementation.
 
 ## Schedule
 - August 11: Phase 0 + Phase 1 target

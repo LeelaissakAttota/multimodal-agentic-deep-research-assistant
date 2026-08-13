@@ -59,3 +59,16 @@
 - [x] Add bounded FastAPI research submission and result lookup
 - [x] Validate success, failures, exhaustion, timeouts, budgets, configuration, recovery, context, provenance, API, and regressions
 - [x] Pass pytest, Ruff, MyPy, security, cost/network, and release audits
+
+## Phase 7 — Final Integration
+
+- [x] Validate the complete offline product path from request through terminal report
+- [x] Validate persistence recovery, bounded context, runtime accounting, and provenance compatibility together
+- [x] Add adversarial input, sensitive-data, sanitized-failure, and finite-batch coverage
+- [x] Stabilize Pydantic V2 serialization and timezone-aware timestamp defaults
+- [x] Review bounded performance characteristics and session/event/demo caps
+- [x] Perform tracked-secret, generated-artifact, dependency-boundary, and security review
+- [x] Add deterministic offline demo scenarios and installable demo command
+- [x] Add GitHub Actions, license, contribution, security-reporting, and resume-ready release artifacts
+- [x] Synchronize authoritative documentation and explicit acceptance audit
+- [x] Pass complete pytest, Ruff, MyPy, security, cost/network, and release audits

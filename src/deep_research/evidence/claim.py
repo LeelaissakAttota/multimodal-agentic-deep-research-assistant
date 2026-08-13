@@ -1,9 +1,10 @@
 """
 Claim domain model.
 """
+from datetime import UTC, datetime
+from typing import Any, List
 from uuid import UUID, uuid4
-from datetime import datetime
-from typing import List, Any
+
 from pydantic import BaseModel, Field
 
 
@@ -15,11 +16,8 @@ class Claim(BaseModel):
     text: str = Field(..., description="The claim text")
     supported_by: List[UUID] = Field(default_factory=list, description="List of evidence IDs that support this claim")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score for the claim")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="When the claim was made")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the claim was made",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v),
-        }

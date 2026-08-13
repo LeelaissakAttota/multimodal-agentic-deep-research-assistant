@@ -27,6 +27,7 @@ All evidence used in the research process must:
 - The system maintains an evidence trace showing how raw inputs were transformed into analyzed evidence.
 - Evidence versioning is not required in V1; each research session starts with fresh evidence collection.
 - Phase 6 retries do not rewrite accepted evidence. The orchestrator incorporates a tool result only after the harness returns success, deduplicates stable identifiers, and persists them through the existing immutable-history boundary.
+- Phase 7 end-to-end validation verifies that stable evidence/source identifiers survive report generation, runtime integration, SQLite checkpoints, and recovery unchanged. Synthetic demo evidence remains identifiable through deterministic `example.com` tool output and is not described as live evidence.
 
 ## Evidence Sources
 The system may collect evidence from:
