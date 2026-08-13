@@ -5,6 +5,7 @@
 - Never hardcode secrets in source code.
 - Use `.env` file for local development (excluded from Git via .gitignore).
 - In production, use secure secret management (e.g., HashiCorp Vault, AWS Secrets Manager).
+- Phase 5 persistence rejects secret-like metadata keys and URLs containing user information before writing a session payload.
 
 ## Environment Variables
 - Prefix environment variables with `MADRA_` (Multimodal Agentic Deep Research Assistant) to avoid collisions.
@@ -19,6 +20,7 @@
 - Restrict file operations to designated directories (e.g., `data/`, `reports/`).
 - Validate file paths to prevent directory traversal attacks.
 - Impose size limits on uploads and downloads.
+- Local research databases are runtime data under `data/`, which is gitignored; database files, journals, and recovered user research state must not be committed.
 
 ## URL Validation
 - Validate URLs for allowed schemes (http, https) and block dangerous schemes (file, gopher, etc.).

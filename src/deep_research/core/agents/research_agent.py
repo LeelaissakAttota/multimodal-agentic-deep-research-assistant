@@ -3,6 +3,7 @@ Research Agent abstraction for executing research tasks.
 """
 from abc import ABC, abstractmethod
 
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_task import ResearchTask
 from deep_research.tools.tool import ToolResult
 
@@ -15,7 +16,7 @@ class ResearchAgent(ABC):
 
     @abstractmethod
     async def execute_task(
-        self, task: ResearchTask
+        self, task: ResearchTask, context: AgentContext | None = None
     ) -> ToolResult:
         """
         Execute a research task using an appropriate tool selected based on the task.

@@ -4,6 +4,7 @@ Report Agent abstraction for generating final research reports.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.evidence.claim import Claim
 
@@ -16,7 +17,10 @@ class ReportAgent(ABC):
 
     @abstractmethod
     async def generate_report(
-        self, state: ResearchState, analysis_result: Dict[str, Any]
+        self,
+        state: ResearchState,
+        analysis_result: Dict[str, Any],
+        context: AgentContext | None = None,
     ) -> Dict[str, Any]:
         """
         Generate a final report from the research state and analysis results.
@@ -42,7 +46,10 @@ class DeterministicReportAgent(ReportAgent):
     """
 
     async def generate_report(
-        self, state: ResearchState, analysis_result: Dict[str, Any]
+        self,
+        state: ResearchState,
+        analysis_result: Dict[str, Any],
+        context: AgentContext | None = None,
     ) -> Dict[str, Any]:
         """
         Generate a deterministic report.

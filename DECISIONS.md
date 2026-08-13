@@ -47,3 +47,25 @@
 - **Date**: 2026-08-13
 - **Decision**: Build follow-up plans from normalized, unique evaluation gaps and enforce a positive iteration limit.
 - **Rationale**: The research loop must make targeted progress and terminate predictably without introducing Phase 5 memory or Phase 6 retry/budget systems.
+
+## Phase 5 Decisions
+
+### Decision 009: Standard-Library SQLite Local Adapter
+- **Date**: 2026-08-14
+- **Decision**: Use SQLite behind a `ResearchSessionRepository` protocol as the Phase 5 local persistence adapter.
+- **Rationale**: The repository did not mandate a database. SQLite provides atomic local writes, deterministic initialization, and zero-network tests without adding infrastructure or dependencies.
+
+### Decision 010: Versioned Session Recovery Aggregate
+- **Date**: 2026-08-14
+- **Decision**: Persist a schema-versioned `ResearchSessionSnapshot` containing the request, active state, plan/task history, evidence graph, evaluation history, and report metadata.
+- **Rationale**: An aggregate transaction prevents partial cross-entity checkpoints while retaining stable IDs and complete supported recovery state. Existing source, evidence, and claim objects are immutable across updates.
+
+### Decision 011: Deterministic Bounded Context Selection
+- **Date**: 2026-08-14
+- **Decision**: Select working context with lexical relevance, stable tie-breakers, explicit item/character limits, and provenance-preserving evidence excerpts.
+- **Rationale**: Context construction remains reproducible, testable, provider-independent, and free of LLM cost. This is a context-size mechanism, not the Phase 6 runtime token-budget system.
+
+### Decision 012: Optional Fail-Closed Orchestrator Integration
+- **Date**: 2026-08-14
+- **Decision**: Inject persistence and context services optionally; checkpoint configured runs, expose session reconstruction, and convert normalized persistence failure into one terminal failure without retry.
+- **Rationale**: Existing Phase 0–4 behavior and callers remain compatible while configured workflows gain recovery and bounded agent context without introducing Phase 6 retry infrastructure.

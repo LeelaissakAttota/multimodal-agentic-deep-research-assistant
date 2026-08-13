@@ -23,6 +23,7 @@ All evidence used in the research process must:
 
 ## Evidence Handling
 - Evidence is immutable once collected; any processing creates derivative evidence with clear provenance.
+- Phase 5 persistence enforces immutability for previously stored evidence, sources, and claims and rejects updates that remove or rewrite those historical objects.
 - The system maintains an evidence trace showing how raw inputs were transformed into analyzed evidence.
 - Evidence versioning is not required in V1; each research session starts with fresh evidence collection.
 

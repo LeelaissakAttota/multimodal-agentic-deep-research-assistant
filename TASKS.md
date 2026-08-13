@@ -36,4 +36,12 @@
 
 ## Phase 5 — Research Intelligence
 
-- [ ] Not started
+- [x] Define versioned, provider-independent research-session persistence contracts
+- [x] Implement deterministic transactional SQLite initialization and CRUD
+- [x] Preserve requests, state, plans/tasks, sources, evidence, claims, reflections, and report metadata
+- [x] Enforce persisted provenance links and immutable historical evidence/source/claim records
+- [x] Implement bounded, deduplicated, deterministic research-memory retrieval
+- [x] Implement traceable context selection with character and item limits
+- [x] Inject optional bounded working context without breaking Phase 0–4 callers
+- [x] Add orchestrator checkpoints, session reconstruction, and fail-closed persistence handling
+- [x] Pass pytest, Ruff, MyPy, security, cost/network, and release audits

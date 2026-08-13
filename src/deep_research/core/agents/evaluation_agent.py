@@ -4,6 +4,7 @@ Evaluation/Reflection Agent abstraction for evaluating research quality.
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_plan import ResearchPlan
 from deep_research.domain.research.research_state import ResearchState
 
@@ -41,7 +42,11 @@ class EvaluationAgent(ABC):
 
     @abstractmethod
     async def evaluate(
-        self, state: ResearchState, plan: ResearchPlan, analysis_result: Dict[str, Any]
+        self,
+        state: ResearchState,
+        plan: ResearchPlan,
+        analysis_result: Dict[str, Any],
+        context: AgentContext | None = None,
     ) -> EvaluationResult:
         """
         Evaluate the current state of research and decide on next steps.
@@ -64,7 +69,11 @@ class DeterministicEvaluationAgent(EvaluationAgent):
     """
 
     async def evaluate(
-        self, state: ResearchState, plan: ResearchPlan, analysis_result: Dict[str, Any]
+        self,
+        state: ResearchState,
+        plan: ResearchPlan,
+        analysis_result: Dict[str, Any],
+        context: AgentContext | None = None,
     ) -> EvaluationResult:
         """
         Evaluate task completion and identify evidence gaps deterministically.

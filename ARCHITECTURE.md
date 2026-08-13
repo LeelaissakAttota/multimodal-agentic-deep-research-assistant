@@ -38,8 +38,8 @@ Based on the approved master architecture (see `docs/architecture/master_archite
 - **Boundaries**: Connects Research Agents to Analysis Agent; ensures evidence is traceable to source.
 
 ### 9. Context & Memory System
-- **Responsibility**: Managing research context, compressing information, and maintaining research history across iterations.
-- **Boundaries**: Serves all agents; stores intermediate findings, research plans, and evaluation results.
+- **Responsibility**: Separating durable research memory, active `ResearchState`, and bounded per-agent working context.
+- **Boundaries**: `ResearchSessionRepository` owns persistence; `BoundedResearchMemory` performs deterministic retrieval; `ResearchContextBuilder` selects a small traceable context that can be supplied to agents.
 
 ### 10. Model Gateway
 - **Responsibility**: Abstracting interactions with various LLM providers (development and runtime).
@@ -72,13 +72,38 @@ Evaluation then selects one of four bounded paths:
 - `BLOCKED`: terminate as `blocked`.
 - `FAILED`: terminate as `failed`.
 
-If `CONTINUE` consumes the configured iteration limit, the orchestrator terminates as `failed` with an explicit bound-exhaustion error. `ResearchState` retains plan IDs, visited statuses, and evaluation records so the workflow can be inspected without implementing Phase 5 persistence or memory.
+If `CONTINUE` consumes the configured iteration limit, the orchestrator terminates as `failed` with an explicit bound-exhaustion error. `ResearchState` retains plan IDs, visited statuses, and evaluation records; Phase 5 can now checkpoint and reconstruct that state.
+
+## Phase 5 Research Intelligence
+
+Phase 5 preserves this dependency direction:
+
+`domain models ← persistence protocol ← SQLite adapter`
+
+`persistence protocol ← bounded research memory ← context builder ← agent workflow`
+
+`ResearchSessionSnapshot` is the versioned recovery aggregate. It stores the request, active state, plans and tasks, sources, evidence, claims, task/evidence links, evaluation history, and report metadata. SQLite stores each aggregate atomically as canonical JSON and checks schema version `1` during initialization and reads. User-generated databases remain under the ignored `data/` runtime boundary.
+
+Durable memory queries use deterministic lexical overlap. Results are relevance ordered with stable timestamp/UUID tie-breakers, capped by explicit query limits, and return evidence together with its source, supporting claims, task IDs, request ID, and session ID. Existing evidence, source, and claim objects cannot be removed or rewritten by a later snapshot.
+
+The context builder does not invoke a model. It applies configured character, evidence, reflection, gap, task-ID, and candidate-session limits; excludes zero-relevance evidence for non-empty queries; truncates only the working excerpt; and retains the original evidence/source/claim identifiers plus a selection trace. Historical evidence is never changed by context compression.
+
+The orchestrator accepts persistence and context dependencies optionally. When configured, it checkpoints bounded workflow state, supplies working context through backward-compatible optional agent parameters, and can reconstruct a saved session without starting a new loop. A normalized persistence failure terminates the run once as `failed`; Phase 5 adds no retry loop.
+
+### Phase 5 Limitations
+
+- SQLite is a synchronous local adapter, not a distributed or multi-process coordination service.
+- Retrieval is lexical rather than embedding- or model-based, so semantic matches without shared terms are not selected.
+- The context character limit is deterministic text sizing, not tokenizer-specific Phase 6 token accounting.
+- Recovery reconstructs saved state but does not automatically resume a partially completed iteration.
+- Legacy tool outputs containing only evidence/source IDs preserve those IDs, but content retrieval requires the corresponding domain objects to be stored in the session snapshot.
 
 ## Failure Boundaries
-- Tool execution failures are caught and reported to Orchestrator for retry/replanning.
-- Model gateway includes fallback and retry logic.
+- Tool execution failures are normalized for bounded evaluation and termination.
+- Model fallback and retry behavior remains deferred to Phase 6.
 - Evidence validation prevents propagation of unverified claims.
-- Context compression includes summarization to prevent overflow.
+- Persistence failures are normalized and terminate the active run without retry recursion.
+- Context selection and deterministic excerpt truncation prevent unbounded working context.
 
 ## Configuration
 - Environment-based configuration for API keys, model endpoints, and system limits.

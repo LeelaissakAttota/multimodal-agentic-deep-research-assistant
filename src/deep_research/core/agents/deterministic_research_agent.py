@@ -6,6 +6,7 @@ import asyncio
 from typing import Dict, Any, Optional, List
 
 from deep_research.core.agents.research_agent import ResearchAgent
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_task import ResearchTask
 from deep_research.tools.tool import Tool, ToolResult, ToolRequest
 from deep_research.tools.registry import ToolRegistry
@@ -182,7 +183,7 @@ class DeterministicResearchAgent(ResearchAgent):
         self._tools["document_reader"] = document_reader_tool
 
     async def execute_task(
-        self, task: ResearchTask
+        self, task: ResearchTask, context: AgentContext | None = None
     ) -> ToolResult:
         """
         Execute a research task using an appropriate tool selected based on the task.

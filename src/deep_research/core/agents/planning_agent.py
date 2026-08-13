@@ -4,6 +4,7 @@ Planning Agent abstraction for decomposing research requests into tasks.
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research_request import ResearchRequest
 from deep_research.domain.research.research_plan import ResearchPlan
 from deep_research.domain.research.research_state import ResearchState
@@ -18,7 +19,10 @@ class PlanningAgent(ABC):
 
     @abstractmethod
     async def create_plan(
-        self, request: ResearchRequest, state: ResearchState
+        self,
+        request: ResearchRequest,
+        state: ResearchState,
+        context: AgentContext | None = None,
     ) -> ResearchPlan:
         """
         Create a research plan to fulfill the given research request.
@@ -40,7 +44,10 @@ class DeterministicPlanningAgent(PlanningAgent):
     """
 
     async def create_plan(
-        self, request: ResearchRequest, state: ResearchState
+        self,
+        request: ResearchRequest,
+        state: ResearchState,
+        context: AgentContext | None = None,
     ) -> ResearchPlan:
         """
         Create a plan from evaluation gaps, or an initial request-based plan.

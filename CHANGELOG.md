@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 ### Added
+- Phase 5 provider-independent persistence and versioned research-session snapshots
+- Transactional standard-library SQLite adapter with deterministic schema initialization
+- Bounded durable research memory with lexical relevance ordering and full provenance
+- Deterministic context builder with explicit character and item limits and selection traces
+- Optional orchestrator checkpoints, context-aware agent calls, and session reconstruction
+- Phase 5 tests for CRUD, round trips, provenance, immutable history, secret rejection, retrieval quality, context limits, recovery, and persistence failures
 - Phase 4 bounded research state graph with validated transitions and terminal states
 - Per-iteration evaluation/reflection history with normalized evidence gaps
 - Deterministic gap-driven replanning and executable research tasks
@@ -21,9 +27,12 @@
 - Phase 0 planning documents
 
 ### Changed
+- Research agent contracts accept an optional bounded `AgentContext` while retaining existing call behavior
+- Repeated evidence, source, and task identifiers are deduplicated before entering active state
 - Successful research runs now become `completed` after report generation
 - Orchestration accepts both mapping-based and typed Pydantic tool outputs from Phase 3
 - Evaluation decisions and confidence values are validated at their contract boundary
 ### Fixed
+- Persistence failures now terminate a configured workflow once instead of escaping into an unbounded research path
 - Corrected mutable-state test captures that obscured iteration-specific feedback
 - Removed an unavailable analysis tool assignment from deterministic research plans

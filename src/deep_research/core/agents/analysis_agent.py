@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 from uuid import UUID
 
+from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_plan import ResearchPlan
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.evidence.claim import Claim
@@ -18,7 +19,10 @@ class AnalysisAgent(ABC):
 
     @abstractmethod
     async def analyze(
-        self, state: ResearchState, plan: ResearchPlan
+        self,
+        state: ResearchState,
+        plan: ResearchPlan,
+        context: AgentContext | None = None,
     ) -> Dict[str, Any]:
         """
         Analyze the collected evidence and synthesize findings.
@@ -44,7 +48,10 @@ class DeterministicAnalysisAgent(AnalysisAgent):
     """
 
     async def analyze(
-        self, state: ResearchState, plan: ResearchPlan
+        self,
+        state: ResearchState,
+        plan: ResearchPlan,
+        context: AgentContext | None = None,
     ) -> Dict[str, Any]:
         """
         Perform deterministic analysis on the gathered evidence.

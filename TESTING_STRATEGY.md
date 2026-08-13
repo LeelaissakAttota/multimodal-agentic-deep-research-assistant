@@ -31,6 +31,11 @@ Testing is integral to the development harness. Every phase must have measurable
 - **Framework**: pytest with mocks
 - **Location**: To be created in later phases.
 
+### Research Intelligence Tests
+- **Purpose**: Validate Phase 5 persistence, recovery, memory retrieval, provenance, and bounded context construction.
+- **Method**: Standard-library SQLite databases in the gitignored `data/phase5-tests/` runtime area, deterministic timestamps/UUIDs, and injected agent doubles.
+- **Network/Cost**: No network access, paid API, or model call is permitted.
+
 ### Regression Tests
 - **Purpose**: Ensure previously fixed issues do not reappear.
 - **Framework**: pytest (reuse unit/integration tests)
@@ -57,6 +62,7 @@ Testing is integral to the development harness. Every phase must have measurable
 - Phase 1: 80%+ on core domain contracts
 - Phase 2: 70%+ on orchestration logic
 - Phase 3-6: 60%+ overall, with focus on critical paths
+- Phase 5: persistence round trips, immutable evidence history, retrieval relevance/order/limits, context budgets, recovery, and failure boundaries are mandatory
 
 ## Test Execution
 - Local development: `pytest`
