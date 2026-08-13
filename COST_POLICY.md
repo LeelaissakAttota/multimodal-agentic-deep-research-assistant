@@ -3,7 +3,7 @@
 ## Overview
 The V1 architecture must support controlled resource consumption to prevent runaway costs during autonomous research.
 
-## Configurable Limits (to be implemented)
+## Configurable Limits (implemented in Phase 6)
 The following limits will be configurable via environment variables or configuration file:
 
 ### Research Iterations
@@ -34,16 +34,20 @@ The following limits will be configurable via environment variables or configura
 - `MADRA_MAX_MODEL_RETRY_ATTEMPTS`: Maximum retry attempts for failed model calls (default: 2).
 
 ## Implementation Notes
-- These limits are **not** implemented in Phase 0; they are specified for future implementation.
-- The architecture will include a `BudgetManager` or similar component to enforce limits.
-- Limits will be checked at appropriate points (e.g., before each tool call, model call, iteration).
+- `RuntimeBudgetManager` enforces these limits before iterations and physical call attempts. Retries consume tool/model/external request budgets but do not consume research iterations.
+- `MADRA_MAX_MODEL_CALL_TIME_SECONDS` defaults to 60 seconds to provide the model-call timeout required by the Phase 6 harness; tool timeout remains 30 seconds.
+- Retry delays default to 0.1 seconds and double deterministically up to 2 seconds. Both values are configurable with `MADRA_RETRY_BACKOFF_SECONDS` and `MADRA_RETRY_BACKOFF_MAX_SECONDS`.
+- The smallest of the operation timeout and remaining session time bounds each async call.
 
 ## Cost Tracking
-- The system will track and report estimated costs (where pricing is known) for transparency.
-- Actual cost calculation depends on provider pricing and is deferred to later phases.
+- Runtime reports track research iterations, tool calls, model calls, paid external API calls, measurable tokens, elapsed time, and terminal failure metadata.
+- Monetary estimation remains unavailable because the repository defines no authoritative provider pricing catalog.
 
 ## Emergency Stop
-- A manual override (e.g., environment variable `MADRA_EMERGENCY_STOP=true`) will halt all research operations immediately.
+- `MADRA_EMERGENCY_STOP=true` halts a research run before its next bounded operation and produces a normalized terminal failure.
+
+## Mandatory Validation Cost
+- Phase 6 tests and the default API integration use deterministic fakes, require no network access or API credentials, and cost $0.
 
 ## Responsible Use
 - Users are encouraged to set reasonable limits based on their budget and research needs.

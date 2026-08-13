@@ -45,3 +45,17 @@
 - [x] Inject optional bounded working context without breaking Phase 0–4 callers
 - [x] Add orchestrator checkpoints, session reconstruction, and fail-closed persistence handling
 - [x] Pass pytest, Ruff, MyPy, security, cost/network, and release audits
+
+## Phase 6 — Reliability and Product Integration
+
+- [x] Define validated runtime limits, retry policies, normalized failures, events, usage, and report contracts
+- [x] Enforce iteration, tool, model, token, external-API, wall-clock, per-call timeout, retry, and emergency-stop limits
+- [x] Keep physical retries independent from bounded research-loop iterations
+- [x] Implement deterministic exponential backoff and bounded transient retry/exhaustion behavior
+- [x] Implement provider-neutral ordered model routing and eligible transient fallback
+- [x] Integrate the harness optionally into planning, research, analysis, evaluation, and reporting calls
+- [x] Preserve bounded context construction, persistence checkpoints, recovery, and evidence/source identifiers
+- [x] Emit sanitized observable events and attach persistence-safe runtime/failure reports
+- [x] Add bounded FastAPI research submission and result lookup
+- [x] Validate success, failures, exhaustion, timeouts, budgets, configuration, recovery, context, provenance, API, and regressions
+- [x] Pass pytest, Ruff, MyPy, security, cost/network, and release audits

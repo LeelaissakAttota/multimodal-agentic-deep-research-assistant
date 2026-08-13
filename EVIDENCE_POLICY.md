@@ -26,6 +26,7 @@ All evidence used in the research process must:
 - Phase 5 persistence enforces immutability for previously stored evidence, sources, and claims and rejects updates that remove or rewrite those historical objects.
 - The system maintains an evidence trace showing how raw inputs were transformed into analyzed evidence.
 - Evidence versioning is not required in V1; each research session starts with fresh evidence collection.
+- Phase 6 retries do not rewrite accepted evidence. The orchestrator incorporates a tool result only after the harness returns success, deduplicates stable identifiers, and persists them through the existing immutable-history boundary.
 
 ## Evidence Sources
 The system may collect evidence from:

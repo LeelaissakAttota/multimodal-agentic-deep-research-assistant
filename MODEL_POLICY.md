@@ -17,12 +17,14 @@
   - `MADRA_API_KEY` (provider-specific, loaded from environment)
 
 ## Fallback and Routing
-- The model gateway may implement fallback strategies (e.g., try primary provider, fall back to secondary on failure).
-- Fallback behavior is configurable.
+- `RoutedModelGateway` accepts an explicit ordered list of named provider-neutral gateway routes.
+- Each route uses the bounded model retry/timeout policy. Fallback occurs only after timeout or explicit transient/connection exhaustion; permanent, invalid, budget, configuration, and emergency-stop failures fail closed.
+- Provider-specific SDKs remain outside core/application logic.
 
 ## Token Limits and Budgets
-- The system will support configurable token budgets per research operation (to be implemented in later phases).
-- Model calls will be tracked and can be limited to control costs.
+- Model attempts are limited per iteration and per session.
+- Requested `max_tokens` and provider-reported `total_tokens` are checked against per-call limits; reported usage accumulates against the session token budget.
+- Providers that do not expose usage remain bounded by call count and time, and the runtime report does not fabricate token values.
 
 ## Safety and Bias
 - While the model gateway does not enforce safety filters, it is expected that providers implement their own safety measures.

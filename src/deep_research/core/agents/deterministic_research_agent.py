@@ -4,6 +4,9 @@ Uses fake tools that return deterministic results for testing.
 """
 import asyncio
 from typing import Dict, Any, Optional, List
+from uuid import NAMESPACE_URL, UUID, uuid5
+
+from pydantic import Field
 
 from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.context.context_builder import AgentContext
@@ -21,8 +24,11 @@ class FakeWebSearchInput(ToolInput):
 
 
 class FakeWebSearchOutput(ToolOutput):
-    results: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = Field(default_factory=list)
     total_results: int = 0
+    summary: str = ""
+    evidence_ids: list[UUID] = Field(default_factory=list)
+    source_ids: list[UUID] = Field(default_factory=list)
 
 
 class FakeWebSearchTool(Tool):
@@ -65,7 +71,15 @@ class FakeWebSearchTool(Tool):
 
         output = FakeWebSearchOutput(
             results=results,
-            total_results=len(results)
+            total_results=len(results),
+            summary=f"Found {len(results)} deterministic results for: {query}",
+            evidence_ids=[
+                uuid5(NAMESPACE_URL, f"evidence:{item['url']}:{query}")
+                for item in results
+            ],
+            source_ids=[
+                uuid5(NAMESPACE_URL, f"source:{item['url']}") for item in results
+            ],
         )
 
         return ToolResult(
@@ -96,7 +110,7 @@ class FakeDocumentReaderInput(ToolInput):
 class FakeDocumentReaderOutput(ToolOutput):
     text_content: str = ""
     page_count: int = 0
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FakeDocumentReaderTool(Tool):
@@ -245,10 +259,19 @@ class DeterministicResearchAgent(ResearchAgent):
             result = await tool_instance.execute(tool_request)
             return result
         except Exception as e:
+            failure_kind = (
+                "timeout"
+                if isinstance(e, asyncio.TimeoutError)
+                else "transient" if isinstance(e, ConnectionError) else "permanent"
+            )
             return ToolResult(
                 success=False,
                 error=f"Tool execution failed: {str(e)}",
                 tool_name=tool_definition.identifier,
                 execution_time_ms=0.0,
-                metadata={"exception_type": type(e).__name__}
+                metadata={
+                    "exception_type": type(e).__name__,
+                    "failure_kind": failure_kind,
+                    "retryable": failure_kind in {"timeout", "transient"},
+                }
             )

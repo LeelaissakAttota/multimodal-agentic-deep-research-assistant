@@ -2,8 +2,9 @@
 Model Gateway abstraction.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ModelRequest(BaseModel):
@@ -11,7 +12,7 @@ class ModelRequest(BaseModel):
     Represents a request to a language model.
     """
     prompt: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelResponse(BaseModel):
@@ -19,9 +20,9 @@ class ModelResponse(BaseModel):
     Represents a response from a language model.
     """
     text: str
-    usage: Dict[str, Any] = {}
+    usage: dict[str, Any] = Field(default_factory=dict)
     model_id: str
-    raw_response: Optional[Any] = None
+    raw_response: Any | None = None
 
 
 class ModelGateway(ABC):

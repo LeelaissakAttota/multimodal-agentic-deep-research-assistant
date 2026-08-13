@@ -36,6 +36,12 @@ Testing is integral to the development harness. Every phase must have measurable
 - **Method**: Standard-library SQLite databases in the gitignored `data/phase5-tests/` runtime area, deterministic timestamps/UUIDs, and injected agent doubles.
 - **Network/Cost**: No network access, paid API, or model call is permitted.
 
+### Reliability and Product Integration Tests
+- **Purpose**: Validate Phase 6 retries, timeouts, budgets, fallback routing, observable failures, terminal behavior, recovery, and API boundaries.
+- **Method**: Deterministic async fakes, injected sleepers/clocks where applicable, provider-neutral gateway doubles, local ignored SQLite files, and FastAPI's in-process test client.
+- **Mandatory paths**: Success; transient retry success; transient exhaustion; permanent failure; timeout; tool/model/token/external-API/emergency budget exhaustion; invalid policy; eligible and ineligible model fallback; persisted failure/report recovery; bounded context/provenance retention; API validation and lookup.
+- **Network/Cost**: Mandatory tests and the default product API use fake providers/tools only and cost $0.
+
 ### Regression Tests
 - **Purpose**: Ensure previously fixed issues do not reappear.
 - **Framework**: pytest (reuse unit/integration tests)
@@ -63,6 +69,7 @@ Testing is integral to the development harness. Every phase must have measurable
 - Phase 2: 70%+ on orchestration logic
 - Phase 3-6: 60%+ overall, with focus on critical paths
 - Phase 5: persistence round trips, immutable evidence history, retrieval relevance/order/limits, context budgets, recovery, and failure boundaries are mandatory
+- Phase 6: all finite-execution controls and failure categories, routing/fallback, runtime reports, API integration, and Phase 0–5 regressions are mandatory
 
 ## Test Execution
 - Local development: `pytest`

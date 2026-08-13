@@ -22,6 +22,9 @@ from deep_research.persistence.contracts import (
     ResearchSessionRepository,
     ResearchSessionSnapshot,
 )
+from deep_research.runtime.contracts import RuntimeControlError
+from deep_research.runtime.harness import ExecutionHarness
+from deep_research.tools.tool import ToolResult
 
 
 class MasterResearchOrchestrator:
@@ -51,6 +54,7 @@ class MasterResearchOrchestrator:
         max_iterations: int = 3,
         session_repository: ResearchSessionRepository | None = None,
         context_builder: ResearchContextBuilder | None = None,
+        execution_harness: ExecutionHarness | None = None,
     ):
         if max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
@@ -63,6 +67,7 @@ class MasterResearchOrchestrator:
         self.max_iterations = max_iterations
         self.session_repository = session_repository
         self.context_builder = context_builder
+        self.execution_harness = execution_harness
         # Initialize with a dummy state; will be replaced in _initialize
         self.research_state: ResearchState = ResearchState(
             request_id=UUID(int=0), status="dummy", status_history=["dummy"]
@@ -79,17 +84,31 @@ class MasterResearchOrchestrator:
         Returns the final research state.
         """
         self._initialize(request)
+        if self.execution_harness is not None:
+            self.execution_harness.start_session()
         try:
             self._persist_checkpoint()
         except PersistenceError as exc:
             self._terminate_for_persistence_failure(exc)
             return self.research_state
 
+        await self._run_research_loop()
+        return self.research_state
+
+    async def _run_research_loop(self) -> None:
         for iteration in range(self.max_iterations):
             self.research_state.iteration_number = iteration
             try:
+                if self.execution_harness is not None:
+                    self.execution_harness.begin_iteration()
                 await self._execute_iteration()
+                self._attach_runtime_report()
                 self._persist_checkpoint()
+            except RuntimeControlError as exc:
+                self._terminate_for_runtime_failure(exc)
+                self._attach_runtime_report()
+                self._checkpoint_after_runtime_failure()
+                break
             except PersistenceError as exc:
                 self._terminate_for_persistence_failure(exc)
                 break
@@ -97,11 +116,17 @@ class MasterResearchOrchestrator:
                 break
         if not self._is_terminal_state():
             self._handle_max_iterations_exceeded()
+            self._attach_runtime_report()
             try:
                 self._persist_checkpoint()
             except PersistenceError as exc:
                 self._terminate_for_persistence_failure(exc)
-        return self.research_state
+
+    def _checkpoint_after_runtime_failure(self) -> None:
+        try:
+            self._persist_checkpoint()
+        except PersistenceError as persistence_error:
+            self._terminate_for_persistence_failure(persistence_error)
 
     def recover_session(self, session_id: UUID) -> ResearchState:
         """Reconstruct orchestration state without executing another iteration."""
@@ -154,17 +179,7 @@ class MasterResearchOrchestrator:
         assert self._request is not None, "Request must be set before planning"
         self._transition_to("planning")
         context = self._build_context()
-        if context is None:
-            self._plan = await self.planning_agent.create_plan(
-                request=self._request,
-                state=self.research_state,
-            )
-        else:
-            self._plan = await self.planning_agent.create_plan(
-                request=self._request,
-                state=self.research_state,
-                context=context,
-            )
+        self._plan = await self._invoke_planning_agent(context)
         self._plans.append(self._plan)
         self.research_state.current_plan_id = self._plan.id
         self.research_state.plan_history.append(self._plan.id)
@@ -201,13 +216,7 @@ class MasterResearchOrchestrator:
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
             context = self._build_context(task.objective)
-            if context is None:
-                tool_result = await self.research_agent.execute_task(task)
-            else:
-                tool_result = await self.research_agent.execute_task(
-                    task,
-                    context=context,
-                )
+            tool_result = await self._invoke_research_agent(task, context)
             if tool_result.success:
                 task.status = "completed"
                 output = self._normalize_tool_output(tool_result.output)
@@ -231,17 +240,9 @@ class MasterResearchOrchestrator:
         assert self._plan is not None, "No plan available for analysis phase"
         self._transition_to("analyzing")
         context = self._build_context()
-        if context is None:
-            self._analysis_result = await self.analysis_agent.analyze(
-                self.research_state,
-                self._plan,
-            )
-        else:
-            self._analysis_result = await self.analysis_agent.analyze(
-                self.research_state,
-                self._plan,
-                context=context,
-            )
+        self._analysis_result = await self._invoke_analysis_agent(
+            self._plan, context
+        )
 
     async def _evaluation_phase(self) -> EvaluationResult:
         assert self._plan is not None, "No plan available for evaluation phase"
@@ -250,17 +251,8 @@ class MasterResearchOrchestrator:
         )
         self._transition_to("evaluating")
         context = self._build_context()
-        if context is None:
-            return await self.evaluation_agent.evaluate(
-                self.research_state,
-                self._plan,
-                self._analysis_result,
-            )
-        return await self.evaluation_agent.evaluate(
-            self.research_state,
-            self._plan,
-            self._analysis_result,
-            context=context,
+        return await self._invoke_evaluation_agent(
+            self._plan, self._analysis_result, context
         )
 
     async def _handle_evaluation_result(self, evaluation_result: EvaluationResult) -> None:
@@ -291,17 +283,7 @@ class MasterResearchOrchestrator:
             "No analysis result available for reporting phase"
         )
         context = self._build_context()
-        if context is None:
-            report = await self.report_agent.generate_report(
-                self.research_state,
-                self._analysis_result,
-            )
-        else:
-            report = await self.report_agent.generate_report(
-                self.research_state,
-                self._analysis_result,
-                context=context,
-            )
+        report = await self._invoke_report_agent(self._analysis_result, context)
         self.research_state.metadata["report"] = report
         self._transition_to("completed")
 
@@ -335,6 +317,92 @@ class MasterResearchOrchestrator:
             current_task=current_task,
         )
         return self._working_context
+
+    async def _invoke_planning_agent(
+        self, context: AgentContext | None
+    ) -> ResearchPlan:
+        assert self._request is not None
+        request = self._request
+
+        async def operation() -> ResearchPlan:
+            if context is None:
+                return await self.planning_agent.create_plan(
+                    request=request, state=self.research_state
+                )
+            return await self.planning_agent.create_plan(
+                request=request,
+                state=self.research_state,
+                context=context,
+            )
+
+        if self.execution_harness is None:
+            return await operation()
+        return await self.execution_harness.execute_model("planning", operation)
+
+    async def _invoke_research_agent(
+        self, task: ResearchTask, context: AgentContext | None
+    ) -> ToolResult:
+        async def operation() -> ToolResult:
+            if context is None:
+                return await self.research_agent.execute_task(task)
+            return await self.research_agent.execute_task(task, context=context)
+
+        if self.execution_harness is None:
+            return await operation()
+        return await self.execution_harness.execute_tool(
+            f"research_task:{task.id}",
+            operation,
+            external_api=bool(task.metadata.get("external_api", False)),
+        )
+
+    async def _invoke_analysis_agent(
+        self, plan: ResearchPlan, context: AgentContext | None
+    ) -> Dict[str, Any]:
+        async def operation() -> Dict[str, Any]:
+            if context is None:
+                return await self.analysis_agent.analyze(self.research_state, plan)
+            return await self.analysis_agent.analyze(
+                self.research_state, plan, context=context
+            )
+
+        if self.execution_harness is None:
+            return await operation()
+        return await self.execution_harness.execute_model("analysis", operation)
+
+    async def _invoke_evaluation_agent(
+        self,
+        plan: ResearchPlan,
+        analysis_result: Dict[str, Any],
+        context: AgentContext | None,
+    ) -> EvaluationResult:
+        async def operation() -> EvaluationResult:
+            if context is None:
+                return await self.evaluation_agent.evaluate(
+                    self.research_state, plan, analysis_result
+                )
+            return await self.evaluation_agent.evaluate(
+                self.research_state, plan, analysis_result, context=context
+            )
+
+        if self.execution_harness is None:
+            return await operation()
+        return await self.execution_harness.execute_model("evaluation", operation)
+
+    async def _invoke_report_agent(
+        self, analysis_result: Dict[str, Any], context: AgentContext | None
+    ) -> Dict[str, Any]:
+        async def operation() -> Dict[str, Any]:
+            if context is None:
+                return await self.report_agent.generate_report(
+                    self.research_state, analysis_result
+                )
+            return await self.report_agent.generate_report(
+                self.research_state, analysis_result, context=context
+            )
+
+        if self.execution_harness is None:
+            return await operation()
+        return await self.execution_harness.execute_model("reporting", operation)
 
     def _persist_checkpoint(self) -> None:
         if self.session_repository is None:
@@ -377,6 +445,31 @@ class MasterResearchOrchestrator:
         if not self.research_state.status_history or self.research_state.status_history[-1] != "failed":
             self.research_state.status_history.append("failed")
         self.research_state.error = f"Persistence failure: {error.message}"
+
+    def _terminate_for_runtime_failure(self, error: RuntimeControlError) -> None:
+        self.research_state.status = "failed"
+        if (
+            not self.research_state.status_history
+            or self.research_state.status_history[-1] != "failed"
+        ):
+            self.research_state.status_history.append("failed")
+        self.research_state.error = f"Runtime failure: {error.message}"
+        self.research_state.metadata["runtime_failure"] = {
+            "error_code": error.error_code,
+            "failure_kind": error.failure_kind.value,
+            "operation": error.operation,
+            "operation_kind": (
+                error.operation_kind.value if error.operation_kind else None
+            ),
+            "attempts": error.attempts,
+            "details": error.details,
+        }
+
+    def _attach_runtime_report(self) -> None:
+        if self.execution_harness is not None:
+            self.research_state.metadata["runtime"] = (
+                self.execution_harness.report().model_dump(mode="json")
+            )
 
     @staticmethod
     def _extend_unique(target: List[UUID], values: List[Any]) -> None:

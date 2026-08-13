@@ -22,8 +22,17 @@ def test_settings_loaded():
     assert settings.log_level == "INFO"
     assert settings.max_research_iterations == 3
     assert settings.max_tool_calls_per_iteration == 20
+    assert settings.max_tool_calls_total == 60
     assert settings.max_model_calls_per_iteration == 15
+    assert settings.max_model_calls_total == 45
+    assert settings.max_tokens_per_call == 4000
+    assert settings.max_tokens_total == 50000
     assert settings.max_research_time_seconds == 300
+    assert settings.max_tool_call_time_seconds == 30
+    assert settings.max_external_api_calls == 10
+    assert settings.max_tool_retry_attempts == 2
+    assert settings.max_model_retry_attempts == 2
+    assert settings.emergency_stop is False
 
 
 def test_settings_from_env(monkeypatch):
@@ -39,8 +48,17 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("MADRA_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("MADRA_MAX_RESEARCH_ITERATIONS", "5")
     monkeypatch.setenv("MADRA_MAX_TOOL_CALLS_PER_ITERATION", "10")
+    monkeypatch.setenv("MADRA_MAX_TOOL_CALLS_TOTAL", "20")
     monkeypatch.setenv("MADRA_MAX_MODEL_CALLS_PER_ITERATION", "5")
+    monkeypatch.setenv("MADRA_MAX_MODEL_CALLS_TOTAL", "10")
+    monkeypatch.setenv("MADRA_MAX_TOKENS_PER_CALL", "100")
+    monkeypatch.setenv("MADRA_MAX_TOKENS_TOTAL", "1000")
     monkeypatch.setenv("MADRA_MAX_RESEARCH_TIME_SECONDS", "600")
+    monkeypatch.setenv("MADRA_MAX_TOOL_CALL_TIME_SECONDS", "12")
+    monkeypatch.setenv("MADRA_MAX_EXTERNAL_API_CALLS", "3")
+    monkeypatch.setenv("MADRA_MAX_TOOL_RETRY_ATTEMPTS", "1")
+    monkeypatch.setenv("MADRA_MAX_MODEL_RETRY_ATTEMPTS", "0")
+    monkeypatch.setenv("MADRA_EMERGENCY_STOP", "true")
 
     # Reload the module to pick up the new environment variables
     if "deep_research.core.config" in sys.modules:
@@ -56,5 +74,14 @@ def test_settings_from_env(monkeypatch):
     assert test_settings.log_level == "DEBUG"
     assert test_settings.max_research_iterations == 5
     assert test_settings.max_tool_calls_per_iteration == 10
+    assert test_settings.max_tool_calls_total == 20
     assert test_settings.max_model_calls_per_iteration == 5
+    assert test_settings.max_model_calls_total == 10
+    assert test_settings.max_tokens_per_call == 100
+    assert test_settings.max_tokens_total == 1000
     assert test_settings.max_research_time_seconds == 600
+    assert test_settings.max_tool_call_time_seconds == 12
+    assert test_settings.max_external_api_calls == 3
+    assert test_settings.max_tool_retry_attempts == 1
+    assert test_settings.max_model_retry_attempts == 0
+    assert test_settings.emergency_stop is True

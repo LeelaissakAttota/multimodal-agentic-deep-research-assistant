@@ -65,6 +65,8 @@
 - Research-state persistence (where appropriate)
 
 ## Phase 6: Reliability and Product Integration (Aug 16)
+**Status: Complete (2026-08-14)**
+
 - Runtime harness
 - Retries
 - Timeouts

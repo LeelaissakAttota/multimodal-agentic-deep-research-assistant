@@ -1,9 +1,16 @@
 """
 FastAPI application for the deep research assistant.
 """
-from fastapi import FastAPI
+from uuid import UUID
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
+from deep_research.api.research_service import (
+    ResearchApplication,
+    ResearchRunResponse,
+    ResearchSubmission,
+)
 from deep_research.core.config import settings
 from deep_research.observability.logging import configure_logging, get_logger
 
@@ -16,6 +23,7 @@ app = FastAPI(
     version=settings.version,
     description="A multimodal agentic deep research assistant",
 )
+research_application = ResearchApplication(settings)
 
 
 @app.get("/health", tags=["monitoring"])
@@ -55,4 +63,21 @@ async def version_info() -> JSONResponse:
     )
 
 
-# Note: In later phases, we will include routers for research operations.
+@app.post("/research", tags=["research"], response_model=ResearchRunResponse)
+async def submit_research(submission: ResearchSubmission) -> ResearchRunResponse:
+    """Execute one bounded, zero-network deterministic research run."""
+    logger.info("research_submitted")
+    return await research_application.submit(submission)
+
+
+@app.get(
+    "/research/{session_id}",
+    tags=["research"],
+    response_model=ResearchRunResponse,
+)
+async def get_research(session_id: UUID) -> ResearchRunResponse:
+    """Return a process-local research result without exposing agent internals."""
+    result = research_application.get(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Research session not found")
+    return result

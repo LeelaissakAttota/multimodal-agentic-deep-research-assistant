@@ -69,3 +69,25 @@
 - **Date**: 2026-08-14
 - **Decision**: Inject persistence and context services optionally; checkpoint configured runs, expose session reconstruction, and convert normalized persistence failure into one terminal failure without retry.
 - **Rationale**: Existing Phase 0–4 behavior and callers remain compatible while configured workflows gain recovery and bounded agent context without introducing Phase 6 retry infrastructure.
+
+## Phase 6 Decisions
+
+### Decision 013: Session-Scoped Execution Harness
+- **Date**: 2026-08-14
+- **Decision**: Place optional retry, timeout, resource accounting, emergency-stop, failure normalization, and event observation around orchestrator agent calls through one provider-neutral `ExecutionHarness`.
+- **Rationale**: One application-layer boundary makes execution finite, traceable, and testable without coupling domain contracts or agents to infrastructure implementations.
+
+### Decision 014: Retries Are Physical Calls, Not Research Iterations
+- **Date**: 2026-08-14
+- **Decision**: Count every retry against tool/model budgets while calling `begin_iteration` only from the existing bounded orchestrator loop. Use capped deterministic exponential delays and retry only timeout, connection, or explicit transient failures.
+- **Rationale**: This prevents hidden cost and recursive loop growth while retaining deterministic Phase 4 planning/replanning semantics.
+
+### Decision 015: Conservative Model Fallback
+- **Date**: 2026-08-14
+- **Decision**: Route across ordered `ModelGateway` instances only after transient or timeout exhaustion; permanent, invalid, budget, configuration, and emergency-stop failures do not fall back.
+- **Rationale**: Provider independence is preserved without multiplying paid calls for requests that cannot succeed elsewhere.
+
+### Decision 016: API Is the Phase 6 Product Surface
+- **Date**: 2026-08-14
+- **Decision**: Implement validated bounded FastAPI submission and process-local result lookup; do not invent a graphical frontend where the roadmap permits UI/API integration but defines no UI contract.
+- **Rationale**: The API supplies a real product boundary while respecting phase discipline and leaving Phase 7 demo/packaging work untouched.

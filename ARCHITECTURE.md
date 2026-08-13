@@ -99,8 +99,9 @@ The orchestrator accepts persistence and context dependencies optionally. When c
 - Legacy tool outputs containing only evidence/source IDs preserve those IDs, but content retrieval requires the corresponding domain objects to be stored in the session snapshot.
 
 ## Failure Boundaries
-- Tool execution failures are normalized for bounded evaluation and termination.
-- Model fallback and retry behavior remains deferred to Phase 6.
+- Tool and model execution enter the Phase 6 harness before external work begins.
+- Transient connection and timeout failures use bounded deterministic retry; permanent and unknown failures fail closed without retry.
+- Ordered model fallback is provider neutral and occurs only after a route exhausts eligible transient retries.
 - Evidence validation prevents propagation of unverified claims.
 - Persistence failures are normalized and terminate the active run without retry recursion.
 - Context selection and deterministic excerpt truncation prevent unbounded working context.
@@ -108,3 +109,27 @@ The orchestrator accepts persistence and context dependencies optionally. When c
 ## Configuration
 - Environment-based configuration for API keys, model endpoints, and system limits.
 - Separate configuration for development vs. production.
+
+## Phase 6 Reliability and Product Integration
+
+Phase 6 adds this optional application-layer boundary without changing the Phase 4 state graph or Phase 5 context flow:
+
+`orchestrator → execution harness → agent abstraction → provider/tool abstraction`
+
+`settings → RuntimeLimits → RuntimeBudgetManager → RuntimeReport`
+
+The harness owns a session-scoped `RuntimeBudgetManager`, retry policies, `asyncio` timeouts, sanitized `RuntimeEvent` emission, and normalized `RuntimeControlError` failures. Each physical retry is charged as a call. `begin_iteration()` is called exactly once per research iteration, so retry exhaustion cannot advance or recursively re-enter the research loop. The smaller of the operation timeout and remaining session time bounds every asynchronous call.
+
+Planning, analysis, evaluation, and reporting calls are metered as model operations. Research-task calls are metered as tool operations; paid/network API accounting is activated explicitly in task metadata. Measurable provider `total_tokens` values are validated after responses. Budget, emergency-stop, timeout, transient, and permanent failures terminate once as `failed`, retain sanitized failure metadata, attach a runtime usage report, and remain compatible with SQLite checkpoints and recovery.
+
+`RoutedModelGateway` depends only on `ModelGateway` routes and the harness. It retries a route according to the model policy, then advances in declared order only for transient or timeout exhaustion. It never imports provider SDKs.
+
+The product boundary is FastAPI: `POST /research` starts a bounded deterministic run and `GET /research/{session_id}` reads the process-local terminal result. No graphical UI was defined by the repository contract. Durable product deployments can inject the existing repository and context abstractions; the default API makes no network or paid call.
+
+### Phase 6 Limitations
+
+- Process-local API lookup retains at most 100 insertion-ordered sessions; it is not a distributed job queue or multi-worker status store.
+- `asyncio` timeouts require asynchronous providers to honor cancellation; blocking SDKs need an adapter-level thread/process boundary.
+- Token enforcement is exact only when a provider reports `total_tokens`; agent calls without usage data remain request-count and time bounded.
+- Provider price catalogs and monetary cost estimation are not implemented because no authoritative pricing source is defined.
+- Automatic continuation of a partially completed recovered iteration remains unsupported.

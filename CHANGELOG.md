@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 ### Added
+- Phase 6 session-scoped execution harness with explicit retry, timeout, budget, emergency-stop, and normalized-failure contracts
+- Deterministic exponential backoff, bounded transient retries, and independent retry/research-iteration accounting
+- Tool/model request limits, measurable token limits, external-API limits, and wall-clock enforcement
+- Provider-neutral ordered model routing with transient timeout/connection fallback
+- Sanitized runtime event observation plus persistence-safe usage and failure reports
+- Bounded research submission and result lookup FastAPI endpoints
+- Phase 6 deterministic tests for success, failures, exhaustion, timeouts, budgets, routing, persistence, context, provenance, and API integration
 - Phase 5 provider-independent persistence and versioned research-session snapshots
 - Transactional standard-library SQLite adapter with deterministic schema initialization
 - Bounded durable research memory with lexical relevance ordering and full provenance
@@ -27,12 +34,16 @@
 - Phase 0 planning documents
 
 ### Changed
+- Orchestrator agent invocations optionally pass through the Phase 6 harness while preserving legacy direct invocation
+- Deterministic web-search output now supplies stable evidence/source identifiers for the zero-network product API
+- Environment settings now expose every repository-defined Phase 6 cost and execution control
 - Research agent contracts accept an optional bounded `AgentContext` while retaining existing call behavior
 - Repeated evidence, source, and task identifiers are deduplicated before entering active state
 - Successful research runs now become `completed` after report generation
 - Orchestration accepts both mapping-based and typed Pydantic tool outputs from Phase 3
 - Evaluation decisions and confidence values are validated at their contract boundary
 ### Fixed
+- Mutable model/tool request defaults now use independent factories
 - Persistence failures now terminate a configured workflow once instead of escaping into an unbounded research path
 - Corrected mutable-state test captures that obscured iteration-specific feedback
 - Removed an unavailable analysis tool assignment from deterministic research plans

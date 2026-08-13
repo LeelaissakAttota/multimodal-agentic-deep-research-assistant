@@ -29,6 +29,7 @@
 ## Request Timeouts
 - Set timeouts on all external HTTP requests to prevent hanging connections.
 - Implement retry logic with exponential backoff for transient failures.
+- Phase 6 enforces per-tool and per-model async timeouts capped by remaining session time. Retries use capped deterministic exponential backoff and a validated maximum; permanent and unknown failures are not retried.
 
 ## Bounded Downloads
 - Limit the size of downloaded files (e.g., max 50MB per file).
@@ -49,6 +50,13 @@
 ## Logging
 - Avoid logging secrets or sensitive user data.
 - Log audit trails for security-relevant events (e.g., failed authentication attempts).
+- Runtime events contain operation labels, failure categories, attempt counts, delay values, and exception type names only; exception messages, prompts, tool inputs, provider responses, credentials, and evidence content are excluded.
+
+## Runtime Controls
+- `MADRA_EMERGENCY_STOP=true` fails closed before the next iteration or call.
+- Every tool/model attempt consumes a bounded request budget; paid external API calls have a separate cap.
+- Token counts are enforced where provider usage is measurable, and all calls remain time/request bounded otherwise.
+- Runtime failure/report metadata passes through the existing secret-rejecting persistence boundary.
 
 ## Model Security
 - Treat model outputs as untrusted; validate and sanitize before use in downstream components.
