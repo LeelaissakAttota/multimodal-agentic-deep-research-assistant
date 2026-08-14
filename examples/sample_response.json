@@ -1,0 +1,16 @@
+{
+  "session_id": "11111111-2222-3333-4444-555555555555",
+  "request_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "status": "completed",
+  "error": null,
+  "report": {
+    "evidence_gathered": [
+      { "evidence_id": "ev-0001", "claim_ids": ["cl-0001"] }
+    ],
+    "sources_consulted": ["src-0001"],
+    "summary": "Deterministic demo produced a short reliability assessment with traceable evidence ids."
+  },
+  "runtime": {
+    "usage": { "iterations_started": 1, "tool_calls": 3, "model_calls": 2 }
+  }
+}

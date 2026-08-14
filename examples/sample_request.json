@@ -1,0 +1,4 @@
+{
+  "objective": "Deterministic battery reliability research",
+  "metadata": { "scenario": 1, "mode": "offline_deterministic" }
+}

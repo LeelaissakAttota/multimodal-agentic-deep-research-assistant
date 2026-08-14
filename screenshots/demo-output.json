@@ -1,0 +1,238 @@
+[
+  {
+    "error": null,
+    "report": {
+      "citations": [],
+      "claims": [
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "1f88487b-6711-5132-b95a-590f1657c8b2"
+          ],
+          "id": "00000000-0000-0000-0000-000000000064",
+          "text": "Claim based on evidence 1f88487b-6711-5132-b95a-590f1657c8b2"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "a6bceda3-5540-52db-80c3-0dcfcf294eb7"
+          ],
+          "id": "00000000-0000-0000-0000-000000000065",
+          "text": "Claim based on evidence a6bceda3-5540-52db-80c3-0dcfcf294eb7"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "b12742cd-3670-5361-aa1e-99e07aa8e3e1"
+          ],
+          "id": "00000000-0000-0000-0000-000000000066",
+          "text": "Claim based on evidence b12742cd-3670-5361-aa1e-99e07aa8e3e1"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "35b1a7b7-0cc6-5bb1-87b8-5f0901f3d6f1"
+          ],
+          "id": "00000000-0000-0000-0000-000000000067",
+          "text": "Claim based on evidence 35b1a7b7-0cc6-5bb1-87b8-5f0901f3d6f1"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "5137c0ca-cc3d-5ef9-895d-2804f5bd9b8c"
+          ],
+          "id": "00000000-0000-0000-0000-000000000068",
+          "text": "Claim based on evidence 5137c0ca-cc3d-5ef9-895d-2804f5bd9b8c"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "cedbd404-078b-5f97-9b1d-3b055af1007e"
+          ],
+          "id": "00000000-0000-0000-0000-000000000069",
+          "text": "Claim based on evidence cedbd404-078b-5f97-9b1d-3b055af1007e"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "ccb10bfc-dcea-5b33-bd50-132d99d59da6"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006a",
+          "text": "Claim based on evidence ccb10bfc-dcea-5b33-bd50-132d99d59da6"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "ade5dcd7-eaaa-5fd3-ba4d-166562e759c2"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006b",
+          "text": "Claim based on evidence ade5dcd7-eaaa-5fd3-ba4d-166562e759c2"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "baeae8e3-21d0-59be-b4b7-e66a1fb814f1"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006c",
+          "text": "Claim based on evidence baeae8e3-21d0-59be-b4b7-e66a1fb814f1"
+        }
+      ],
+      "content": "Analysis completed. Found 9 claims based on 9 evidence items.",
+      "evidence_gathered": [
+        "1f88487b-6711-5132-b95a-590f1657c8b2",
+        "a6bceda3-5540-52db-80c3-0dcfcf294eb7",
+        "b12742cd-3670-5361-aa1e-99e07aa8e3e1",
+        "35b1a7b7-0cc6-5bb1-87b8-5f0901f3d6f1",
+        "5137c0ca-cc3d-5ef9-895d-2804f5bd9b8c",
+        "cedbd404-078b-5f97-9b1d-3b055af1007e",
+        "ccb10bfc-dcea-5b33-bd50-132d99d59da6",
+        "ade5dcd7-eaaa-5fd3-ba4d-166562e759c2",
+        "baeae8e3-21d0-59be-b4b7-e66a1fb814f1"
+      ],
+      "iteration_count": 0,
+      "sources_consulted": [
+        "53f85059-0a43-5a8d-9cf7-ddfcdb706660",
+        "400af8fa-f72b-50eb-a30a-524bb7883bcf",
+        "5714e6a6-39b6-5e36-b22f-a23c6780e15a"
+      ],
+      "status": "reporting",
+      "title": "Research Report for Request 4f259619-f1e6-441d-a05c-79ac03118451"
+    },
+    "request_id": "4f259619-f1e6-441d-a05c-79ac03118451",
+    "runtime": {
+      "event_count": 16,
+      "failure_count": 0,
+      "last_failure": null,
+      "usage": {
+        "elapsed_seconds": 0.04700000000593718,
+        "external_api_calls": 0,
+        "iterations_started": 1,
+        "model_calls": 4,
+        "model_calls_this_iteration": 4,
+        "tokens": 0,
+        "tool_calls": 3,
+        "tool_calls_this_iteration": 3
+      }
+    },
+    "session_id": "0578bbb2-b8cf-4c8b-a4bc-42aee60b15dd",
+    "status": "completed"
+  },
+  {
+    "error": null,
+    "report": {
+      "citations": [],
+      "claims": [
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "1cc4ac04-4f4a-5fb5-81dd-0d7ae91a9286"
+          ],
+          "id": "00000000-0000-0000-0000-000000000064",
+          "text": "Claim based on evidence 1cc4ac04-4f4a-5fb5-81dd-0d7ae91a9286"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "7a43630a-40d8-5f21-b05a-f9a35eb914e3"
+          ],
+          "id": "00000000-0000-0000-0000-000000000065",
+          "text": "Claim based on evidence 7a43630a-40d8-5f21-b05a-f9a35eb914e3"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "f66edb9d-0e22-5caa-a9ba-f121cbf05cd0"
+          ],
+          "id": "00000000-0000-0000-0000-000000000066",
+          "text": "Claim based on evidence f66edb9d-0e22-5caa-a9ba-f121cbf05cd0"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "27d3b147-f943-5b17-a6e9-140e8c8c8369"
+          ],
+          "id": "00000000-0000-0000-0000-000000000067",
+          "text": "Claim based on evidence 27d3b147-f943-5b17-a6e9-140e8c8c8369"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "7f27e90d-7739-57d2-9a33-a4488eb2b2c4"
+          ],
+          "id": "00000000-0000-0000-0000-000000000068",
+          "text": "Claim based on evidence 7f27e90d-7739-57d2-9a33-a4488eb2b2c4"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "cd9bcb0c-3012-5bab-9372-a73ceb8e07f1"
+          ],
+          "id": "00000000-0000-0000-0000-000000000069",
+          "text": "Claim based on evidence cd9bcb0c-3012-5bab-9372-a73ceb8e07f1"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "0fd22360-621b-5d74-bb12-d127ac78af77"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006a",
+          "text": "Claim based on evidence 0fd22360-621b-5d74-bb12-d127ac78af77"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "066f387f-b0c2-546e-8a70-4ea0221b91ed"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006b",
+          "text": "Claim based on evidence 066f387f-b0c2-546e-8a70-4ea0221b91ed"
+        },
+        {
+          "confidence": 0.8,
+          "evidence_ids": [
+            "d30c40f4-046b-52ca-b22a-6be776439f61"
+          ],
+          "id": "00000000-0000-0000-0000-00000000006c",
+          "text": "Claim based on evidence d30c40f4-046b-52ca-b22a-6be776439f61"
+        }
+      ],
+      "content": "Analysis completed. Found 9 claims based on 9 evidence items.",
+      "evidence_gathered": [
+        "1cc4ac04-4f4a-5fb5-81dd-0d7ae91a9286",
+        "7a43630a-40d8-5f21-b05a-f9a35eb914e3",
+        "f66edb9d-0e22-5caa-a9ba-f121cbf05cd0",
+        "27d3b147-f943-5b17-a6e9-140e8c8c8369",
+        "7f27e90d-7739-57d2-9a33-a4488eb2b2c4",
+        "cd9bcb0c-3012-5bab-9372-a73ceb8e07f1",
+        "0fd22360-621b-5d74-bb12-d127ac78af77",
+        "066f387f-b0c2-546e-8a70-4ea0221b91ed",
+        "d30c40f4-046b-52ca-b22a-6be776439f61"
+      ],
+      "iteration_count": 0,
+      "sources_consulted": [
+        "53f85059-0a43-5a8d-9cf7-ddfcdb706660",
+        "400af8fa-f72b-50eb-a30a-524bb7883bcf",
+        "5714e6a6-39b6-5e36-b22f-a23c6780e15a"
+      ],
+      "status": "reporting",
+      "title": "Research Report for Request c7eee723-044e-445d-9342-23f1c01059bc"
+    },
+    "request_id": "c7eee723-044e-445d-9342-23f1c01059bc",
+    "runtime": {
+      "event_count": 16,
+      "failure_count": 0,
+      "last_failure": null,
+      "usage": {
+        "elapsed_seconds": 0.046999999991385266,
+        "external_api_calls": 0,
+        "iterations_started": 1,
+        "model_calls": 4,
+        "model_calls_this_iteration": 4,
+        "tokens": 0,
+        "tool_calls": 3,
+        "tool_calls_this_iteration": 3
+      }
+    },
+    "session_id": "914dc719-ade3-4bdb-8e00-e901c04fa0aa",
+    "status": "completed"
+  }
+]

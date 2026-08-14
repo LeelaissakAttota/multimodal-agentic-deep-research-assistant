@@ -2,6 +2,60 @@
 
 A provider-neutral Python research engine for bounded, evidence-oriented, multimodal research workflows.
 
+## Quick Start
+
+- **Prerequisites**: Python 3.12 and Git.
+- **Clone & enter repo**:
+
+```powershell
+git clone https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant.git
+cd multimodal-agentic-deep-research-assistant
+```
+
+- **Environment**: copy the example env and adjust if desired (the demo runs with defaults and needs no secrets):
+
+```powershell
+copy .env.example .env
+```
+
+- **Install dependencies (editable, test extras)**:
+
+```powershell
+python -m pip install -e ".[test]"
+```
+
+- **Run the offline demo** (deterministic, zero-network):
+
+```powershell
+madra-demo
+```
+
+- **Start the FastAPI app**:
+
+```powershell
+uvicorn deep_research.api.main:app --host 127.0.0.1 --port 8000
+```
+
+- **Open interactive API docs**: http://127.0.0.1:8000/docs (Swagger UI) or http://127.0.0.1:8000/redoc
+
+- **Minimal research request (curl)**:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/research" -H "Content-Type: application/json" -d @examples/sample_request.json
+```
+
+- **Retrieve a session**:
+
+```powershell
+curl "http://127.0.0.1:8000/research/<SESSION_ID>"
+```
+
+- **Run tests**:
+
+```powershell
+pytest
+```
+
 ## Project status
 
 Phase 7 — Final Integration is complete. The frozen roadmap defines no Phase 8 scope; Phase 8 has not started.
@@ -59,6 +113,23 @@ uvicorn deep_research.api.main:app --host 127.0.0.1 --port 8000
 `POST /research` accepts an objective of at most 10,000 characters plus bounded primitive metadata. Secret-like metadata, null characters, unknown fields, oversized metadata, and non-finite numbers are rejected. `GET /research/{session_id}` returns the process-local terminal result.
 
 The default API performs deterministic zero-network research and retains at most 100 insertion-ordered sessions. Durable or multi-worker deployments must compose the existing `ResearchSessionRepository` and `ResearchContextBuilder` boundaries.
+
+## Demo Preview
+
+### Swagger API Interface
+![Swagger API Interface](screenshots/swagger-ui.png)
+
+The Swagger UI shows the live OpenAPI specification and available endpoints (`/health`, `/ready`, `/version`, `/research`).
+
+### Research Submission
+![Research Submission](screenshots/post_response.png)
+
+Example successful `POST /research` response (HTTP 200) from the deterministic offline demo, showing `session_id`, `request_id`, `status`, `report`, and `runtime` usage.
+
+### Research Result Retrieval
+![Research Result Retrieval](screenshots/get_response.png)
+
+Use `GET /research/{session_id}` to fetch the terminal run result; the example demonstrates retrieving the same `ResearchRunResponse` returned by the submission.
 
 ## Architecture
 
