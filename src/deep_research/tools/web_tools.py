@@ -1,7 +1,9 @@
 """Live web search and page-fetch tools (used only when RESEARCH_MODE=live).
 
-* ``WebSearchTool``: DuckDuckGo HTML endpoint (free, no key) by default, or
-  Tavily when a key is configured.
+* ``WebSearchTool``: automatic free search chain (DuckDuckGo HTML → Lite →
+  Wikipedia → DuckDuckGo Instant Answer), with optional Tavily when a key is
+  configured. HTTP 202 / bot-challenge pages are treated as failure and the
+  next source is tried.
 * ``WebFetchTool``: fetches a public http(s) page and returns plain text.
   Private/loopback/link-local hosts are refused (SSRF guard), redirects are
   re-validated, and the body is size-capped.
@@ -17,7 +19,7 @@ import socket
 import time
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import httpx
 from pydantic import Field, SecretStr
@@ -29,8 +31,6 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 WEB_SEARCH_TOOL_ID = "live_web_search"
 WEB_FETCH_TOOL_ID = "live_web_fetch"
 _USER_AGENT = "Mozilla/5.0 (compatible; MADRA-research/0.1)"
-_DDG_URL = "https://html.duckduckgo.com/html/"
-_TAVILY_URL = "https://api.tavily.com/search"
 
 
 def _elapsed(start: float) -> float:
@@ -158,8 +158,23 @@ def _is_ip(host: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Web search
+# Web search (automatic free-source chain)
 # ---------------------------------------------------------------------------
+
+_DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+_DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
+_DDG_INSTANT_URL = "https://api.duckduckgo.com/"
+_WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
+_TAVILY_URL = "https://api.tavily.com/search"
+_CHALLENGE_MARKERS = (
+    "anomaly-modal",
+    "challenge-form",
+    "bot challenge",
+    "unusual traffic",
+    "captcha",
+    "please enable javascript and cookies",
+    "duckduckgo.com/anomaly",
+)
 
 
 class WebSearchInput(ToolInput):
@@ -172,27 +187,101 @@ class WebSearchOutput(ToolOutput):
     provider: str = ""
 
 
+class _DDGLiteParser(HTMLParser):
+    """Extract (title, url) pairs from DuckDuckGo Lite HTML."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.results: list[dict[str, str]] = []
+        self._capture = False
+        self._href = ""
+        self._title = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        classes = (a.get("class") or "").split()
+        if tag == "a" and ("result-link" in classes or a.get("rel") == "nofollow"):
+            href = a.get("href") or ""
+            if href:
+                self._href = _ddg_target(href.replace("&amp;", "&"))
+                self._title = ""
+                self._capture = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._capture:
+            title = " ".join(self._title.split())
+            if self._href.startswith(("http://", "https://")) and title:
+                self.results.append({"title": title, "url": self._href, "snippet": ""})
+            self._capture = False
+
+    def handle_data(self, data: str) -> None:
+        if self._capture:
+            self._title += data
+
+
+def _looks_like_challenge(status: int, body: str) -> bool:
+    if status == 202:
+        return True
+    lowered = body[:8000].casefold()
+    return any(marker in lowered for marker in _CHALLENGE_MARKERS)
+
+
+def _normalize_hits(rows: list[dict[str, str]], limit: int) -> list[dict[str, str]]:
+    cleaned: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        url = (row.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")) or url in seen:
+            continue
+        seen.add(url)
+        cleaned.append(
+            {
+                "title": " ".join((row.get("title") or "").split()),
+                "url": url,
+                "snippet": " ".join((row.get("snippet") or "").split()),
+            }
+        )
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
 class WebSearchTool(Tool):
-    """Free web search (DuckDuckGo HTML) with optional Tavily backend."""
+    """Automatic free web-search chain with optional Tavily.
+
+    Default ``provider="auto"`` tries free sources in order and skips blocked
+    ones (HTTP 202 / challenge pages / empty / network errors) without config:
+
+    1. DuckDuckGo HTML
+    2. DuckDuckGo Lite
+    3. Wikipedia full-text search API
+    4. DuckDuckGo Instant Answer API
+
+    When ``MADRA_TAVILY_API_KEY`` is set, Tavily is tried first. Explicit
+    ``provider="tavily"`` uses Tavily only; ``provider="duckduckgo"`` uses the
+    free chain only.
+    """
 
     def __init__(
         self,
         *,
-        provider: str = "duckduckgo",
+        provider: str = "auto",
         tavily_api_key: SecretStr | None = None,
         http_client: httpx.AsyncClient | None = None,
         timeout: float = 15.0,
         max_results: int = 10,
     ) -> None:
-        if provider not in ("duckduckgo", "tavily"):
+        if provider not in ("auto", "duckduckgo", "tavily"):
             raise ValueError(f"Unsupported search provider: {provider}")
-        if provider == "tavily" and not (tavily_api_key and tavily_api_key.get_secret_value().strip()):
+        has_tavily = bool(tavily_api_key and tavily_api_key.get_secret_value().strip())
+        if provider == "tavily" and not has_tavily:
             raise ValueError("Tavily search requires MADRA_TAVILY_API_KEY")
         self.provider = provider
-        self._tavily_key = tavily_api_key
+        self._tavily_key = tavily_api_key if has_tavily else None
         self._client = http_client
         self._timeout = timeout
         self._max_results = max_results
+        self.last_provider: str = ""
 
     @property
     def name(self) -> str:
@@ -200,10 +289,17 @@ class WebSearchTool(Tool):
 
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
-            identifier=WEB_SEARCH_TOOL_ID, name="Live Web Search", description="Search the public web.",
-            modality=Modality.WEB, capabilities=[ToolCapability.SEARCH], input_schema=WebSearchInput,
-            output_schema=WebSearchOutput, cost_class="FREE", network_required=True,
-            auth_required=self.provider == "tavily", reliability="MEDIUM",
+            identifier=WEB_SEARCH_TOOL_ID,
+            name="Live Web Search",
+            description="Search the public web via an automatic free-source chain.",
+            modality=Modality.WEB,
+            capabilities=[ToolCapability.SEARCH],
+            input_schema=WebSearchInput,
+            output_schema=WebSearchOutput,
+            cost_class="FREE",
+            network_required=True,
+            auth_required=self.provider == "tavily",
+            reliability="MEDIUM",
         )
 
     async def health_check(self) -> bool:
@@ -218,14 +314,16 @@ class WebSearchTool(Tool):
         limit = max(1, min(int(raw_limit) if isinstance(raw_limit, int) else 5, self._max_results))
         client = self._client or httpx.AsyncClient(follow_redirects=True)
         try:
-            if self.provider == "tavily":
-                results = await self._tavily(client, query.strip(), limit)
-            else:
-                results = await self._ddg(client, query.strip(), limit)
+            results, used = await self._search_chain(client, query.strip(), limit)
         except httpx.TimeoutException:
             return _fail(WEB_SEARCH_TOOL_ID, start, "Web search timed out.", "timeout")
         except httpx.HTTPStatusError as exc:
-            return _fail(WEB_SEARCH_TOOL_ID, start, f"Web search failed (HTTP {exc.response.status_code}).", "http_error")
+            return _fail(
+                WEB_SEARCH_TOOL_ID,
+                start,
+                f"Web search failed (HTTP {exc.response.status_code}).",
+                "http_error",
+            )
         except httpx.HTTPError:
             return _fail(WEB_SEARCH_TOOL_ID, start, "Web search network error.", "network_error")
         except (ValueError, KeyError, TypeError):
@@ -233,24 +331,148 @@ class WebSearchTool(Tool):
         finally:
             if self._client is None:
                 await client.aclose()
+        self.last_provider = used
         return ToolResult(
-            success=True, output=WebSearchOutput(results=results, provider=self.provider),
-            tool_name=WEB_SEARCH_TOOL_ID, execution_time_ms=_elapsed(start),
-            metadata={"tool_identifier": WEB_SEARCH_TOOL_ID, "provider": self.provider, "result_count": len(results)},
+            success=True,
+            output=WebSearchOutput(results=results, provider=used or self.provider),
+            tool_name=WEB_SEARCH_TOOL_ID,
+            execution_time_ms=_elapsed(start),
+            metadata={
+                "tool_identifier": WEB_SEARCH_TOOL_ID,
+                "provider": used or self.provider,
+                "result_count": len(results),
+            },
         )
 
-    async def _ddg(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
-        response = await client.post(_DDG_URL, data={"q": query}, headers={"User-Agent": _USER_AGENT},
-                                     timeout=self._timeout)
+    async def _search_chain(
+        self, client: httpx.AsyncClient, query: str, limit: int
+    ) -> tuple[list[dict[str, str]], str]:
+        backends: list[tuple[str, Any]] = []
+        if self.provider == "tavily":
+            backends.append(("tavily", self._tavily))
+        elif self.provider == "duckduckgo":
+            backends.extend(
+                [
+                    ("duckduckgo_html", self._ddg_html),
+                    ("duckduckgo_lite", self._ddg_lite),
+                    ("wikipedia", self._wikipedia),
+                    ("duckduckgo_instant", self._ddg_instant),
+                ]
+            )
+        else:  # auto
+            if self._tavily_key is not None:
+                backends.append(("tavily", self._tavily))
+            backends.extend(
+                [
+                    ("duckduckgo_html", self._ddg_html),
+                    ("duckduckgo_lite", self._ddg_lite),
+                    ("wikipedia", self._wikipedia),
+                    ("duckduckgo_instant", self._ddg_instant),
+                ]
+            )
+        last_error: Exception | None = None
+        failures = 0
+        for name, fn in backends:
+            try:
+                hits = await fn(client, query, limit)
+            except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                last_error = exc
+                failures += 1
+                continue
+            if hits:
+                return hits, name
+        # Every backend raised (none merely returned empty): surface the error.
+        if last_error is not None and failures == len(backends):
+            raise last_error
+        return [], ""
+
+    async def _ddg_html(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
+        response = await client.post(
+            _DDG_HTML_URL,
+            data={"q": query},
+            headers={"User-Agent": _USER_AGENT},
+            timeout=self._timeout,
+        )
+        if _looks_like_challenge(response.status_code, response.text):
+            return []
         response.raise_for_status()
         parser = _DDGParser()
         parser.feed(response.text)
-        cleaned = [
-            {"title": " ".join(r["title"].split()), "url": r["url"], "snippet": " ".join(r["snippet"].split())}
-            for r in parser.results
-            if r["url"].startswith(("http://", "https://"))
-        ]
-        return cleaned[:limit]
+        return _normalize_hits(parser.results, limit)
+
+    async def _ddg_lite(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
+        response = await client.get(
+            _DDG_LITE_URL,
+            params={"q": query},
+            headers={"User-Agent": _USER_AGENT},
+            timeout=self._timeout,
+        )
+        if _looks_like_challenge(response.status_code, response.text):
+            return []
+        response.raise_for_status()
+        parser = _DDGLiteParser()
+        parser.feed(response.text)
+        return _normalize_hits(parser.results, limit)
+
+    async def _wikipedia(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
+        """Wikipedia full-text search (works for natural-language questions)."""
+        response = await client.get(
+            _WIKI_API_URL,
+            params={
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "srlimit": str(limit),
+                "srnamespace": "0",
+                "format": "json",
+            },
+            headers={"User-Agent": _USER_AGENT},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        data: Any = response.json()
+        hits = data.get("query", {}).get("search", []) if isinstance(data, dict) else []
+        rows: list[dict[str, str]] = []
+        for hit in hits if isinstance(hits, list) else []:
+            title = hit.get("title") if isinstance(hit, dict) else None
+            if not isinstance(title, str) or not title.strip():
+                continue
+            _, snippet = html_to_text(str(hit.get("snippet") or ""))
+            rows.append(
+                {
+                    "title": title,
+                    "url": "https://en.wikipedia.org/wiki/" + quote(title.replace(" ", "_")),
+                    "snippet": snippet,
+                }
+            )
+        return _normalize_hits(rows, limit)
+
+    async def _ddg_instant(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
+        response = await client.get(
+            _DDG_INSTANT_URL,
+            params={"q": query, "format": "json", "no_redirect": "1", "no_html": "1"},
+            headers={"User-Agent": _USER_AGENT},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        data: Any = response.json()
+        rows: list[dict[str, str]] = []
+        abstract_url = data.get("AbstractURL") if isinstance(data, dict) else None
+        abstract = data.get("Abstract") if isinstance(data, dict) else None
+        heading = data.get("Heading") if isinstance(data, dict) else None
+        if isinstance(abstract_url, str) and abstract_url.startswith("http"):
+            rows.append(
+                {
+                    "title": str(heading or abstract_url),
+                    "url": abstract_url,
+                    "snippet": str(abstract or ""),
+                }
+            )
+        related = data.get("RelatedTopics") if isinstance(data, dict) else None
+        if isinstance(related, list):
+            for item in related:
+                rows.extend(_flatten_ddg_topics(item))
+        return _normalize_hits(rows, limit)
 
     async def _tavily(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
         assert self._tavily_key is not None
@@ -262,10 +484,32 @@ class WebSearchTool(Tool):
         )
         response.raise_for_status()
         data: Any = response.json()
-        return [
-            {"title": str(r.get("title", "")), "url": str(r["url"]), "snippet": str(r.get("content", ""))}
-            for r in data["results"][:limit]
-        ]
+        return _normalize_hits(
+            [
+                {
+                    "title": str(r.get("title", "")),
+                    "url": str(r["url"]),
+                    "snippet": str(r.get("content", "")),
+                }
+                for r in data["results"][:limit]
+            ],
+            limit,
+        )
+
+
+def _flatten_ddg_topics(item: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if not isinstance(item, dict):
+        return rows
+    if isinstance(item.get("Topics"), list):
+        for nested in item["Topics"]:
+            rows.extend(_flatten_ddg_topics(nested))
+        return rows
+    url = item.get("FirstURL")
+    text = item.get("Text")
+    if isinstance(url, str) and url.startswith("http"):
+        rows.append({"title": str(text or url), "url": url, "snippet": str(text or "")})
+    return rows
 
 
 # ---------------------------------------------------------------------------

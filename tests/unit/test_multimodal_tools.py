@@ -213,18 +213,26 @@ def test_vision_gateway_uses_free_vision_model_and_sends_image() -> None:
     sent: list[dict[str, Any]] = []
 
     def handler(r: httpx.Request) -> httpx.Response:
+        if r.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [
+                {"id": "text/only:free", "architecture": {"input_modalities": ["text"]}, "context_length": 9},
+                {"id": "vis/model:free", "architecture": {"input_modalities": ["text", "image"]},
+                 "context_length": 8},
+            ]})
         sent.append(json.loads(r.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": "desc"}}]})
 
     s = Settings(_env_file=None, openrouter_api_key=SecretStr("k"))
+    assert s.openrouter_vision_model == "auto"
     g = build_provider_gateway(s, capability=ModelCapability.VISION)
-    assert isinstance(g, GuardedModelGateway) and g.model_id == s.openrouter_vision_model
+    assert isinstance(g, GuardedModelGateway) and g.model_id == "auto:free"
     inner = OpenRouterModelGateway(api_key=SecretStr("k"), model=g.model_id,
                                    http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     guarded = GuardedModelGateway(inner, model_id=g.model_id, provider="openrouter",
                                   capability=ModelCapability.VISION, guard=FreeModelGuard())
     res = img_exec(ImageAnalysisTool(guarded), image_data=img_url(make_image()))
     assert res.output["description"] == "desc"
+    assert sent[0]["model"] == "vis/model:free"
     content = sent[0]["messages"][0]["content"]
     assert content[1]["type"] == "image_url" and content[1]["image_url"]["url"].startswith("data:image/png")
 

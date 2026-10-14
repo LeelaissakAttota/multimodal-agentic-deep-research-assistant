@@ -192,10 +192,14 @@ To use real web research:
 ```bash
 export MADRA_RESEARCH_MODE=live
 # optional: LLM synthesis with citations via free OpenRouter models
-export MADRA_OPENROUTER_API_KEY=...            # model must end in ":free"
-export MADRA_OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free
-# optional: Tavily instead of the free DuckDuckGo HTML search
-# export MADRA_SEARCH_PROVIDER=tavily MADRA_TAVILY_API_KEY=...
+export MADRA_OPENROUTER_API_KEY=...
+# default: automatic free-model selection (no model env needed)
+# export MADRA_OPENROUTER_MODEL=auto
+# export MADRA_OPENROUTER_VISION_MODEL=auto
+# optional pin (tried first, then auto-fallback): any slug ending in ":free"
+# export MADRA_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+# optional: Tavily is tried first in the automatic search chain when keyed
+# export MADRA_TAVILY_API_KEY=...
 uvicorn deep_research.api.main:app
 ```
 
@@ -203,6 +207,40 @@ Live mode searches the web, fetches the top pages (public http(s) only, with
 private-network/SSRF protection and size limits), and asks the
 free-model-guarded LLM to answer with `[n]` citations. Without an OpenRouter
 key it returns the real search evidence with a snippet summary instead.
+
+### Automatic free-model selection
+
+With `MADRA_OPENROUTER_MODEL=auto` (default) and `MADRA_OPENROUTER_VISION_MODEL=auto`:
+
+1. On first use the gateway calls `GET https://openrouter.ai/api/v1/models`
+   and keeps only models whose id ends in `:free`.
+2. Text and vision candidates are ranked separately (vision = `image` in
+   `input_modalities`): general-purpose before specialty models
+   (content-safety, note/code previews), text+image before text-only for
+   vision, then larger context length first.
+3. The ranked list is cached for `MADRA_OPENROUTER_MODEL_CACHE_SECONDS`
+   (default 6 hours).
+4. On HTTP 403/404/429/5xx, "unavailable for free", "only available on…",
+   rate-limit or overload responses, the cache is refreshed and the next free
+   model is tried automatically (up to 4 models per call).
+5. Setting a concrete `:free` slug pins that model first; failures still fall
+   back to the rest of the free catalog. `FreeModelGuard` still rejects any
+   non-`:free` id.
+
+### Automatic free search chain
+
+With `MADRA_SEARCH_PROVIDER=auto` (default) sources are tried in order and
+blocked or empty ones are skipped with no extra config:
+
+1. Tavily, only if `MADRA_TAVILY_API_KEY` is set
+2. DuckDuckGo HTML (`html.duckduckgo.com`); HTTP 202 / bot-challenge pages count as failure
+3. DuckDuckGo Lite (`lite.duckduckgo.com`)
+4. Wikipedia full-text search API
+5. DuckDuckGo Instant Answer API
+
+The search query is the research objective itself (no `latest` prefix).
+`MADRA_SEARCH_PROVIDER=duckduckgo` uses only the free chain;
+`MADRA_SEARCH_PROVIDER=tavily` uses only Tavily.
 
 ## PDF and image inputs
 
@@ -215,7 +253,7 @@ key it returns the real search evidence with a snippet summary instead.
 * **Image** (`image_analyzer`, Pillow): PNG/JPEG/WebP/GIF validation (declared
   type must match real format), 10 MiB / 40 MP limits, metadata extraction.
   With `MADRA_OPENROUTER_API_KEY` set it also asks the free vision model
-  (`MADRA_OPENROUTER_VISION_MODEL`, `:free` only, guard-enforced) for a
+  (`MADRA_OPENROUTER_VISION_MODEL`, default `auto`; `:free` only, guard-enforced) for a
   description; otherwise it returns metadata only and never invents one.
 
 Each attachment becomes its own research task in both offline and live modes.

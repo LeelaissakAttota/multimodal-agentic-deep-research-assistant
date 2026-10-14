@@ -77,8 +77,64 @@ class DeterministicReportAgent(ReportAgent):
             "status": state.status,
         }
 
-        # If we have citations in the analysis result, we can include them
-        # For now, we don't generate citations in the analysis phase, so we leave it empty.
         report["citations"] = []
+        findings = state.metadata.get("live_findings")
+        if isinstance(findings, list) and findings:
+            _apply_live_findings(report, findings)
 
         return report
+
+
+def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> None:
+    """Render live-mode syntheses with globally numbered, real-URL citations.
+
+    Each task's ``[n]`` markers refer to its own source list; they are
+    renumbered into one report-wide citation list so ``[n]`` in the content
+    always matches ``citations[n-1]``.
+    """
+    import re
+
+    citations: List[Dict[str, Any]] = []
+    index_by_url: Dict[str, int] = {}
+    sections: List[str] = []
+    models: List[str] = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        local_to_global: Dict[int, int] = {}
+        for local, source in enumerate(finding.get("sources") or [], start=1):
+            if not isinstance(source, dict) or not source.get("url"):
+                continue
+            url = str(source["url"])
+            if url not in index_by_url:
+                citations.append(
+                    {
+                        "number": len(citations) + 1,
+                        "source_id": source.get("source_id"),
+                        "url": url,
+                        "title": source.get("title") or url,
+                    }
+                )
+                index_by_url[url] = len(citations)
+            local_to_global[local] = index_by_url[url]
+        summary = str(finding.get("summary") or "").strip()
+
+        def _renumber(match: "re.Match[str]", mapping: Dict[int, int] = local_to_global) -> str:
+            numbers = [int(n) for n in re.findall(r"\d+", match.group(0))]
+            mapped = [str(mapping[n]) for n in numbers if n in mapping]
+            return "[" + ", ".join(mapped) + "]" if mapped else ""
+
+        summary = re.sub(r"\[(\d+(?:\s*[,\u2013-]\s*\d+)*)\]", _renumber, summary)
+        heading = str(finding.get("objective") or "Findings")
+        sections.append(f"## {heading}\n\n{summary}")
+        model_id = finding.get("model_id")
+        if isinstance(model_id, str) and model_id and model_id not in models:
+            models.append(model_id)
+    if not sections:
+        return
+    source_lines = "\n".join(f"[{c['number']}] {c['title']} - {c['url']}" for c in citations)
+    report["content"] = "\n\n".join(sections) + ("\n\n## Sources\n\n" + source_lines if source_lines else "")
+    report["citations"] = citations
+    report["sources"] = citations
+    report["models_used"] = models
+    report["synthesis"] = "llm" if models else "snippets"

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed (live mode, real world)
+- Automatic runtime free-model selection: OpenRouter `/models` catalog (6h cache, refresh on failure), `:free` filtering, separate text/vision ranking, demotion of failed models, fallback on 403/404/408/429/5xx. `MADRA_OPENROUTER_MODEL=auto` is the default; pinned `:free` ids are tried first.
+- Web search: DuckDuckGo 202/challenge pages count as failures. Search now tries a no-key chain automatically: Tavily (only with a key) → DDG HTML → DDG Lite → Wikipedia full-text → DDG Instant Answer. The planner no longer adds a 'latest' prefix.
+- Live reports now include the LLM syntheses with report-wide `[n]` citations that link to real source URLs, plus `models_used`.
+
 ### Fixed (post-Phase 7)
 - Restored modules imported by `provider_wiring.py` but never committed (`core/free_model_guard.py`, `models/guarded_gateway.py`, `models/providers/openrouter_gateway.py`); `audio_transcription_tool` and `provider_wiring` previously failed with `ModuleNotFoundError`
 - Added a `transcribe()` interface on `ModelGateway` (fails closed by default) and `ModelRequest.audio_data`; added provider credential settings; added `httpx` as a runtime dependency

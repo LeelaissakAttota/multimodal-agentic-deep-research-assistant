@@ -80,9 +80,9 @@ class DeterministicPlanningAgent(PlanningAgent):
                 ResearchTask(
                     plan_id=UUID(int=0),  # Replaced after plan creation
                     description=f"Find recent developments in: {request.objective}",
-                    objective=f"Identify latest trends and advances in {request.objective}",
+                    objective=f"Identify recent trends and advances in {request.objective}",
                     assigned_tool="web_search",
-                    tool_input={"query": f"latest {request.objective}", "limit": 5},
+                    tool_input={"query": f"recent developments {request.objective}", "limit": 5},
                 ),
                 ResearchTask(
                     plan_id=UUID(int=0),  # Replaced after plan creation

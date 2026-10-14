@@ -230,11 +230,53 @@ class MasterResearchOrchestrator:
                 source_ids = output.get("source_ids")
                 if isinstance(source_ids, list):
                     self._extend_unique(task.sources_consulted, source_ids)
+                self._record_live_finding(task, output, tool_result.metadata)
             else:
                 task.status = "failed"
                 task.error = tool_result.error or "Unknown error"
             completed_tasks.append(task)
         return completed_tasks
+
+    def _record_live_finding(
+        self, task: ResearchTask, output: Mapping[str, Any], metadata: Mapping[str, Any]
+    ) -> None:
+        """Keep live-mode synthesis and real source metadata for the report.
+
+        Only populated when the research agent returns ``source_objects``
+        (live mode); offline/deterministic runs are unaffected.
+        """
+        source_objects = output.get("source_objects")
+        if not isinstance(source_objects, list) or not source_objects:
+            return
+        sources: List[Dict[str, Any]] = []
+        for source in source_objects:
+            url = getattr(source, "url", None)
+            source_id = getattr(source, "id", None)
+            if url is None or source_id is None:
+                continue
+            sources.append(
+                {
+                    "source_id": str(source_id),
+                    "url": str(url),
+                    "title": getattr(source, "title", None) or str(url),
+                }
+            )
+        if not sources:
+            return
+        findings = self.research_state.metadata.setdefault("live_findings", [])
+        if isinstance(findings, list):
+            findings.append(
+                {
+                    "task_id": str(task.id),
+                    "objective": task.objective,
+                    "query": metadata.get("query"),
+                    "summary": output.get("summary") if isinstance(output.get("summary"), str) else "",
+                    "model_id": metadata.get("model_id"),
+                    "synthesis": metadata.get("synthesis"),
+                    "synthesis_error": metadata.get("synthesis_error"),
+                    "sources": sources,
+                }
+            )
 
     async def _analysis_phase(self) -> None:
         assert self._plan is not None, "No plan available for analysis phase"

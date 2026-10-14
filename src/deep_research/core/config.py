@@ -43,15 +43,22 @@ class Settings(BaseSettings):
 
     # Optional live-provider credentials (absent => offline/deterministic).
     openrouter_api_key: SecretStr | None = Field(default=None)
-    openrouter_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
-    openrouter_vision_model: str = Field(default="google/gemma-3-27b-it:free")
+    openrouter_model: str = Field(
+        default="auto",
+        description="OpenRouter model id ending in :free, or 'auto' to pick from /models at runtime.",
+    )
+    openrouter_vision_model: str = Field(
+        default="auto",
+        description="OpenRouter vision model id ending in :free, or 'auto'.",
+    )
+    openrouter_model_cache_seconds: int = Field(default=21_600, ge=60, le=604_800)
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
     nvidia_api_key: SecretStr | None = Field(default=None)
     huggingface_api_key: SecretStr | None = Field(default=None)
 
     # Research mode: "offline" (deterministic, default, no network) or "live"
     research_mode: Literal["offline", "live"] = Field(default="offline")
-    search_provider: Literal["duckduckgo", "tavily"] = Field(default="duckduckgo")
+    search_provider: Literal["auto", "duckduckgo", "tavily"] = Field(default="auto")
     tavily_api_key: SecretStr | None = Field(default=None)
     live_max_search_results: int = Field(default=5, ge=1, le=10)
     live_max_fetch_pages: int = Field(default=2, ge=0, le=5)

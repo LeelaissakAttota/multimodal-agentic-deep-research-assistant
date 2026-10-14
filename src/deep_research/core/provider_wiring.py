@@ -45,6 +45,7 @@ from deep_research.models.free_stt_router import (
     NVIDIATranscriptionProvider,
     STTProvider,
 )
+from deep_research.models.openrouter_catalog import AUTO_GUARD_MODEL_ID, AUTO_MODEL_ID
 from deep_research.models.providers.openrouter_gateway import OpenRouterModelGateway
 
 
@@ -133,19 +134,25 @@ def build_provider_gateway(
         if not key_value.strip():
             return None
 
-        model = (
+        configured = (
             settings.openrouter_vision_model
             if capability == ModelCapability.VISION
             else settings.openrouter_model
         )
+        configured = (configured or AUTO_MODEL_ID).strip() or AUTO_MODEL_ID
+        kind = "vision" if capability == ModelCapability.VISION else "text"
         raw_gateway = OpenRouterModelGateway(
             api_key=settings.openrouter_api_key,
-            model=model,
+            model=configured,
             base_url=settings.openrouter_base_url,
+            catalog_ttl_seconds=float(settings.openrouter_model_cache_seconds),
+            kind=kind,  # type: ignore[arg-type]
         )
+        # Guard sees auto:free (or a pinned :free id); the concrete model is chosen at call time.
+        guard_model = AUTO_GUARD_MODEL_ID if configured == AUTO_MODEL_ID else configured
         return GuardedModelGateway(
             raw_gateway,
-            model_id=model,
+            model_id=guard_model,
             provider="openrouter",
             capability=capability,
             guard=guard or FreeModelGuard(),

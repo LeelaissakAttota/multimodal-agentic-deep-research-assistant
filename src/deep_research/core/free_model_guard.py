@@ -37,7 +37,11 @@ class FreeModelGuard:
         if provider in _FREE_ROUTER_PROVIDERS:
             return True
         if provider == "openrouter":
-            return model_id.endswith(":free") or model_id == "openrouter/free"
+            return (
+                model_id.endswith(":free")
+                or model_id == "openrouter/free"
+                or model_id == "auto"
+            )
         return False
 
     def check(
