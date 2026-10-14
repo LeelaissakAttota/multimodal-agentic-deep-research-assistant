@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -45,6 +47,13 @@ class Settings(BaseSettings):
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
     nvidia_api_key: SecretStr | None = Field(default=None)
     huggingface_api_key: SecretStr | None = Field(default=None)
+
+    # Research mode: "offline" (deterministic, default, no network) or "live"
+    research_mode: Literal["offline", "live"] = Field(default="offline")
+    search_provider: Literal["duckduckgo", "tavily"] = Field(default="duckduckgo")
+    tavily_api_key: SecretStr | None = Field(default=None)
+    live_max_search_results: int = Field(default=5, ge=1, le=10)
+    live_max_fetch_pages: int = Field(default=2, ge=0, le=5)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -181,3 +181,25 @@ Known limitations include process-local API lookup, synchronous local SQLite, le
 ## License
 
 MIT — see `LICENSE`.
+
+## Live research mode (optional)
+
+By default the assistant runs fully offline with the deterministic agent
+(`MADRA_RESEARCH_MODE=offline`), and all tests stay offline and free.
+
+To use real web research:
+
+```bash
+export MADRA_RESEARCH_MODE=live
+# optional: LLM synthesis with citations via free OpenRouter models
+export MADRA_OPENROUTER_API_KEY=...            # model must end in ":free"
+export MADRA_OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free
+# optional: Tavily instead of the free DuckDuckGo HTML search
+# export MADRA_SEARCH_PROVIDER=tavily MADRA_TAVILY_API_KEY=...
+uvicorn deep_research.api.main:app
+```
+
+Live mode searches the web, fetches the top pages (public http(s) only, with
+private-network/SSRF protection and size limits), and asks the
+free-model-guarded LLM to answer with `[n]` citations. Without an OpenRouter
+key it returns the real search evidence with a snippet summary instead.

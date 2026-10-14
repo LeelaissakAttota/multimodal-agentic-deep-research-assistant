@@ -11,6 +11,7 @@ from deep_research.core.agents.analysis_agent import DeterministicAnalysisAgent
 from deep_research.core.agents.deterministic_research_agent import (
     DeterministicResearchAgent,
 )
+from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent
 from deep_research.core.agents.planning_agent import DeterministicPlanningAgent
 from deep_research.core.agents.report_agent import DeterministicReportAgent
@@ -109,12 +110,38 @@ class ResearchApplication:
         )
         return MasterResearchOrchestrator(
             planning_agent=DeterministicPlanningAgent(),
-            research_agent=DeterministicResearchAgent(),
+            research_agent=self._build_research_agent(),
             analysis_agent=DeterministicAnalysisAgent(),
             evaluation_agent=DeterministicEvaluationAgent(),
             report_agent=DeterministicReportAgent(),
             max_iterations=limits.max_research_iterations,
             execution_harness=harness,
+        )
+
+    def _build_research_agent(self) -> ResearchAgent:
+        """Pick the research agent from ``settings.research_mode``.
+
+        ``offline`` (default) keeps the deterministic, network-free agent.
+        ``live`` uses real web search/fetch plus optional LLM synthesis via the
+        free-model-guarded OpenRouter gateway (snippet summary when no key).
+        """
+        if self.settings.research_mode != "live":
+            return DeterministicResearchAgent()
+        from deep_research.core.agents.live_research_agent import LiveResearchAgent
+        from deep_research.core.free_model_guard import ModelCapability
+        from deep_research.core.provider_wiring import build_provider_gateway
+        from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
+
+        return LiveResearchAgent(
+            search_tool=WebSearchTool(
+                provider=self.settings.search_provider,
+                tavily_api_key=self.settings.tavily_api_key,
+            ),
+            fetch_tool=WebFetchTool(),
+            gateway=build_provider_gateway(self.settings, capability=ModelCapability.TEXT_GENERATION),
+            max_results=self.settings.live_max_search_results,
+            max_fetch=self.settings.live_max_fetch_pages,
+            max_tokens=self.settings.max_tokens_per_call,
         )
 
     @staticmethod
