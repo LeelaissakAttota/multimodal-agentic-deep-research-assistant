@@ -150,7 +150,8 @@ def test_pdf_encrypted_and_no_text() -> None:
     writer.add_blank_page(width=100, height=100)
     blank = io.BytesIO()
     writer.write(blank)
-    assert pdf_exec(PdfReaderTool(), pdf_data=pdf_url(blank.getvalue())).metadata["failure_kind"] == "no_text"
+    blank_res = pdf_exec(PdfReaderTool(), pdf_data=pdf_url(blank.getvalue()))
+    assert blank_res.success and blank_res.output["note"] == "no extractable text" and blank_res.output["image_count"] == 0
     writer.encrypt("secret")
     enc = io.BytesIO()
     writer.write(enc)
@@ -263,8 +264,8 @@ def test_planner_adds_attachment_tasks() -> None:
     ])
     plan = run(DeterministicPlanningAgent().create_plan(req, ResearchState(request_id=req.id)))
     tools = [t.assigned_tool for t in plan.tasks]
-    assert tools[-2:] == ["pdf_reader", "image_analyzer"]
-    assert "pdf_data" in plan.tasks[-2].tool_input and plan.tasks[-2].tool_input["source_title"] == "paper.pdf"
+    assert tools[:2] == ["pdf_reader", "image_analyzer"]  # attachments first (primary sources)
+    assert "pdf_data" in plan.tasks[0].tool_input and plan.tasks[0].tool_input["source_title"] == "paper.pdf"
 
 
 def test_offline_flow_processes_attachments() -> None:

@@ -149,7 +149,7 @@ class ResearchApplication:
             max_fetch=self.settings.live_max_fetch_pages,
             max_tokens=self.settings.max_tokens_per_call,
             media_tools={
-                "pdf_reader": PdfReaderTool(),
+                "pdf_reader": PdfReaderTool(vision_gateway=vision),
                 "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
             },
         )

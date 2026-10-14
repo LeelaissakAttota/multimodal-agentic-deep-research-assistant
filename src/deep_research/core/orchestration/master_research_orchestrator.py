@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from deep_research.context.context_builder import AgentContext, ResearchContextBuilder
+from deep_research.core.attachment_context import ATTACHMENT_TOOL_KINDS, attachment_entry
 from deep_research.core.agents.analysis_agent import AnalysisAgent
 from deep_research.core.agents.evaluation_agent import EvaluationAgent, EvaluationResult
 from deep_research.core.agents.planning_agent import PlanningAgent
@@ -216,7 +217,11 @@ class MasterResearchOrchestrator:
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
             context = self._build_context(task.objective)
-            tool_result = await self._invoke_research_agent(task, context)
+            self._inject_attachment_context(task)
+            try:
+                tool_result = await self._invoke_research_agent(task, context)
+            finally:
+                task.metadata.pop("attachment_context", None)
             if tool_result.success:
                 task.status = "completed"
                 output = self._normalize_tool_output(tool_result.output)
@@ -230,12 +235,27 @@ class MasterResearchOrchestrator:
                 source_ids = output.get("source_ids")
                 if isinstance(source_ids, list):
                     self._extend_unique(task.sources_consulted, source_ids)
+                self._record_attachment(task, output)
                 self._record_live_finding(task, output, tool_result.metadata)
             else:
                 task.status = "failed"
                 task.error = tool_result.error or "Unknown error"
             completed_tasks.append(task)
         return completed_tasks
+
+    def _inject_attachment_context(self, task: ResearchTask) -> None:
+        """Hand processed attachments to non-attachment tasks as primary sources (transient)."""
+        entries = self.research_state.metadata.get("attachment_context")
+        if isinstance(entries, list) and entries and task.assigned_tool not in ATTACHMENT_TOOL_KINDS:
+            task.metadata["attachment_context"] = list(entries)
+
+    def _record_attachment(self, task: ResearchTask, output: Mapping[str, Any]) -> None:
+        entry = attachment_entry(task.assigned_tool, output)
+        if entry is None:
+            return
+        entries = self.research_state.metadata.setdefault("attachment_context", [])
+        if isinstance(entries, list):
+            entries.append(entry)
 
     def _record_live_finding(
         self, task: ResearchTask, output: Mapping[str, Any], metadata: Mapping[str, Any]
@@ -248,19 +268,7 @@ class MasterResearchOrchestrator:
         source_objects = output.get("source_objects")
         if not isinstance(source_objects, list) or not source_objects:
             return
-        sources: List[Dict[str, Any]] = []
-        for source in source_objects:
-            url = getattr(source, "url", None)
-            source_id = getattr(source, "id", None)
-            if url is None or source_id is None:
-                continue
-            sources.append(
-                {
-                    "source_id": str(source_id),
-                    "url": str(url),
-                    "title": getattr(source, "title", None) or str(url),
-                }
-            )
+        sources = [row for row in (_source_row(source) for source in source_objects) if row is not None]
         if not sources:
             return
         findings = self.research_state.metadata.setdefault("live_findings", [])
@@ -269,8 +277,12 @@ class MasterResearchOrchestrator:
                 {
                     "task_id": str(task.id),
                     "objective": task.objective,
+                    "section": task.metadata.get("section"),
+                    "kind": "attachment" if task.assigned_tool in ATTACHMENT_TOOL_KINDS else "web",
                     "query": metadata.get("query"),
                     "summary": output.get("summary") if isinstance(output.get("summary"), str) else "",
+                    "attachment": {k: output.get(k) for k in ("page_count", "has_text", "note", "image_count")}
+                    if task.assigned_tool in ATTACHMENT_TOOL_KINDS else None,
                     "model_id": metadata.get("model_id"),
                     "synthesis": metadata.get("synthesis"),
                     "synthesis_error": metadata.get("synthesis_error"),
@@ -528,3 +540,21 @@ class MasterResearchOrchestrator:
         if isinstance(output, Mapping):
             return output
         return {}
+
+
+def _source_row(source: Any) -> Optional[Dict[str, Any]]:
+    """JSON-safe citation row: web sources need a URL; attachment sources are labelled instead."""
+    source_id = getattr(source, "id", None)
+    if source_id is None:
+        return None
+    url = getattr(source, "url", None)
+    metadata = getattr(source, "metadata", None) or {}
+    is_attachment = bool(metadata.get("attachment")) if isinstance(metadata, dict) else False
+    if url is None and not is_attachment:
+        return None
+    title = getattr(source, "title", None) or (str(url) if url else "Attachment")
+    row: Dict[str, Any] = {"source_id": str(source_id), "url": str(url) if url else None, "title": title}
+    if is_attachment and isinstance(metadata, dict):
+        row["kind"] = "attachment"
+        row["page"] = metadata.get("page")
+    return row

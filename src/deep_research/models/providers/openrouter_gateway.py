@@ -143,8 +143,19 @@ class OpenRouterModelGateway(ModelGateway):
                 error_code=code,
                 details=self._details(model=model_id, status_code=status),
             )
+        return self._parse_completion(response, model_id)
+
+    def _parse_completion(self, response: httpx.Response, model_id: str) -> ModelResponse:
+        """Turn a 200 response into ``ModelResponse``; error bodies and empty content raise (fallback-eligible)."""
         try:
             data: Any = response.json()
+            if isinstance(data, dict) and isinstance(data.get("error"), dict):
+                raise ModelError(
+                    f"OpenRouter error in 200 body: {data['error'].get('message') or 'unknown'}",
+                    error_code="provider_server_error",
+                    details=self._details(model=model_id, status_code=int(data["error"].get("code") or 502)
+                                          if str(data["error"].get("code") or "").isdigit() else 502),
+                )
             text = data["choices"][0]["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise ModelError(
@@ -152,6 +163,12 @@ class OpenRouterModelGateway(ModelGateway):
                 error_code="provider_malformed_response",
                 details=self._details(model=model_id),
             ) from exc
+        if text is None or (isinstance(text, str) and not text.strip()):
+            raise ModelError(
+                "OpenRouter returned empty content (reasoning budget exhausted?)",
+                error_code="provider_empty_response",
+                details=self._details(model=model_id),
+            )
         if not isinstance(text, str):
             raise ModelError(
                 "OpenRouter content is not a string",

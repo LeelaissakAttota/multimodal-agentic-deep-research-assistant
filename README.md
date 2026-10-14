@@ -218,12 +218,24 @@ With `MADRA_OPENROUTER_MODEL=auto` (default) and `MADRA_OPENROUTER_VISION_MODEL=
    `input_modalities`): general-purpose before specialty models
    (content-safety, note/code previews), text+image before text-only for
    vision, then larger context length first.
-3. The ranked list is cached for `MADRA_OPENROUTER_MODEL_CACHE_SECONDS`
-   (default 6 hours).
-4. On HTTP 403/404/429/5xx, "unavailable for free", "only available on…",
-   rate-limit or overload responses, the cache is refreshed and the next free
-   model is tried automatically (up to 4 models per call).
-5. Setting a concrete `:free` slug pins that model first; failures still fall
+3. **Probe + persist (first run / fresh clone):** the top
+   `MADRA_OPENROUTER_PROBE_COUNT` (default 3) text and vision candidates get a
+   tiny concurrent probe (`"Reply with the single word: ok"`, a 1×1 image for
+   vision, `max_tokens=16`, `MADRA_OPENROUTER_PROBE_TIMEOUT_SECONDS`, default 8s).
+   The fastest working model per kind is selected; working models are ordered
+   fastest-first and failing ones go last.
+4. The selection, ranked lists, probe results and a timestamp are saved as JSON
+   to `MADRA_OPENROUTER_MODEL_CACHE_PATH`. If unset, the per-user cache dir is
+   used: `~/.cache/madra/openrouter_free_models.json` (Linux/XDG),
+   `~/Library/Caches/madra/…` (macOS), `%LOCALAPPDATA%\madra\…` (Windows).
+   Set it to `off` to disable. **The API key is never written.** Restarts reuse
+   the file for `MADRA_OPENROUTER_MODEL_CACHE_SECONDS` (default 6 hours); once
+   it expires (e.g. the next day) the app re-discovers and re-probes
+   automatically. A corrupt file, or one written for another base URL, is ignored.
+5. On HTTP 403/404/429/5xx, "unavailable for free", "only available on…",
+   rate-limit or overload responses, the failed model is demoted, the catalog
+   refreshed and the next free model tried automatically (up to 6 per call).
+6. Setting a concrete `:free` slug pins that model first; failures still fall
    back to the rest of the free catalog. `FreeModelGuard` still rejects any
    non-`:free` id.
 
@@ -247,16 +259,52 @@ The search query is the research objective itself (no `latest` prefix).
 `POST` research submissions accept up to 5 `attachments`, each
 `{"kind": "pdf" | "image", "data": "data:<mime>;base64,...", "name": "optional"}`.
 
-* **PDF** (`pdf_reader`, pypdf): offline text extraction; 20 MiB, 200 pages and
-  200k characters max; encrypted, scanned/no-text and malformed files return
-  safe structured errors.
+* **PDF** (`pdf_reader`, pypdf): offline per-page text extraction; 20 MiB,
+  200 pages and 200k characters max; encrypted and malformed files return safe
+  structured errors.
+  * **Scanned / image-only PDFs don't fail the run.** The result carries the
+    note `no extractable text`, the page count, metadata and an inventory of
+    embedded images (count, page, pixel size). If a free vision model is
+    available, the first page's embedded images (up to 2) are described;
+    otherwise the note says what is present.
 * **Image** (`image_analyzer`, Pillow): PNG/JPEG/WebP/GIF validation (declared
   type must match real format), 10 MiB / 40 MP limits, metadata extraction.
   With `MADRA_OPENROUTER_API_KEY` set it also asks the free vision model
   (`MADRA_OPENROUTER_VISION_MODEL`, default `auto`; `:free` only, guard-enforced) for a
   description; otherwise it returns metadata only and never invents one.
 
-Each attachment becomes its own research task in both offline and live modes.
+Each attachment becomes its own research task in both offline and live modes,
+scheduled **before** the web tasks. In live mode the extracted PDF text is
+split into ~1.2k-character page chunks, and image or scan descriptions are
+added too. Each web section gets the most query-relevant chunks (up to 4) as
+**primary** sources numbered ahead of web results. The LLM is told to use and
+cite them first, and the report lists them as `[n] <file> (attached pdf, p.N)
+- user attachment`. An `## Attached files` section summarises each
+attachment (pages; for scans: no extractable text and image count). If web
+search is blocked, sections still complete from the attachments alone.
+
+### Report sections
+
+Section headings are short and keyword-based; they never repeat the whole
+question. The first section is always **Fundamentals**. The next two come from
+aspects detected in the question: **Benefits** (benefit, advantage, pros),
+**Risks** (risk, drawback, cons, challenge), **Costs and economics**,
+**Comparison**, **History**, **Recent developments**. If fewer than two
+aspects are detected, **Recent developments** and **Significance and impact**
+fill the gap. Each section's search query and LLM focus are scoped to its
+aspect, which avoids three near-identical answers.
+
+## Viewing a live run
+
+There is no web UI. The simplest way to try it is the Swagger UI:
+
+```bash
+MADRA_RESEARCH_MODE=live MADRA_OPENROUTER_API_KEY=... uvicorn deep_research.api.main:app --port 8000
+# open http://127.0.0.1:8000/docs -> POST /research -> "Try it out"
+```
+
+The `report.content` field is Markdown, with numbered citations and a
+`## Sources` list.
 
 ## Docker
 

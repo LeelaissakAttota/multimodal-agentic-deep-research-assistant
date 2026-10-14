@@ -52,6 +52,13 @@ class Settings(BaseSettings):
         description="OpenRouter vision model id ending in :free, or 'auto'.",
     )
     openrouter_model_cache_seconds: int = Field(default=21_600, ge=60, le=604_800)
+    openrouter_model_cache_path: str | None = Field(
+        default=None,
+        description="JSON file for the persisted free-model selection. Unset = per-user cache dir; 'off' disables.",
+    )
+    openrouter_probe_count: int = Field(default=3, ge=0, le=10,
+                                        description="Top free models per kind to latency-probe on discovery.")
+    openrouter_probe_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
     nvidia_api_key: SecretStr | None = Field(default=None)
     huggingface_api_key: SecretStr | None = Field(default=None)

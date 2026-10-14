@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed / improved (full polish)
+- The free-model selection now persists across restarts. On first run the app discovers the OpenRouter `:free` models and probes the top-ranked text and vision models concurrently (tiny prompt, short timeout). If no model of a kind works, it probes the next batch, up to 3 batches. The fastest working model per kind is selected, and the selection, ranked lists, probe results and a timestamp are saved as JSON in the per-user cache dir (`MADRA_OPENROUTER_MODEL_CACHE_PATH`, `off` to disable). The API key is never written. The file is reused for 6h; after expiry the app re-discovers and re-probes automatically.
+- Fallback now also covers 200 responses with an error body, and null or empty content (reasoning models that run out of budget). Failed models are demoted.
+- Attached PDFs and images are processed before web tasks. Their text is split into page chunks, and the most relevant chunks are fed to every section's synthesis as primary sources, numbered ahead of web results and cited as `user attachment`. Sections still complete from the attachments alone if web search is blocked.
+- Scanned or image-only PDFs no longer fail the run. The result carries the note `no extractable text`, the page count, metadata and an embedded-image inventory, plus free-vision descriptions of the first page's images when a vision model is available.
+- Report headings are concise, keyword-based sections (Fundamentals / Benefits / Risks / ...) instead of the repeated question. Each section has an aspect-scoped search query and LLM focus. Full-width `【n】` citations and exotic spaces are normalised.
+
 ### Fixed (live mode, real world)
 - Automatic runtime free-model selection: OpenRouter `/models` catalog (6h cache, refresh on failure), `:free` filtering, separate text/vision ranking, demotion of failed models, fallback on 403/404/408/429/5xx. `MADRA_OPENROUTER_MODEL=auto` is the default; pinned `:free` ids are tried first.
 - Web search: DuckDuckGo 202/challenge pages count as failures. Search now tries a no-key chain automatically: Tavily (only with a key) → DDG HTML → DDG Lite → Wikipedia full-text → DDG Instant Answer. The planner no longer adds a 'latest' prefix.

@@ -12,6 +12,7 @@ from typing import Any
 
 from deep_research.context.context_builder import AgentContext
 from deep_research.core.agents.research_agent import ResearchAgent
+from deep_research.core.attachment_context import select_attachment_sources
 from deep_research.core.free_model_guard import ModelCapability
 from deep_research.domain.research.research_task import ResearchTask
 from deep_research.errors.base import ModelError
@@ -27,7 +28,12 @@ _SYNTH_PROMPT = (
     "You are a careful research assistant. Using ONLY the numbered sources below, "
     "write a concise, factual answer to the research objective. Cite sources inline "
     "as [n]. If the sources do not answer the objective, say so explicitly.\n\n"
-    "Objective: {objective}\n\nSources:\n{sources}\n\nAnswer:"
+    "{attachment_note}"
+    "Objective: {objective}\n{focus}\nSources:\n{sources}\n\nAnswer:"
+)
+_ATTACHMENT_NOTE = (
+    "Sources marked (attached ...) are documents/images the user provided. They are PRIMARY: use their specific "
+    "facts and figures first and cite them; use web sources for context and corroboration.\n\n"
 )
 
 
@@ -62,18 +68,50 @@ class LiveResearchAgent(ResearchAgent):
             )
         query = params.get("query") if isinstance(params.get("query"), str) else None
         query = (query or task.objective or task.description).strip()
+        objective = str(task.metadata.get("question") or query)
+        att_sources, att_evidence = select_attachment_sources(task.metadata.get("attachment_context"), objective)
 
         search = await self.search_tool.execute(
             ToolRequest(tool_name=WEB_SEARCH_TOOL_ID, parameters={"query": query, "limit": self.max_results})
         )
-        if not search.success:
+        hits: list[dict[str, str]] = list(_get(search.output, "results") or []) if search.success else []
+        if not search.success and not att_sources:
             return ToolResult(success=False, error=search.error or "Web search failed", tool_name=LIVE_RESEARCH_TOOL_ID,
                               execution_time_ms=_ms(start), metadata={**search.metadata, "stage": "search"})
-        hits: list[dict[str, str]] = list(_get(search.output, "results") or [])
-        if not hits:
+        if not hits and not att_sources:
             return ToolResult(success=False, error=f"No web results for: {query}", tool_name=LIVE_RESEARCH_TOOL_ID,
                               execution_time_ms=_ms(start), metadata={"failure_kind": "no_results", "stage": "search"})
 
+        web_sources, web_evidence = await self._web_sources(hits, query)
+        sources = [*att_sources, *web_sources]
+        evidence = [*att_evidence, *web_evidence]
+        if not evidence:
+            return ToolResult(success=False, error="Web results contained no usable content",
+                              tool_name=LIVE_RESEARCH_TOOL_ID, execution_time_ms=_ms(start),
+                              metadata={"failure_kind": "no_content"})
+
+        focus = str(task.metadata.get("focus") or "")
+        summary, model_id, synth_error = await self._synthesize(objective, sources, evidence, focus=focus,
+                                                                has_attachments=bool(att_sources))
+        return ToolResult(
+            success=True,
+            output={
+                "summary": summary,
+                "evidence_ids": [e.id for e in evidence],
+                "source_ids": [s.id for s in sources],
+                "evidence_objects": evidence,
+                "source_objects": sources,
+                "results": hits,
+            },
+            tool_name=LIVE_RESEARCH_TOOL_ID,
+            execution_time_ms=_ms(start),
+            metadata={"tool_identifier": LIVE_RESEARCH_TOOL_ID, "query": query, "model_id": model_id,
+                      "synthesis": "llm" if model_id else "snippets", "synthesis_error": synth_error,
+                      "attachment_sources": len(att_sources),
+                      "search_error": None if search.success else (search.error or "search_failed")},
+        )
+
+    async def _web_sources(self, hits: list[dict[str, str]], query: str) -> tuple[list[Source], list[Evidence]]:
         sources: list[Source] = []
         evidence: list[Evidence] = []
         for index, hit in enumerate(hits):
@@ -98,40 +136,22 @@ class LiveResearchAgent(ResearchAgent):
             sources.append(source)
             evidence.append(Evidence(source_id=source.id, content=content, content_type="web_text",
                                      metadata={"fetched": fetched, "url": hit["url"], "provenance": "live_research"}))
+        return sources, evidence
 
-        if not evidence:
-            return ToolResult(success=False, error="Web results contained no usable content",
-                              tool_name=LIVE_RESEARCH_TOOL_ID, execution_time_ms=_ms(start),
-                              metadata={"failure_kind": "no_content"})
-
-        summary, model_id, synth_error = await self._synthesize(query, sources, evidence)
-        return ToolResult(
-            success=True,
-            output={
-                "summary": summary,
-                "evidence_ids": [e.id for e in evidence],
-                "source_ids": [s.id for s in sources],
-                "evidence_objects": evidence,
-                "source_objects": sources,
-                "results": hits,
-            },
-            tool_name=LIVE_RESEARCH_TOOL_ID,
-            execution_time_ms=_ms(start),
-            metadata={"tool_identifier": LIVE_RESEARCH_TOOL_ID, "query": query, "model_id": model_id,
-                      "synthesis": "llm" if model_id else "snippets", "synthesis_error": synth_error},
-        )
-
-    async def _synthesize(self, objective: str, sources: list[Source], evidence: list[Evidence]
-                          ) -> tuple[str, str | None, str | None]:
+    async def _synthesize(self, objective: str, sources: list[Source], evidence: list[Evidence], *,
+                          focus: str = "", has_attachments: bool = False) -> tuple[str, str | None, str | None]:
         numbered = "\n\n".join(
-            f"[{i}] {s.title or s.url} ({s.url})\n{e.content}" for i, (s, e) in enumerate(zip(sources, evidence), 1)
+            f"[{i}] {s.title or s.url} ({s.url or 'user attachment'})\n{e.content}"
+            for i, (s, e) in enumerate(zip(sources, evidence), 1)
         )
         fallback = "\n".join(f"[{i}] {s.title or s.url}: {(s.description or e.content)[:300]}"
                              for i, (s, e) in enumerate(zip(sources, evidence), 1))
         if self.gateway is None:
             return fallback, None, None
         request = ModelRequest(
-            prompt=_SYNTH_PROMPT.format(objective=objective, sources=numbered),
+            prompt=_SYNTH_PROMPT.format(objective=objective, sources=numbered,
+                                        focus=f"Focus for this section: {focus}\n" if focus else "",
+                                        attachment_note=_ATTACHMENT_NOTE if has_attachments else ""),
             parameters={"max_tokens": self.max_tokens,
                         "required_capability": ModelCapability.TEXT_GENERATION.value},
         )
