@@ -1,6 +1,23 @@
 # Changelog
 
 ## [Unreleased]
+
+### Fixed (post-Phase 7)
+- Restored modules imported by `provider_wiring.py` but never committed (`core/free_model_guard.py`, `models/guarded_gateway.py`, `models/providers/openrouter_gateway.py`); `audio_transcription_tool` and `provider_wiring` previously failed with `ModuleNotFoundError`
+- Added a `transcribe()` interface on `ModelGateway` (fails closed by default) and `ModelRequest.audio_data`; added provider credential settings; added `httpx` as a runtime dependency
+- Replaced the bare `NotImplementedError` in `STTProvider.transcribe` with a structured `ModelError` so the router falls back cleanly
+- MyPy strict passes again (the 26 errors left by "fix: resolve pre-existing mypy typing errors" are resolved)
+- Removed the Starlette/httpx `TestClient` deprecation warning by testing the API through `httpx.ASGITransport`
+
+### Added (post-Phase 7)
+- Offline tests for the free STT router, providers, guard, guarded gateway, wiring and `AudioTranscriptionTool`
+- Live research mode (`MADRA_RESEARCH_MODE=live`, default `offline`): `LiveResearchAgent` with DuckDuckGo HTML (free) or Tavily search, SSRF-guarded size-capped page fetch, and cited LLM synthesis through the free-model-guarded OpenRouter gateway with snippet fallback
+- `PdfReaderTool` (pypdf) and `ImageAnalysisTool` (Pillow + optional `:free` OpenRouter vision description) with size/page/pixel limits and safe errors; research submissions accept up to 5 PDF/image `attachments`, each routed to its own task
+- Python 3.11/3.12/3.13 support and CI matrix; Dockerfile and `.dockerignore` (uvicorn, non-root, healthcheck)
+
+### Removed
+- Duplicate root-level `master_architecture.png.png` (identical to `docs/architecture/master_architecture.png`)
+
 ### Added
 - Phase 7 full-stack offline integration coverage across orchestration, persistence, recovery, context construction, runtime controls, reporting, and provenance identifiers
 - Adversarial tests for bounded input, secret-like metadata, credential-bearing URLs, sanitized tool failures, bounded session retention, and demo-batch exhaustion

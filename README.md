@@ -219,3 +219,11 @@ key it returns the real search evidence with a snippet summary instead.
   description; otherwise it returns metadata only and never invents one.
 
 Each attachment becomes its own research task in both offline and live modes.
+
+## Docker
+
+```bash
+docker build -t madra .
+docker run --rm -p 8000:8000 madra                      # offline mode
+docker run --rm -p 8000:8000 --env-file .env madra      # e.g. MADRA_RESEARCH_MODE=live
+```

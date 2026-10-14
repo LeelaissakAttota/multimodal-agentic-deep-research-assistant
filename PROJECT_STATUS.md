@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 7 — Final Integration (Complete)
+Post-Phase 7 — Stabilization, live research, and multimodal tools (Complete)
 
 ## Completed Phases
 
@@ -17,9 +17,9 @@ Phase 7 — Final Integration (Complete)
 
 ## Phase 7 Validation
 
-- [x] Complete pytest suite passes (68 tests, 2 environment/dependency warnings)
+- [x] Complete pytest suite passes (163 tests, 0 warnings) on Python 3.11, 3.12 and 3.13
 - [x] Ruff passes
-- [x] MyPy strict mode passes for all 44 source files
+- [x] MyPy strict mode passes for all 56 checked source files
 - [x] Full-stack orchestration, persistence, recovery, bounded context, harness accounting, and provenance propagation are tested offline
 - [x] Adversarial input, secret-like metadata, credential-bearing URLs, exception sanitization, and bounded registries/batches are tested
 - [x] Pydantic V2/date-time stabilization removes project-owned deprecation warnings
@@ -27,9 +27,18 @@ Phase 7 — Final Integration (Complete)
 - [x] Phase 0–6 regression behavior remains supported
 - [x] Mandatory validation makes no network or paid-model calls and costs $0
 
+## Post-Phase 7 Work
+
+- [x] Restored missing provider modules; fixed all MyPy strict errors; STT `transcribe` interface; fail-closed base STT provider
+- [x] Offline STT router and audio tool tests
+- [x] Live research mode (web search/fetch + free LLM synthesis), offline by default
+- [x] PDF and image tools with optional free vision descriptions; attachments in research submissions
+- [x] Python 3.13 support, CI matrix 3.11–3.13, TestClient deprecation removed, Dockerfile
+- Note: `pyproject.toml` author is still the placeholder `Principal Agentic AI Engineer <engineer@example.com>`
+
 ## Next Phase
 
-Phase 8 — Not started. No Phase 8 scope exists in the frozen Phase 0–7 roadmap.
+Phase 8 — Not started. Candidates: live-mode integration/eval runs, OCR for scanned PDFs, video input, persistent API sessions.
 
 ## Blockers
 
@@ -37,4 +46,4 @@ None.
 
 ## Last Updated
 
-2026-08-14
+2026-10-14
