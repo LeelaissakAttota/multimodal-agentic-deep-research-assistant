@@ -12,9 +12,9 @@
 ## Configuration
 - Model provider selection, API keys, and model names are configured via environment variables.
 - Example variables:
-  - `MADRA_MODEL_PROVIDER` (e.g., `openai`, `anthropic`, `local`)
-  - `MADRA_MODEL_NAME` (e.g., `gpt-4o`, `claude-3-5-sonnet-20240620`)
-  - `MADRA_API_KEY` (provider-specific, loaded from environment)
+  - `DEEP_RESEARCH_MODEL_PROVIDER` (e.g., `openai`, `anthropic`, `local`)
+  - `DEEP_RESEARCH_MODEL_NAME` (e.g., `gpt-4o`, `claude-3-5-sonnet-20240620`)
+  - `DEEP_RESEARCH_API_KEY` (provider-specific, loaded from environment)
 
 ## Fallback and Routing
 - `RoutedModelGateway` accepts an explicit ordered list of named provider-neutral gateway routes.

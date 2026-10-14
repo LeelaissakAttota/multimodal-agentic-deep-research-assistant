@@ -9,8 +9,8 @@
 - Phase 7 centralizes this detection so API and persistence checks use the same recursive key/credential-URL rules and expose only the offending path, never the value.
 
 ## Environment Variables
-- Prefix environment variables with `MADRA_` (Multimodal Agentic Deep Research Assistant) to avoid collisions.
-- Example: `MADRA_OPENAI_API_KEY`, `MADRA_GOOGLE_SEARCH_API_KEY`.
+- Prefix environment variables with `DEEP_RESEARCH_` (Multimodal Agentic Deep Research Assistant) to avoid collisions.
+- Example: `DEEP_RESEARCH_OPENAI_API_KEY`, `DEEP_RESEARCH_GOOGLE_SEARCH_API_KEY`.
 
 ## Input Validation
 - Validate all external inputs (user queries, API responses, file uploads).
@@ -56,7 +56,7 @@
 - Deterministic tool failure results expose a stable normalized message and exception type only; raw exception text is excluded from state and API error surfaces.
 
 ## Runtime Controls
-- `MADRA_EMERGENCY_STOP=true` fails closed before the next iteration or call.
+- `DEEP_RESEARCH_EMERGENCY_STOP=true` fails closed before the next iteration or call.
 - Every tool/model attempt consumes a bounded request budget; paid external API calls have a separate cap.
 - Token counts are enforced where provider usage is measurable, and all calls remain time/request bounded otherwise.
 - Runtime failure/report metadata passes through the existing secret-rejecting persistence boundary.

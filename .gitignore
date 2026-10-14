@@ -115,7 +115,7 @@ reports/
 # Cache directories for tools
 .cache/
 
-# Free-model selection cache (if MADRA_OPENROUTER_MODEL_CACHE_PATH points inside the repo)
+# Free-model selection cache (if DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH points inside the repo)
 data/.model_cache.json
 .model_cache.json
 openrouter_free_models.json

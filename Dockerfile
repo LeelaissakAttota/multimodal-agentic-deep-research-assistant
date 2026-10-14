@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    MADRA_RESEARCH_MODE=offline
+    DEEP_RESEARCH_RESEARCH_MODE=offline
 
 WORKDIR /app
 
@@ -15,8 +15,8 @@ COPY src ./src
 RUN pip install --upgrade pip && pip install .
 
 # Run as an unprivileged user.
-RUN useradd --create-home --uid 10001 madra
-USER madra
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
 
 EXPOSE 8000
 

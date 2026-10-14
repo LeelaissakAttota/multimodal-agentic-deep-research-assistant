@@ -45,7 +45,7 @@ test = [
 ]
 
 [project.scripts]
-madra-demo = "deep_research.demo:main"
+deep-research-demo = "deep_research.demo:main"
 
 [project.urls]
 Homepage = "https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant"

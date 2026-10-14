@@ -2,15 +2,19 @@
 
 ## [Unreleased]
 
+### Changed (breaking)
+- The old project acronym is gone everywhere. The settings env prefix is now `DEEP_RESEARCH_`, so rename the variables in an existing `.env`. The free-model cache dir is now `~/.cache/deep_research/` (`%LOCALAPPDATA%\deep_research\` on Windows). The demo command is `deep-research-demo`, the Docker image is `deep-research`, and the container user is `appuser`.
+- Added `docs/SETUP_WINDOWS.md`.
+
 ### Fixed / improved (full polish)
-- The free-model selection now persists across restarts. On first run the app discovers the OpenRouter `:free` models and probes the top-ranked text and vision models concurrently (tiny prompt, short timeout). If no model of a kind works, it probes the next batch, up to 3 batches. The fastest working model per kind is selected, and the selection, ranked lists, probe results and a timestamp are saved as JSON in the per-user cache dir (`MADRA_OPENROUTER_MODEL_CACHE_PATH`, `off` to disable). The API key is never written. The file is reused for 6h; after expiry the app re-discovers and re-probes automatically.
+- The free-model selection now persists across restarts. On first run the app discovers the OpenRouter `:free` models and probes the top-ranked text and vision models concurrently (tiny prompt, short timeout). If no model of a kind works, it probes the next batch, up to 3 batches. The fastest working model per kind is selected, and the selection, ranked lists, probe results and a timestamp are saved as JSON in the per-user cache dir (`DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH`, `off` to disable). The API key is never written. The file is reused for 6h; after expiry the app re-discovers and re-probes automatically.
 - Fallback now also covers 200 responses with an error body, and null or empty content (reasoning models that run out of budget). Failed models are demoted.
 - Attached PDFs and images are processed before web tasks. Their text is split into page chunks, and the most relevant chunks are fed to every section's synthesis as primary sources, numbered ahead of web results and cited as `user attachment`. Sections still complete from the attachments alone if web search is blocked.
 - Scanned or image-only PDFs no longer fail the run. The result carries the note `no extractable text`, the page count, metadata and an embedded-image inventory, plus free-vision descriptions of the first page's images when a vision model is available.
 - Report headings are concise, keyword-based sections (Fundamentals / Benefits / Risks / ...) instead of the repeated question. Each section has an aspect-scoped search query and LLM focus. Full-width `【n】` citations and exotic spaces are normalised.
 
 ### Fixed (live mode, real world)
-- Automatic runtime free-model selection: OpenRouter `/models` catalog (6h cache, refresh on failure), `:free` filtering, separate text/vision ranking, demotion of failed models, fallback on 403/404/408/429/5xx. `MADRA_OPENROUTER_MODEL=auto` is the default; pinned `:free` ids are tried first.
+- Automatic runtime free-model selection: OpenRouter `/models` catalog (6h cache, refresh on failure), `:free` filtering, separate text/vision ranking, demotion of failed models, fallback on 403/404/408/429/5xx. `DEEP_RESEARCH_OPENROUTER_MODEL=auto` is the default; pinned `:free` ids are tried first.
 - Web search: DuckDuckGo 202/challenge pages count as failures. Search now tries a no-key chain automatically: Tavily (only with a key) → DDG HTML → DDG Lite → Wikipedia full-text → DDG Instant Answer. The planner no longer adds a 'latest' prefix.
 - Live reports now include the LLM syntheses with report-wide `[n]` citations that link to real source URLs, plus `models_used`.
 
@@ -23,7 +27,7 @@
 
 ### Added (post-Phase 7)
 - Offline tests for the free STT router, providers, guard, guarded gateway, wiring and `AudioTranscriptionTool`
-- Live research mode (`MADRA_RESEARCH_MODE=live`, default `offline`): `LiveResearchAgent` with DuckDuckGo HTML (free) or Tavily search, SSRF-guarded size-capped page fetch, and cited LLM synthesis through the free-model-guarded OpenRouter gateway with snippet fallback
+- Live research mode (`DEEP_RESEARCH_RESEARCH_MODE=live`, default `offline`): `LiveResearchAgent` with DuckDuckGo HTML (free) or Tavily search, SSRF-guarded size-capped page fetch, and cited LLM synthesis through the free-model-guarded OpenRouter gateway with snippet fallback
 - `PdfReaderTool` (pypdf) and `ImageAnalysisTool` (Pillow + optional `:free` OpenRouter vision description) with size/page/pixel limits and safe errors; research submissions accept up to 5 PDF/image `attachments`, each routed to its own task
 - Python 3.11/3.12/3.13 support and CI matrix; Dockerfile and `.dockerignore` (uvicorn, non-root, healthcheck)
 
@@ -34,7 +38,7 @@
 - Phase 7 full-stack offline integration coverage across orchestration, persistence, recovery, context construction, runtime controls, reporting, and provenance identifiers
 - Adversarial tests for bounded input, secret-like metadata, credential-bearing URLs, sanitized tool failures, bounded session retention, and demo-batch exhaustion
 - Shared application/infrastructure sensitive-data path detection that never returns discovered values
-- Installable `madra-demo` command with bounded zero-network release scenarios
+- Installable `deep-research-demo` command with bounded zero-network release scenarios
 - GitHub Actions pytest/Ruff/MyPy quality gate, MIT license, contribution guide, security-reporting policy, and resume-ready project entry
 - Phase 6 session-scoped execution harness with explicit retry, timeout, budget, emergency-stop, and normalized-failure contracts
 - Deterministic exponential backoff, bounded transient retries, and independent retry/research-iteration accounting

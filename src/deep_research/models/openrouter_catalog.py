@@ -90,7 +90,7 @@ def default_cache_path() -> Path:
         base = Path.home() / "Library" / "Caches"
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return base / "madra" / "openrouter_free_models.json"
+    return base / "deep_research" / "openrouter_free_models.json"
 
 
 class OpenRouterFreeModelCatalog:

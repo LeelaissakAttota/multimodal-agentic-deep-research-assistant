@@ -4,6 +4,8 @@ A provider-neutral Python research engine for bounded, evidence-oriented, multim
 
 ## Quick Start
 
+> **Windows:** see [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md) for a PowerShell step-by-step guide (keys in `.env`, starting the server, Swagger, PDF attachments).
+
 - **Prerequisites**: Python 3.12 and Git.
 - **Clone & enter repo**:
 
@@ -27,7 +29,7 @@ python -m pip install -e ".[test]"
 - **Run the offline demo** (deterministic, zero-network):
 
 ```powershell
-madra-demo
+deep-research-demo
 ```
 
 - **Start the FastAPI app**:
@@ -91,7 +93,7 @@ The mandatory validation suite uses deterministic adapters, makes no live networ
 After installation:
 
 ```powershell
-madra-demo
+deep-research-demo
 ```
 
 Or run a custom bounded objective:
@@ -159,7 +161,7 @@ No modality is claimed live without a real provider integration and live accepta
 
 ## Runtime defaults
 
-`MADRA_` environment variables configure the Phase 6 harness. Defaults are 3 research iterations; 20/60 tool calls per iteration/session; 15/45 model calls per iteration/session; 4,000/50,000 measurable tokens per call/session; 300 seconds per session; 30 seconds per tool call; 60 seconds per model call; 10 paid external API calls; and 2 retries per tool or model operation. `MADRA_EMERGENCY_STOP=true` fails closed before the next bounded operation.
+`DEEP_RESEARCH_` environment variables configure the Phase 6 harness. Defaults are 3 research iterations; 20/60 tool calls per iteration/session; 15/45 model calls per iteration/session; 4,000/50,000 measurable tokens per call/session; 300 seconds per session; 30 seconds per tool call; 60 seconds per model call; 10 paid external API calls; and 2 retries per tool or model operation. `DEEP_RESEARCH_EMERGENCY_STOP=true` fails closed before the next bounded operation.
 
 Retries consume call budgets but not research iterations. Unknown/permanent failures are not retried, and ordered model fallback occurs only after transient connection or timeout exhaustion.
 
@@ -185,21 +187,21 @@ MIT — see `LICENSE`.
 ## Live research mode (optional)
 
 By default the assistant runs fully offline with the deterministic agent
-(`MADRA_RESEARCH_MODE=offline`), and all tests stay offline and free.
+(`DEEP_RESEARCH_RESEARCH_MODE=offline`), and all tests stay offline and free.
 
 To use real web research:
 
 ```bash
-export MADRA_RESEARCH_MODE=live
+export DEEP_RESEARCH_RESEARCH_MODE=live
 # optional: LLM synthesis with citations via free OpenRouter models
-export MADRA_OPENROUTER_API_KEY=...
+export DEEP_RESEARCH_OPENROUTER_API_KEY=...
 # default: automatic free-model selection (no model env needed)
-# export MADRA_OPENROUTER_MODEL=auto
-# export MADRA_OPENROUTER_VISION_MODEL=auto
+# export DEEP_RESEARCH_OPENROUTER_MODEL=auto
+# export DEEP_RESEARCH_OPENROUTER_VISION_MODEL=auto
 # optional pin (tried first, then auto-fallback): any slug ending in ":free"
-# export MADRA_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+# export DEEP_RESEARCH_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
 # optional: Tavily is tried first in the automatic search chain when keyed
-# export MADRA_TAVILY_API_KEY=...
+# export DEEP_RESEARCH_TAVILY_API_KEY=...
 uvicorn deep_research.api.main:app
 ```
 
@@ -210,7 +212,7 @@ key it returns the real search evidence with a snippet summary instead.
 
 ### Automatic free-model selection
 
-With `MADRA_OPENROUTER_MODEL=auto` (default) and `MADRA_OPENROUTER_VISION_MODEL=auto`:
+With `DEEP_RESEARCH_OPENROUTER_MODEL=auto` (default) and `DEEP_RESEARCH_OPENROUTER_VISION_MODEL=auto`:
 
 1. On first use the gateway calls `GET https://openrouter.ai/api/v1/models`
    and keeps only models whose id ends in `:free`.
@@ -219,17 +221,17 @@ With `MADRA_OPENROUTER_MODEL=auto` (default) and `MADRA_OPENROUTER_VISION_MODEL=
    (content-safety, note/code previews), text+image before text-only for
    vision, then larger context length first.
 3. **Probe + persist (first run / fresh clone):** the top
-   `MADRA_OPENROUTER_PROBE_COUNT` (default 3) text and vision candidates get a
+   `DEEP_RESEARCH_OPENROUTER_PROBE_COUNT` (default 3) text and vision candidates get a
    tiny concurrent probe (`"Reply with the single word: ok"`, a 1×1 image for
-   vision, `max_tokens=16`, `MADRA_OPENROUTER_PROBE_TIMEOUT_SECONDS`, default 8s).
+   vision, `max_tokens=16`, `DEEP_RESEARCH_OPENROUTER_PROBE_TIMEOUT_SECONDS`, default 8s).
    The fastest working model per kind is selected; working models are ordered
    fastest-first and failing ones go last.
 4. The selection, ranked lists, probe results and a timestamp are saved as JSON
-   to `MADRA_OPENROUTER_MODEL_CACHE_PATH`. If unset, the per-user cache dir is
-   used: `~/.cache/madra/openrouter_free_models.json` (Linux/XDG),
-   `~/Library/Caches/madra/…` (macOS), `%LOCALAPPDATA%\madra\…` (Windows).
+   to `DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH`. If unset, the per-user cache dir is
+   used: `~/.cache/deep_research/openrouter_free_models.json` (Linux/XDG),
+   `~/Library/Caches/deep_research/…` (macOS), `%LOCALAPPDATA%\deep_research\…` (Windows).
    Set it to `off` to disable. **The API key is never written.** Restarts reuse
-   the file for `MADRA_OPENROUTER_MODEL_CACHE_SECONDS` (default 6 hours); once
+   the file for `DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_SECONDS` (default 6 hours); once
    it expires (e.g. the next day) the app re-discovers and re-probes
    automatically. A corrupt file, or one written for another base URL, is ignored.
 5. On HTTP 403/404/429/5xx, "unavailable for free", "only available on…",
@@ -241,18 +243,18 @@ With `MADRA_OPENROUTER_MODEL=auto` (default) and `MADRA_OPENROUTER_VISION_MODEL=
 
 ### Automatic free search chain
 
-With `MADRA_SEARCH_PROVIDER=auto` (default) sources are tried in order and
+With `DEEP_RESEARCH_SEARCH_PROVIDER=auto` (default) sources are tried in order and
 blocked or empty ones are skipped with no extra config:
 
-1. Tavily, only if `MADRA_TAVILY_API_KEY` is set
+1. Tavily, only if `DEEP_RESEARCH_TAVILY_API_KEY` is set
 2. DuckDuckGo HTML (`html.duckduckgo.com`); HTTP 202 / bot-challenge pages count as failure
 3. DuckDuckGo Lite (`lite.duckduckgo.com`)
 4. Wikipedia full-text search API
 5. DuckDuckGo Instant Answer API
 
 The search query is the research objective itself (no `latest` prefix).
-`MADRA_SEARCH_PROVIDER=duckduckgo` uses only the free chain;
-`MADRA_SEARCH_PROVIDER=tavily` uses only Tavily.
+`DEEP_RESEARCH_SEARCH_PROVIDER=duckduckgo` uses only the free chain;
+`DEEP_RESEARCH_SEARCH_PROVIDER=tavily` uses only Tavily.
 
 ## PDF and image inputs
 
@@ -269,8 +271,8 @@ The search query is the research objective itself (no `latest` prefix).
     otherwise the note says what is present.
 * **Image** (`image_analyzer`, Pillow): PNG/JPEG/WebP/GIF validation (declared
   type must match real format), 10 MiB / 40 MP limits, metadata extraction.
-  With `MADRA_OPENROUTER_API_KEY` set it also asks the free vision model
-  (`MADRA_OPENROUTER_VISION_MODEL`, default `auto`; `:free` only, guard-enforced) for a
+  With `DEEP_RESEARCH_OPENROUTER_API_KEY` set it also asks the free vision model
+  (`DEEP_RESEARCH_OPENROUTER_VISION_MODEL`, default `auto`; `:free` only, guard-enforced) for a
   description; otherwise it returns metadata only and never invents one.
 
 Each attachment becomes its own research task in both offline and live modes,
@@ -299,7 +301,7 @@ aspect, which avoids three near-identical answers.
 There is no web UI. The simplest way to try it is the Swagger UI:
 
 ```bash
-MADRA_RESEARCH_MODE=live MADRA_OPENROUTER_API_KEY=... uvicorn deep_research.api.main:app --port 8000
+DEEP_RESEARCH_RESEARCH_MODE=live DEEP_RESEARCH_OPENROUTER_API_KEY=... uvicorn deep_research.api.main:app --port 8000
 # open http://127.0.0.1:8000/docs -> POST /research -> "Try it out"
 ```
 
@@ -309,7 +311,7 @@ The `report.content` field is Markdown, with numbered citations and a
 ## Docker
 
 ```bash
-docker build -t madra .
-docker run --rm -p 8000:8000 madra                      # offline mode
-docker run --rm -p 8000:8000 --env-file .env madra      # e.g. MADRA_RESEARCH_MODE=live
+docker build -t deep-research .
+docker run --rm -p 8000:8000 deep-research                      # offline mode
+docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. DEEP_RESEARCH_RESEARCH_MODE=live
 ```

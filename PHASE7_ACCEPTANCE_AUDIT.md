@@ -25,7 +25,7 @@ ARCHITECTURE.md describes a report boundary capable of multiple formats and a br
 - **PASS — Stabilization:** Project-owned Pydantic V2 and naive-UTC warnings were removed; citation identifiers reject blanks; raw tool exception text is not exposed; packaging metadata has one authority.
 - **PASS — Performance review:** Resource cardinalities are explicit and tested. Five independent default two-scenario demo runs completed in 454.79–469.11 ms (mean 461.83 ms) on the release host. No brittle machine-specific timing threshold is enforced.
 - **PASS — Security review:** Shared sensitive-data detection covers nested secret-like fields and credential URLs without returning values; API metadata is bounded; runtime/tool failures are sanitized; GitHub workflow permissions are read-only; high-confidence credential and tracked-runtime-artifact scans passed.
-- **PASS — Demo scenarios:** `madra-demo` and `python -m deep_research.demo` provide a maximum-ten-scenario deterministic offline path and emit report/runtime JSON.
+- **PASS — Demo scenarios:** `deep-research-demo` and `python -m deep_research.demo` provide a maximum-ten-scenario deterministic offline path and emit report/runtime JSON.
 - **PASS — README/GitHub packaging:** README, MIT license, contribution/security documents, real repository URLs, explicit package discovery/entry point, and GitHub Actions pytest/Ruff/MyPy workflow are present.
 - **PASS — Resume release:** `RESUME.md` is release-ready and makes no unsupported live-integration claim.
 - **PASS — Phase 0–6 regression:** All existing tests remain and pass; no test was deleted or weakened.
@@ -47,7 +47,7 @@ ARCHITECTURE.md describes a report boundary capable of multiple formats and a br
 - Demo performance: 5/5 runs completed; two completed scenarios per run; 454.79 ms minimum, 461.83 ms mean, 469.11 ms maximum
 - Secret scan: no high-confidence OpenRouter, NVIDIA, GitHub, Telegram, or private-key pattern found
 - Artifact scan: no tracked database, journal, log, bytecode, `.env`, `data/`, `reports/`, or generated research artifact
-- Package metadata: TOML, `setuptools.build_meta`, `src` discovery, and `madra-demo` entry point validated
+- Package metadata: TOML, `setuptools.build_meta`, `src` discovery, and `deep-research-demo` entry point validated
 
 ## Environment observations
 

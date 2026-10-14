@@ -110,7 +110,7 @@ def test_text_only_gateway_fails_closed() -> None:
 
 
 def test_no_gateway_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MADRA_NVIDIA_API_KEY", "MADRA_HUGGINGFACE_API_KEY", "MADRA_OPENROUTER_API_KEY"):
+    for var in ("DEEP_RESEARCH_NVIDIA_API_KEY", "DEEP_RESEARCH_HUGGINGFACE_API_KEY", "DEEP_RESEARCH_OPENROUTER_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     tool = AudioTranscriptionTool()
     if tool._gateway is not None:

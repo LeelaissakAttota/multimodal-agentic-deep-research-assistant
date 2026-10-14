@@ -128,7 +128,7 @@ STT_PROVIDER_REGISTRY: tuple[STTProviderEntry, ...] = (
             "(official) states all models offer a free trial tier with no credit "
             "card required; the API catalog has no automatic billing path."
         ),
-        required_env="MADRA_NVIDIA_API_KEY",
+        required_env="DEEP_RESEARCH_NVIDIA_API_KEY",
     ),
     STTProviderEntry(
         provider_id="huggingface",
@@ -142,7 +142,7 @@ STT_PROVIDER_REGISTRY: tuple[STTProviderEntry, ...] = (
             "billed pay-as-you-go beyond; serverless ASR contract documented at "
             "huggingface.co/tasks/automatic-speech-recognition."
         ),
-        required_env="MADRA_HUGGINGFACE_API_KEY",
+        required_env="DEEP_RESEARCH_HUGGINGFACE_API_KEY",
     ),
     # OpenRouter is intentionally NOT registered: as of 2026-10-02 the
     # official STT catalog (GET /api/v1/models?output_modalities=transcription)
@@ -341,7 +341,7 @@ class NVIDIATranscriptionProvider(STTProvider):
         key = self._api_key.get_secret_value() if self._api_key else ""
         if not key.strip():
             raise ModelError(
-                "NVIDIA API key is not configured (set MADRA_NVIDIA_API_KEY)",
+                "NVIDIA API key is not configured (set DEEP_RESEARCH_NVIDIA_API_KEY)",
                 error_code="provider_auth_error",
                 details=STTProvider._safe_details(self.provider_id, self.model_id),
             )
@@ -462,7 +462,7 @@ class HuggingFaceTranscriptionProvider(STTProvider):
         key = self._api_key.get_secret_value() if self._api_key else ""
         if not key.strip():
             raise ModelError(
-                "Hugging Face API key is not configured (set MADRA_HUGGINGFACE_API_KEY)",
+                "Hugging Face API key is not configured (set DEEP_RESEARCH_HUGGINGFACE_API_KEY)",
                 error_code="provider_auth_error",
                 details=STTProvider._safe_details(self.provider_id, self.model_id),
             )

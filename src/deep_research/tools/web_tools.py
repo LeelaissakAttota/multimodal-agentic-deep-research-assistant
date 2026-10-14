@@ -30,7 +30,7 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 WEB_SEARCH_TOOL_ID = "live_web_search"
 WEB_FETCH_TOOL_ID = "live_web_fetch"
-_USER_AGENT = "Mozilla/5.0 (compatible; MADRA-research/0.1)"
+_USER_AGENT = "Mozilla/5.0 (compatible; deep-research/0.1)"
 
 
 def _elapsed(start: float) -> float:
@@ -257,7 +257,7 @@ class WebSearchTool(Tool):
     3. Wikipedia full-text search API
     4. DuckDuckGo Instant Answer API
 
-    When ``MADRA_TAVILY_API_KEY`` is set, Tavily is tried first. Explicit
+    When ``DEEP_RESEARCH_TAVILY_API_KEY`` is set, Tavily is tried first. Explicit
     ``provider="tavily"`` uses Tavily only; ``provider="duckduckgo"`` uses the
     free chain only.
     """
@@ -275,7 +275,7 @@ class WebSearchTool(Tool):
             raise ValueError(f"Unsupported search provider: {provider}")
         has_tavily = bool(tavily_api_key and tavily_api_key.get_secret_value().strip())
         if provider == "tavily" and not has_tavily:
-            raise ValueError("Tavily search requires MADRA_TAVILY_API_KEY")
+            raise ValueError("Tavily search requires DEEP_RESEARCH_TAVILY_API_KEY")
         self.provider = provider
         self._tavily_key = tavily_api_key if has_tavily else None
         self._client = http_client

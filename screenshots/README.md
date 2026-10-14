@@ -3,7 +3,7 @@ Screenshot assets
 
 This folder contains demo artifacts captured for resume/demo packaging.
 
-- `demo-output.json`: UTF-8 JSON containing a sample run of `madra-demo` (deterministic offline output).
+- `demo-output.json`: UTF-8 JSON containing a sample run of `deep-research-demo` (deterministic offline output).
 - `swagger-ui.html`: HTML snapshot of the Swagger UI that loads `/openapi.json` when the server is running.
 
 How to reproduce PNG screenshots locally

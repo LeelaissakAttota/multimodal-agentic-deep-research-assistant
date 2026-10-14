@@ -106,5 +106,5 @@
 
 ### Decision 019: Offline Demo Is the Release Demonstration
 - **Date**: 2026-08-14
-- **Decision**: Package a finite `madra-demo`/`python -m deep_research.demo` path through the existing deterministic API application, with a maximum of ten scenarios and explicit synthetic/offline labeling.
+- **Decision**: Package a finite `deep-research-demo`/`python -m deep_research.demo` path through the existing deterministic API application, with a maximum of ten scenarios and explicit synthetic/offline labeling.
 - **Rationale**: This demonstrates the actual product boundary, runtime report, and evidence/source identifier flow at $0 without fabricating live multimodal or provider verification.

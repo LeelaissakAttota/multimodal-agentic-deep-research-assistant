@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        env_prefix="MADRA_",
+        env_prefix="DEEP_RESEARCH_",
     )
 
     def runtime_limits(self) -> RuntimeLimits:
