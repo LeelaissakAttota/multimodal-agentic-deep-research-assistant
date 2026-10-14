@@ -201,6 +201,8 @@ class AudioTranscriptionTool(Tool):
 
         class FakeAudioGateway(ModelGateway):
             async def generate(self, request):
+                raise NotImplementedError
+            async def transcribe(self, request):
                 return ModelResponse(text="Hello world.", model_id="test/fake")
             async def health_check(self): return True
 

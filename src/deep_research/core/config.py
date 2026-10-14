@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from deep_research.runtime.contracts import RuntimeLimits
@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     retry_backoff_seconds: float = Field(default=0.1, ge=0)
     retry_backoff_max_seconds: float = Field(default=2.0, ge=0)
     emergency_stop: bool = Field(default=False)
+
+    # Optional live-provider credentials (absent => offline/deterministic).
+    openrouter_api_key: SecretStr | None = Field(default=None)
+    openrouter_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
+    nvidia_api_key: SecretStr | None = Field(default=None)
+    huggingface_api_key: SecretStr | None = Field(default=None)
 
     model_config = SettingsConfigDict(
         env_file=".env",

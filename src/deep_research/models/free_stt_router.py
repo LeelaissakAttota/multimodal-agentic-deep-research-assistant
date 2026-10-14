@@ -199,8 +199,18 @@ class STTProvider:
         return True
 
     async def transcribe(self, audio_bytes: bytes, audio_format: str) -> ModelResponse:
-        """Transcribe *audio_bytes* and return the provider's text result."""
-        raise NotImplementedError
+        """Transcribe *audio_bytes* and return the provider's text result.
+
+        Concrete adapters override this.  The base implementation fails
+        closed with a structured ``ModelError`` (instead of a bare
+        ``NotImplementedError``) so the router records the attempt and
+        falls back to the next approved provider.
+        """
+        raise ModelError(
+            f"STT provider '{self.provider_id}/{self.model_id}' does not implement transcription",
+            error_code="stt_provider_not_implemented",
+            details=STTProvider._safe_details(self.provider_id, self.model_id),
+        )
 
     # -- shared helpers -----------------------------------------------------
 
