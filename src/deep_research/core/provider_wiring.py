@@ -133,14 +133,19 @@ def build_provider_gateway(
         if not key_value.strip():
             return None
 
+        model = (
+            settings.openrouter_vision_model
+            if capability == ModelCapability.VISION
+            else settings.openrouter_model
+        )
         raw_gateway = OpenRouterModelGateway(
             api_key=settings.openrouter_api_key,
-            model=settings.openrouter_model,
+            model=model,
             base_url=settings.openrouter_base_url,
         )
         return GuardedModelGateway(
             raw_gateway,
-            model_id=settings.openrouter_model,
+            model_id=model,
             provider="openrouter",
             capability=capability,
             guard=guard or FreeModelGuard(),

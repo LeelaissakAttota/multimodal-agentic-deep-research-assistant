@@ -37,7 +37,7 @@ class OpenRouterModelGateway(ModelGateway):
     async def generate(self, request: ModelRequest) -> ModelResponse:
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [{"role": "user", "content": request.prompt}],
+            "messages": [{"role": "user", "content": _content(request)}],
         }
         if "max_tokens" in request.parameters:
             payload["max_tokens"] = request.parameters["max_tokens"]
@@ -76,3 +76,13 @@ class OpenRouterModelGateway(ModelGateway):
 
     async def health_check(self) -> bool:
         return bool(self._api_key.get_secret_value().strip())
+
+
+def _content(request: ModelRequest) -> Any:
+    """Plain text, or OpenAI-style multimodal parts when an image is attached."""
+    if not request.image_data:
+        return request.prompt
+    return [
+        {"type": "text", "text": request.prompt},
+        {"type": "image_url", "image_url": {"url": request.image_data}},
+    ]

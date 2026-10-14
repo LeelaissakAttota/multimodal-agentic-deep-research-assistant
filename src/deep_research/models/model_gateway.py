@@ -18,6 +18,10 @@ class ModelRequest(BaseModel):
         default=None,
         description="Optional audio payload as a 'data:audio/<mime>;base64,<data>' URL (transcription only).",
     )
+    image_data: str | None = Field(
+        default=None,
+        description="Optional image as a 'data:image/<mime>;base64,<data>' URL (vision only).",
+    )
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 

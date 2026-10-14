@@ -42,7 +42,9 @@ class LiveResearchAgent(ResearchAgent):
         max_fetch: int = 2,
         max_source_chars: int = 3_000,
         max_tokens: int = 800,
+        media_tools: dict[str, Tool] | None = None,
     ) -> None:
+        self.media_tools: dict[str, Tool] = dict(media_tools) if media_tools is not None else _default_media_tools()
         self.search_tool = search_tool
         self.fetch_tool = fetch_tool
         self.gateway = gateway
@@ -54,6 +56,10 @@ class LiveResearchAgent(ResearchAgent):
     async def execute_task(self, task: ResearchTask, context: AgentContext | None = None) -> ToolResult:
         start = time.monotonic()
         params = task.tool_input or {}
+        if task.assigned_tool and task.assigned_tool in self.media_tools:
+            return await self.media_tools[task.assigned_tool].execute(
+                ToolRequest(tool_name=task.assigned_tool, parameters=params)
+            )
         query = params.get("query") if isinstance(params.get("query"), str) else None
         query = (query or task.objective or task.description).strip()
 
@@ -148,3 +154,11 @@ def _get(output: Any, key: str) -> Any:
 
 def _ms(start: float) -> float:
     return (time.monotonic() - start) * 1000
+
+
+def _default_media_tools() -> dict[str, Tool]:
+    from deep_research.tools.image_tool import ImageAnalysisTool
+    from deep_research.tools.pdf_tool import PdfReaderTool
+
+    tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False)]
+    return {tool.name: tool for tool in tools}

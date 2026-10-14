@@ -203,3 +203,19 @@ Live mode searches the web, fetches the top pages (public http(s) only, with
 private-network/SSRF protection and size limits), and asks the
 free-model-guarded LLM to answer with `[n]` citations. Without an OpenRouter
 key it returns the real search evidence with a snippet summary instead.
+
+## PDF and image inputs
+
+`POST` research submissions accept up to 5 `attachments`, each
+`{"kind": "pdf" | "image", "data": "data:<mime>;base64,...", "name": "optional"}`.
+
+* **PDF** (`pdf_reader`, pypdf): offline text extraction; 20 MiB, 200 pages and
+  200k characters max; encrypted, scanned/no-text and malformed files return
+  safe structured errors.
+* **Image** (`image_analyzer`, Pillow): PNG/JPEG/WebP/GIF validation (declared
+  type must match real format), 10 MiB / 40 MP limits, metadata extraction.
+  With `MADRA_OPENROUTER_API_KEY` set it also asks the free vision model
+  (`MADRA_OPENROUTER_VISION_MODEL`, `:free` only, guard-enforced) for a
+  description; otherwise it returns metadata only and never invents one.
+
+Each attachment becomes its own research task in both offline and live modes.

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from deep_research.context.context_builder import AgentContext
-from deep_research.domain.research_request import ResearchRequest
+from deep_research.domain.research_request import ATTACHMENT_TOOLS, ResearchRequest
 from deep_research.domain.research.research_plan import ResearchPlan
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.domain.research.research_task import ResearchTask
@@ -96,6 +96,8 @@ class DeterministicPlanningAgent(PlanningAgent):
                 ),
             ]
 
+            tasks.extend(_attachment_tasks(request))
+
         plan = ResearchPlan(
             request_id=request.id,
             objective=request.objective,
@@ -106,3 +108,21 @@ class DeterministicPlanningAgent(PlanningAgent):
             task.plan_id = plan.id
 
         return plan
+
+
+def _attachment_tasks(request: ResearchRequest) -> list[ResearchTask]:
+    """One task per PDF/image attachment, routed to its multimodal tool."""
+    tasks: list[ResearchTask] = []
+    for index, attachment in enumerate(request.attachments, 1):
+        tool_id, param = ATTACHMENT_TOOLS[attachment.kind]
+        label = attachment.name or f"{attachment.kind} attachment {index}"
+        tasks.append(
+            ResearchTask(
+                plan_id=UUID(int=0),
+                description=f"Analyze {attachment.kind} input '{label}' for: {request.objective}",
+                objective=f"Extract evidence from the provided {attachment.kind} relevant to {request.objective}",
+                assigned_tool=tool_id,
+                tool_input={param: attachment.data, "source_title": label},
+            )
+        )
+    return tasks

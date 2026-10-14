@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # Optional live-provider credentials (absent => offline/deterministic).
     openrouter_api_key: SecretStr | None = Field(default=None)
     openrouter_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
+    openrouter_vision_model: str = Field(default="google/gemma-3-27b-it:free")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
     nvidia_api_key: SecretStr | None = Field(default=None)
     huggingface_api_key: SecretStr | None = Field(default=None)

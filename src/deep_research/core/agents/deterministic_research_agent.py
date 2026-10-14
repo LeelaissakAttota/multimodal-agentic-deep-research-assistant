@@ -196,6 +196,15 @@ class DeterministicResearchAgent(ResearchAgent):
         self.registry.register(type(document_reader_tool))
         self._tools["document_reader"] = document_reader_tool
 
+        # Real offline multimodal tools (image description only when a free
+        # vision gateway is configured; metadata-only otherwise).
+        from deep_research.tools.image_tool import ImageAnalysisTool
+        from deep_research.tools.pdf_tool import PdfReaderTool
+
+        for tool in (PdfReaderTool(), ImageAnalysisTool()):
+            self.registry.register(type(tool))
+            self._tools[tool.name] = tool
+
     async def execute_task(
         self, task: ResearchTask, context: AgentContext | None = None
     ) -> ToolResult:

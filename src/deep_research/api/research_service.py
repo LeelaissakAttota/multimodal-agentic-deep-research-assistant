@@ -20,7 +20,7 @@ from deep_research.core.orchestration.master_research_orchestrator import (
     MasterResearchOrchestrator,
 )
 from deep_research.domain.research.research_state import ResearchState
-from deep_research.domain.research_request import ResearchRequest
+from deep_research.domain.research_request import ResearchAttachment, ResearchRequest
 from deep_research.runtime.harness import ExecutionHarness, InMemoryRuntimeObserver
 from deep_research.security import find_sensitive_data_path
 
@@ -35,6 +35,7 @@ class ResearchSubmission(BaseModel):
         default_factory=dict,
         max_length=50,
     )
+    attachments: list[ResearchAttachment] = Field(default_factory=list, max_length=5)
 
     @field_validator("objective")
     @classmethod
@@ -90,6 +91,7 @@ class ResearchApplication:
         request = ResearchRequest(
             objective=submission.objective.strip(),
             metadata=dict(submission.metadata),
+            attachments=list(submission.attachments),
         )
         state = await orchestrator.start_research(request)
         self._states[state.id] = state.model_copy(deep=True)
@@ -130,7 +132,11 @@ class ResearchApplication:
         from deep_research.core.agents.live_research_agent import LiveResearchAgent
         from deep_research.core.free_model_guard import ModelCapability
         from deep_research.core.provider_wiring import build_provider_gateway
+        from deep_research.tools.image_tool import ImageAnalysisTool
+        from deep_research.tools.pdf_tool import PdfReaderTool
         from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
+
+        vision = build_provider_gateway(self.settings, capability=ModelCapability.VISION)
 
         return LiveResearchAgent(
             search_tool=WebSearchTool(
@@ -142,6 +148,10 @@ class ResearchApplication:
             max_results=self.settings.live_max_search_results,
             max_fetch=self.settings.live_max_fetch_pages,
             max_tokens=self.settings.max_tokens_per_call,
+            media_tools={
+                "pdf_reader": PdfReaderTool(),
+                "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
+            },
         )
 
     @staticmethod
