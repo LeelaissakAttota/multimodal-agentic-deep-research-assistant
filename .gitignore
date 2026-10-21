@@ -119,3 +119,6 @@ reports/
 data/.model_cache.json
 .model_cache.json
 openrouter_free_models.json
+
+# demo data folder is not user data
+!examples/demo-data/data/

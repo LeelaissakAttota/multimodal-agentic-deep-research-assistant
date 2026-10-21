@@ -1,0 +1,12 @@
+{
+  "api": "research",
+  "method": "POST",
+  "path": "/research",
+  "expect_status": 422,
+  "auth": true,
+  "body": {
+    "objective": "x",
+    "password": "DEMO-NOT-A-SECRET-123"
+  },
+  "note": "response must not echo the value"
+}

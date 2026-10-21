@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 579 >>
+stream
+BT /F1 12 Tf 50 780 Td 16 TL (ZetaCell Field Note (FICTIONAL DEMO DATA)) Tj T* (Product: ZetaCell Z2 sodium-ion home battery, 10 kWh.) Tj T* (Pilot: 120 homes in Mysuru, Jan-Jun 2026.) Tj T* (Average round-trip efficiency: 88 percent.) Tj T* (Capacity after 500 cycles: 94 percent of original.) Tj T* (Two units failed: faulty inverter firmware v1.3, fixed in v1.4.) Tj T* (Customer satisfaction: 4.3 out of 5 (survey of 96 homes).) Tj T* (Open question: cold-weather performance below 5 C is untested.) Tj T* (All names and numbers in this note are invented for demos.) Tj T* ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000871 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+941
+%%EOF

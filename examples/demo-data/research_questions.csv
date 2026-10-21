@@ -1,0 +1,7 @@
+id,question,attachments
+Q01,Summarize the ZetaCell field note and list the key numbers.,pdf
+Q02,What does the chart show about capacity after 500 cycles?,image
+Q03,Compare the field note and the chart: are the 500-cycle numbers consistent?,pdf+image
+Q04,What risks or open questions remain for ZetaCell?,pdf
+Q05,What is sodium-ion battery technology and how does it compare to lithium-ion?,none
+Q06,Explain round-trip efficiency in home batteries.,none

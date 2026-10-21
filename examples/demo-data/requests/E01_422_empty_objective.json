@@ -1,0 +1,10 @@
+{
+  "api": "research",
+  "method": "POST",
+  "path": "/research",
+  "expect_status": 422,
+  "auth": true,
+  "body": {
+    "objective": "   "
+  }
+}
