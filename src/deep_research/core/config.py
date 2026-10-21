@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     live_max_search_results: int = Field(default=5, ge=1, le=10)
     live_max_fetch_pages: int = Field(default=2, ge=0, le=5)
 
+    # Agent mode: "auto" = LLM planner/evaluator/tool choice in live mode when an
+    # OpenRouter key is set, deterministic otherwise (offline/fixture runs stay
+    # stable). "llm" forces the LLM agents in live mode; "deterministic" never uses them.
+    # Every LLM decision falls back to the deterministic rule on failure.
+    agent_mode: Literal["auto", "llm", "deterministic"] = Field(default="auto")
+    agent_llm_timeout_seconds: float = Field(default=40.0, gt=0, le=120)
+    agent_max_plan_tasks: int = Field(default=4, ge=1, le=8)
+    agent_tool_steps: int = Field(default=3, ge=0, le=6)
+    agent_decision_budget_seconds: float = Field(default=40.0, gt=0, le=120)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

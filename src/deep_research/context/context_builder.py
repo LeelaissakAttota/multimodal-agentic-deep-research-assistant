@@ -110,29 +110,29 @@ class ResearchContextBuilder:
 
         selected: list[ContextEvidence] = []
         trace: list[str] = []
-        for record in records:
+        for mem in records:
             if len(selected) >= self.policy.max_evidence or remaining <= 0:
                 break
-            excerpt, used = self._take(record.evidence.content, remaining)
+            excerpt, used = self._take(mem.evidence.content, remaining)
             if not excerpt:
                 break
-            truncated = len(excerpt) < len(record.evidence.content)
+            truncated = len(excerpt) < len(mem.evidence.content)
             selected.append(
                 ContextEvidence(
-                    session_id=record.session_id,
-                    evidence_id=record.evidence.id,
-                    source_id=record.source.id,
-                    task_ids=record.task_ids,
-                    claim_ids=[claim.id for claim in record.claims],
+                    session_id=mem.session_id,
+                    evidence_id=mem.evidence.id,
+                    source_id=mem.source.id,
+                    task_ids=mem.task_ids,
+                    claim_ids=[claim.id for claim in mem.claims],
                     content_excerpt=excerpt,
-                    source_title=record.source.title,
-                    source_url=str(record.source.url) if record.source.url else None,
-                    relevance_score=record.relevance_score,
+                    source_title=mem.source.title,
+                    source_url=str(mem.source.url) if mem.source.url else None,
+                    relevance_score=mem.relevance_score,
                     truncated=truncated,
                 )
             )
             trace.append(
-                f"evidence:{record.evidence.id}:source:{record.source.id}:score:{record.relevance_score}"
+                f"evidence:{mem.evidence.id}:source:{mem.source.id}:score:{mem.relevance_score}"
             )
             character_count += used
             remaining -= used

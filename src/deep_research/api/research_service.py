@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -12,15 +13,18 @@ from deep_research.core.agents.deterministic_research_agent import (
     DeterministicResearchAgent,
 )
 from deep_research.core.agents.research_agent import ResearchAgent
-from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent
-from deep_research.core.agents.planning_agent import DeterministicPlanningAgent
+from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent, EvaluationAgent
+from deep_research.core.agents.planning_agent import DeterministicPlanningAgent, PlanningAgent
 from deep_research.core.agents.report_agent import DeterministicReportAgent
 from deep_research.core.config import Settings
 from deep_research.core.orchestration.master_research_orchestrator import (
     MasterResearchOrchestrator,
 )
+from deep_research.core.orchestration.step_gate import StepGate
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.domain.research_request import ResearchAttachment, ResearchRequest
+from deep_research.models.model_gateway import ModelGateway
+from deep_research.runtime.contracts import OperationKind
 from deep_research.runtime.harness import ExecutionHarness, InMemoryRuntimeObserver
 from deep_research.security import find_sensitive_data_path
 
@@ -85,15 +89,23 @@ class ResearchApplication:
         self.settings = settings
         self.max_sessions = max_sessions
         self._states: dict[UUID, ResearchState] = {}
+        self._run_gateway: ModelGateway | None = None
+        self._run_budget_hook: Callable[[str], None] | None = None
 
-    async def submit(self, submission: ResearchSubmission) -> ResearchRunResponse:
+    async def submit(
+        self, submission: ResearchSubmission, *, step_gate: StepGate | None = None
+    ) -> ResearchRunResponse:
         orchestrator = self._build_orchestrator()
+        orchestrator.step_gate = step_gate
         request = ResearchRequest(
             objective=submission.objective.strip(),
             metadata=dict(submission.metadata),
             attachments=list(submission.attachments),
         )
         state = await orchestrator.start_research(request)
+        report = state.metadata.get("report")
+        if isinstance(report, dict):
+            report["agent_mode"] = "llm_with_fallback" if self.agentic else "deterministic"
         self._states[state.id] = state.model_copy(deep=True)
         while len(self._states) > self.max_sessions:
             oldest_session_id = next(iter(self._states))
@@ -106,19 +118,66 @@ class ResearchApplication:
 
     def _build_orchestrator(self) -> MasterResearchOrchestrator:
         limits = self.settings.runtime_limits()
+        if self.agentic:
+            # LLM tool choice runs inside one research task: leave room for its decision window
+            # plus search, page reads and synthesis so the harness does not cut it off.
+            floor = self.settings.agent_decision_budget_seconds + 45.0
+            if limits.max_tool_call_time_seconds < floor:
+                limits = limits.model_copy(update={"max_tool_call_time_seconds": floor})
         harness = ExecutionHarness(
             limits,
             observer=InMemoryRuntimeObserver(max_events=1_000),
         )
+        gateway = self._agent_gateway()
+        planning_agent: PlanningAgent = DeterministicPlanningAgent()
+        evaluation_agent: EvaluationAgent = DeterministicEvaluationAgent()
+        if gateway is not None:
+            from deep_research.core.agents.llm_agents import LlmEvaluationAgent, LlmPlanningAgent
+
+            planning_agent = LlmPlanningAgent(
+                gateway, max_tasks=self.settings.agent_max_plan_tasks,
+                max_iterations=limits.max_research_iterations,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds,
+            )
+            evaluation_agent = LlmEvaluationAgent(
+                gateway, max_iterations=limits.max_research_iterations,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds,
+            )
+
+        def charge_model_call(operation: str) -> None:
+            harness.budget.before_call(OperationKind.MODEL, operation=operation)
+
+        self._run_gateway, self._run_budget_hook = gateway, charge_model_call
+
         return MasterResearchOrchestrator(
-            planning_agent=DeterministicPlanningAgent(),
+            planning_agent=planning_agent,
             research_agent=self._build_research_agent(),
             analysis_agent=DeterministicAnalysisAgent(),
-            evaluation_agent=DeterministicEvaluationAgent(),
+            evaluation_agent=evaluation_agent,
             report_agent=DeterministicReportAgent(),
             max_iterations=limits.max_research_iterations,
             execution_harness=harness,
         )
+
+    def build_research_agent(self) -> ResearchAgent:
+        """Public accessor used by the control API to re-run a single step."""
+        return self._build_research_agent()
+
+    @property
+    def agentic(self) -> bool:
+        """True when LLM agents decide planning, evaluation and tool choice for this run."""
+        if self.settings.research_mode != "live" or self.settings.agent_mode == "deterministic":
+            return False
+        key = self.settings.openrouter_api_key
+        return bool(key and key.get_secret_value().strip())
+
+    def _agent_gateway(self) -> ModelGateway | None:
+        if not self.agentic:
+            return None
+        from deep_research.core.free_model_guard import ModelCapability
+        from deep_research.core.provider_wiring import build_provider_gateway
+
+        return build_provider_gateway(self.settings, capability=ModelCapability.TEXT_GENERATION)
 
     def _build_research_agent(self) -> ResearchAgent:
         """Pick the research agent from ``settings.research_mode``.
@@ -152,6 +211,11 @@ class ResearchApplication:
                 "pdf_reader": PdfReaderTool(vision_gateway=vision),
                 "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
             },
+            tool_gateway=self._run_gateway if self.settings.agent_tool_steps > 0 else None,
+            tool_steps=self.settings.agent_tool_steps,
+            max_searches=2,
+            decision_budget_seconds=self.settings.agent_decision_budget_seconds,
+            budget_hook=self._run_budget_hook,
         )
 
     @staticmethod

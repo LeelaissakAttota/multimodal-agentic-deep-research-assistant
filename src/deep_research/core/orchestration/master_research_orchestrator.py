@@ -10,6 +10,7 @@ from deep_research.context.context_builder import AgentContext, ResearchContextB
 from deep_research.core.attachment_context import ATTACHMENT_TOOL_KINDS, attachment_entry
 from deep_research.core.agents.analysis_agent import AnalysisAgent
 from deep_research.core.agents.evaluation_agent import EvaluationAgent, EvaluationResult
+from deep_research.core.agents.llm_support import DECISIONS_KEY, record_decision
 from deep_research.core.agents.planning_agent import PlanningAgent
 from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.report_agent import ReportAgent
@@ -23,7 +24,8 @@ from deep_research.persistence.contracts import (
     ResearchSessionRepository,
     ResearchSessionSnapshot,
 )
-from deep_research.runtime.contracts import RuntimeControlError
+from deep_research.runtime.contracts import FailureKind, RuntimeControlError
+from deep_research.core.orchestration.step_gate import GateOutcome, StepGate
 from deep_research.runtime.harness import ExecutionHarness
 from deep_research.tools.tool import ToolResult
 
@@ -56,6 +58,7 @@ class MasterResearchOrchestrator:
         session_repository: ResearchSessionRepository | None = None,
         context_builder: ResearchContextBuilder | None = None,
         execution_harness: ExecutionHarness | None = None,
+        step_gate: StepGate | None = None,
     ):
         if max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
@@ -69,6 +72,8 @@ class MasterResearchOrchestrator:
         self.session_repository = session_repository
         self.context_builder = context_builder
         self.execution_harness = execution_harness
+        # Optional human-in-the-loop gate; None keeps the original behaviour.
+        self.step_gate = step_gate
         # Initialize with a dummy state; will be replaced in _initialize
         self.research_state: ResearchState = ResearchState(
             request_id=UUID(int=0), status="dummy", status_history=["dummy"]
@@ -180,7 +185,13 @@ class MasterResearchOrchestrator:
         assert self._request is not None, "Request must be set before planning"
         self._transition_to("planning")
         context = self._build_context()
-        self._plan = await self._invoke_planning_agent(context)
+        outcome = await self._gate_phase("planning")
+        try:
+            self._plan = await self._invoke_planning_agent(context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
         self._plans.append(self._plan)
         self.research_state.current_plan_id = self._plan.id
         self.research_state.plan_history.append(self._plan.id)
@@ -217,11 +228,26 @@ class MasterResearchOrchestrator:
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
             context = self._build_context(task.objective)
+            outcome = await self._gate_task(task)
+            if outcome is not None and not outcome.approved:
+                task.status = "failed"
+                task.error = "rejected by operator"
+                completed_tasks.append(task)
+                continue
             self._inject_attachment_context(task)
             try:
                 tool_result = await self._invoke_research_agent(task, context)
+            except Exception as exc:
+                await self._gate_after(outcome, ok=False, error=str(exc))
+                raise
             finally:
                 task.metadata.pop("attachment_context", None)
+            await self._gate_after(
+                outcome,
+                ok=tool_result.success,
+                output=self._normalize_tool_output(tool_result.output).get("summary") if tool_result.success else None,
+                error=None if tool_result.success else (tool_result.error or "Unknown error"),
+            )
             if tool_result.success:
                 task.status = "completed"
                 output = self._normalize_tool_output(tool_result.output)
@@ -240,8 +266,20 @@ class MasterResearchOrchestrator:
             else:
                 task.status = "failed"
                 task.error = tool_result.error or "Unknown error"
+            self._record_tool_decision(task, tool_result.metadata)
             completed_tasks.append(task)
         return completed_tasks
+
+    def _record_tool_decision(self, task: ResearchTask, metadata: Mapping[str, Any]) -> None:
+        """Log who chose the task's tool calls (only for agents that report a tool policy)."""
+        policy = metadata.get("tool_policy") if isinstance(metadata, Mapping) else None
+        if policy not in ("llm", "deterministic", "llm_then_deterministic"):
+            return
+        record_decision(self.research_state, {
+            "agent": "researcher", "source": policy, "task": task.metadata.get("section") or task.objective,
+            "model_id": metadata.get("tool_model_id"), "fallback_reason": metadata.get("tool_fallback_reason"),
+            "status": task.status, "trace": metadata.get("tool_trace") or [],
+        })
 
     def _inject_attachment_context(self, task: ResearchTask) -> None:
         """Hand processed attachments to non-attachment tasks as primary sources (transient)."""
@@ -294,9 +332,15 @@ class MasterResearchOrchestrator:
         assert self._plan is not None, "No plan available for analysis phase"
         self._transition_to("analyzing")
         context = self._build_context()
-        self._analysis_result = await self._invoke_analysis_agent(
-            self._plan, context
-        )
+        outcome = await self._gate_phase("analysis")
+        try:
+            self._analysis_result = await self._invoke_analysis_agent(
+                self._plan, context
+            )
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
 
     async def _evaluation_phase(self) -> EvaluationResult:
         assert self._plan is not None, "No plan available for evaluation phase"
@@ -305,9 +349,14 @@ class MasterResearchOrchestrator:
         )
         self._transition_to("evaluating")
         context = self._build_context()
-        return await self._invoke_evaluation_agent(
-            self._plan, self._analysis_result, context
-        )
+        outcome = await self._gate_phase("evaluation")
+        try:
+            evaluation = await self._invoke_evaluation_agent(self._plan, self._analysis_result, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True, output={"decision": evaluation.decision})
+        return evaluation
 
     async def _handle_evaluation_result(self, evaluation_result: EvaluationResult) -> None:
         self.research_state.last_evaluation_gaps = list(evaluation_result.gaps)
@@ -337,9 +386,70 @@ class MasterResearchOrchestrator:
             "No analysis result available for reporting phase"
         )
         context = self._build_context()
-        report = await self._invoke_report_agent(self._analysis_result, context)
+        outcome = await self._gate_phase("reporting")
+        try:
+            report = await self._invoke_report_agent(self._analysis_result, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
+        decisions = self.research_state.metadata.get(DECISIONS_KEY)
+        if isinstance(decisions, list) and decisions and isinstance(report, dict):
+            report["agent_decisions"] = list(decisions)
+            report["agent_summary"] = _decision_summary(decisions)
+            if isinstance(report.get("content"), str) and report.get("citations") is not None:
+                report["content"] = report["content"] + "\n\n" + _decision_markdown(decisions)
         self.research_state.metadata["report"] = report
+        if self.research_state.error:  # a task failed earlier but the run recovered
+            self.research_state.metadata["last_task_error"] = self.research_state.error
+            self.research_state.error = None
         self._transition_to("completed")
+
+    async def _gate_phase(self, kind: str) -> GateOutcome | None:
+        if self.step_gate is None:
+            return None
+        outcome = await self.step_gate.before(
+            kind,
+            f"{kind} (iteration {self.research_state.iteration_number})",
+            {"iteration": self.research_state.iteration_number},
+        )
+        if not outcome.approved:
+            reason = "stopped by operator" if outcome.stopped else "rejected by operator"
+            raise RuntimeControlError(
+                f"{kind} {reason}",
+                failure_kind=FailureKind.EMERGENCY_STOP,
+                operation=kind,
+            )
+        return outcome
+
+    async def _gate_task(self, task: ResearchTask) -> GateOutcome | None:
+        if self.step_gate is None:
+            return None
+        outcome = await self.step_gate.before(
+            "research_task",
+            task.description[:120],
+            {"objective": task.objective, "description": task.description, "tool": task.assigned_tool},
+        )
+        if outcome.stopped:
+            raise RuntimeControlError(
+                "research stopped by operator",
+                failure_kind=FailureKind.EMERGENCY_STOP,
+                operation="research_task",
+            )
+        if outcome.approved:
+            objective = outcome.inputs.get("objective")
+            if isinstance(objective, str) and objective.strip():
+                task.objective = objective.strip()
+            description = outcome.inputs.get("description")
+            if isinstance(description, str) and description.strip():
+                task.description = description.strip()
+        return outcome
+
+    async def _gate_after(
+        self, outcome: GateOutcome | None, *, ok: bool, output: Any = None, error: str | None = None
+    ) -> None:
+        if self.step_gate is not None and outcome is not None:
+            await self.step_gate.after(outcome, ok=ok, output=output, error=error)
 
     def _is_terminal_state(self) -> bool:
         return self.research_state.status in ("completed", "failed", "blocked")
@@ -558,3 +668,37 @@ def _source_row(source: Any) -> Optional[Dict[str, Any]]:
         row["kind"] = "attachment"
         row["page"] = metadata.get("page")
     return row
+
+
+def _decision_summary(decisions: List[Any]) -> Dict[str, Dict[str, int]]:
+    """Count decisions per agent and source, e.g. {"planner": {"llm": 2}}."""
+    summary: Dict[str, Dict[str, int]] = {}
+    for entry in decisions:
+        if isinstance(entry, dict):
+            per_agent = summary.setdefault(str(entry.get("agent")), {})
+            source = str(entry.get("source"))
+            per_agent[source] = per_agent.get(source, 0) + 1
+    return summary
+
+
+def _decision_markdown(decisions: List[Any]) -> str:
+    """Short, human-readable log of agent decisions for the report."""
+    lines = ["## How this research was run", ""]
+    for entry in decisions:
+        if not isinstance(entry, dict):
+            continue
+        label = f"Round {int(entry.get('iteration', 0)) + 1} - {entry.get('agent')} ({entry.get('source')})"
+        if entry.get("fallback_reason"):
+            label += f", fallback: {entry['fallback_reason']}"
+        agent = entry.get("agent")
+        if agent == "planner":
+            queries = [t.get("query") for t in entry.get("tasks") or [] if isinstance(t, dict) and t.get("query")]
+            detail = "; ".join(str(q) for q in queries)
+        elif agent == "evaluator":
+            detail = f"{entry.get('decision')}" + (f" - gaps: {'; '.join(entry.get('gaps') or [])}"
+                                                    if entry.get("gaps") else "")
+        else:
+            steps = [t for t in entry.get("trace") or [] if isinstance(t, dict)]
+            detail = " -> ".join(str(t.get("action")) for t in steps)
+        lines.append(f"- {label}: {detail}" if detail else f"- {label}")
+    return "\n".join(lines)

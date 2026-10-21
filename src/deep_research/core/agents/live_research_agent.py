@@ -8,9 +8,11 @@ evidence and a snippet-based summary, never fabricated content.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 from deep_research.context.context_builder import AgentContext
+from deep_research.core.agents.llm_support import AgentDecisionError, ask_json, clean_text
 from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.attachment_context import select_attachment_sources
 from deep_research.core.free_model_guard import ModelCapability
@@ -37,7 +39,32 @@ _ATTACHMENT_NOTE = (
 )
 
 
+_TOOL_PROMPT = """You are a research agent choosing which tool to call next for ONE research task.
+Tools:
+- {{"action": "search", "query": "<web search query>"}}  (web search; at most {max_searches} searches in total)
+- {{"action": "fetch", "results": [<result numbers>]}}  (read full pages; at most {max_fetch} pages in total)
+- {{"action": "finish"}}  (enough material gathered; an answer will be written from it)
+Return ONLY one JSON object for the single next action.
+
+Research objective: {objective}
+{focus}Searches run: {searches}
+Pages read: {fetched}
+Steps left: {steps_left}
+Current search results:
+{results}"""
+
+
 class LiveResearchAgent(ResearchAgent):
+    """Search/fetch/synthesize agent.
+
+    With ``tool_gateway`` set, an LLM chooses each next tool call (search with a
+    refined query, read specific results, or finish) for up to ``tool_steps``
+    decisions inside a ``decision_budget_seconds`` window. Any rate limit, error,
+    timeout, invalid JSON, invalid action or budget refusal falls back to the
+    fixed sequence (search the task query, read the top ``max_fetch`` results)
+    for the rest of the task; the result metadata labels which policy ran.
+    """
+
     def __init__(
         self,
         *,
@@ -49,7 +76,19 @@ class LiveResearchAgent(ResearchAgent):
         max_source_chars: int = 3_000,
         max_tokens: int = 800,
         media_tools: dict[str, Tool] | None = None,
+        tool_gateway: ModelGateway | None = None,
+        tool_steps: int = 3,
+        max_searches: int = 2,
+        decision_budget_seconds: float = 40.0,
+        decision_timeout_seconds: float = 20.0,
+        budget_hook: Callable[[str], None] | None = None,
     ) -> None:
+        self.tool_gateway = tool_gateway
+        self.tool_steps = tool_steps
+        self.max_searches = max_searches
+        self.decision_budget_seconds = decision_budget_seconds
+        self.decision_timeout_seconds = decision_timeout_seconds
+        self.budget_hook = budget_hook
         self.media_tools: dict[str, Tool] = dict(media_tools) if media_tools is not None else _default_media_tools()
         self.search_tool = search_tool
         self.fetch_tool = fetch_tool
@@ -71,18 +110,27 @@ class LiveResearchAgent(ResearchAgent):
         objective = str(task.metadata.get("question") or query)
         att_sources, att_evidence = select_attachment_sources(task.metadata.get("attachment_context"), objective)
 
-        search = await self.search_tool.execute(
-            ToolRequest(tool_name=WEB_SEARCH_TOOL_ID, parameters={"query": query, "limit": self.max_results})
-        )
-        hits: list[dict[str, str]] = list(_get(search.output, "results") or []) if search.success else []
-        if not search.success and not att_sources:
+        focus = str(task.metadata.get("focus") or "")
+        run = _ToolRun()
+        if self.tool_gateway is not None:
+            await self._llm_tool_loop(run, objective=objective, query=query, focus=focus, start=start)
+        if not run.searches:
+            await self._search(run, query)
+        search = run.last_search
+        # Pages the agent read come first so they survive the source cap.
+        hits = sorted(run.hits, key=lambda h: h["url"] not in run.fetched)[: self.max_results]
+        if not hits and search is not None and not search.success and not att_sources:
             return ToolResult(success=False, error=search.error or "Web search failed", tool_name=LIVE_RESEARCH_TOOL_ID,
-                              execution_time_ms=_ms(start), metadata={**search.metadata, "stage": "search"})
+                              execution_time_ms=_ms(start),
+                              metadata={**search.metadata, "stage": "search", **run.labels()})
         if not hits and not att_sources:
             return ToolResult(success=False, error=f"No web results for: {query}", tool_name=LIVE_RESEARCH_TOOL_ID,
-                              execution_time_ms=_ms(start), metadata={"failure_kind": "no_results", "stage": "search"})
+                              execution_time_ms=_ms(start),
+                              metadata={"failure_kind": "no_results", "stage": "search", **run.labels()})
 
-        web_sources, web_evidence = await self._web_sources(hits, query)
+        web_sources, web_evidence = await self._web_sources(
+            hits, query, prefetched=run.pages if run.fetched else None
+        )
         sources = [*att_sources, *web_sources]
         evidence = [*att_evidence, *web_evidence]
         if not evidence:
@@ -90,7 +138,6 @@ class LiveResearchAgent(ResearchAgent):
                               tool_name=LIVE_RESEARCH_TOOL_ID, execution_time_ms=_ms(start),
                               metadata={"failure_kind": "no_content"})
 
-        focus = str(task.metadata.get("focus") or "")
         summary, model_id, synth_error = await self._synthesize(objective, sources, evidence, focus=focus,
                                                                 has_attachments=bool(att_sources))
         return ToolResult(
@@ -105,18 +152,141 @@ class LiveResearchAgent(ResearchAgent):
             },
             tool_name=LIVE_RESEARCH_TOOL_ID,
             execution_time_ms=_ms(start),
-            metadata={"tool_identifier": LIVE_RESEARCH_TOOL_ID, "query": query, "model_id": model_id,
+            metadata={"tool_identifier": LIVE_RESEARCH_TOOL_ID, "query": run.searches[0] if run.searches else query,
+                      "queries": list(run.searches), **run.labels(), "model_id": model_id,
                       "synthesis": "llm" if model_id else "snippets", "synthesis_error": synth_error,
                       "attachment_sources": len(att_sources),
-                      "search_error": None if search.success else (search.error or "search_failed")},
+                      "search_error": None if search is None or search.success
+                      else (search.error or "search_failed")},
         )
 
-    async def _web_sources(self, hits: list[dict[str, str]], query: str) -> tuple[list[Source], list[Evidence]]:
+    async def _search(self, run: "_ToolRun", query: str) -> None:
+        result = await self.search_tool.execute(
+            ToolRequest(tool_name=WEB_SEARCH_TOOL_ID, parameters={"query": query, "limit": self.max_results})
+        )
+        run.searches.append(query)
+        run.last_search = result
+        known = {h.get("url") for h in run.hits}
+        for hit in list(_get(result.output, "results") or []) if result.success else []:
+            if isinstance(hit, dict) and hit.get("url") and hit.get("url") not in known:
+                run.hits.append(hit)
+                known.add(hit.get("url"))
+
+    async def _fetch(self, run: "_ToolRun", hit: dict[str, str]) -> None:
+        url = hit["url"]
+        run.fetched.append(url)
+        page = await self.fetch_tool.execute(ToolRequest(tool_name=WEB_FETCH_TOOL_ID, parameters={"url": url}))
+        if page.success and _get(page.output, "text"):
+            run.pages[url] = (str(_get(page.output, "title") or hit.get("title", "")),
+                              str(_get(page.output, "text"))[: self.max_source_chars])
+
+    async def _llm_tool_loop(self, run: "_ToolRun", *, objective: str, query: str, focus: str, start: float) -> None:
+        """Let the LLM pick tool calls; on any problem, finish with the fixed sequence."""
+        run.policy = "llm"
+        # The planner already chose this task's query: run it, then let the LLM steer from the results.
+        await self._search(run, query)
+        run.trace.append({"action": "search", "query": query, "source": "planner"})
+        try:
+            for step in range(self.tool_steps):
+                if await self._llm_step(run, step=step, objective=objective, query=query, focus=focus, start=start):
+                    break
+        except AgentDecisionError as exc:
+            llm_acted = any(step.get("source") == "llm" for step in run.trace)
+            run.policy = "llm_then_deterministic" if llm_acted else "deterministic"
+            run.fallback_reason = exc.reason
+            run.trace.append({"action": "fallback", "reason": exc.reason, "detail": exc.detail[:160],
+                              "source": "deterministic"})
+            if not run.searches:
+                await self._search(run, query)
+                run.trace.append({"action": "search", "query": query, "source": "deterministic"})
+        # Fixed rule when the agent read no page: read the top results.
+        if not run.fetched and self.max_fetch and run.hits:
+            for hit in run.hits[: self.max_fetch]:
+                await self._fetch(run, hit)
+            run.trace.append({"action": "fetch", "urls": run.fetched[:], "source": "deterministic"})
+
+    async def _llm_step(self, run: "_ToolRun", *, step: int, objective: str, query: str, focus: str,
+                        start: float) -> bool:
+        """One LLM tool decision. Returns True when the agent chose to finish."""
+        assert self.tool_gateway is not None
+        remaining = self.decision_budget_seconds - (time.monotonic() - start)
+        if remaining <= 1:
+            raise AgentDecisionError("decision_budget_exhausted", f"after {step} steps")
+        if self.budget_hook is not None:
+            try:
+                self.budget_hook("tool_choice")
+            except Exception as exc:
+                raise AgentDecisionError("model_budget_exhausted", str(exc)[:120]) from exc
+        reply, model_id = await ask_json(
+            self.tool_gateway,
+            self._tool_prompt(run, objective=objective, focus=focus, steps_left=self.tool_steps - step),
+            max_tokens=400, timeout_seconds=min(self.decision_timeout_seconds, remaining),
+        )
+        run.model_id = model_id
+        action = str(reply.get("action") or "").strip().lower()
+        if action == "finish":
+            if not run.hits:
+                raise AgentDecisionError("invalid_action", "finish before any search")
+            run.trace.append({"step": step + 1, "action": "finish", "source": "llm"})
+            return True
+        if action == "search":
+            if len(run.searches) >= self.max_searches:
+                raise AgentDecisionError("invalid_action", "search limit reached")
+            new_query = clean_text(reply.get("query"), max_len=300) or query
+            await self._search(run, new_query)
+            run.trace.append({"step": step + 1, "action": "search", "query": new_query, "source": "llm"})
+            return False
+        if action == "fetch":
+            urls = await self._fetch_picks(run, reply.get("results"))
+            run.trace.append({"step": step + 1, "action": "fetch", "urls": urls, "source": "llm"})
+            return False
+        raise AgentDecisionError("invalid_action", f"unknown action {action!r}")
+
+    async def _fetch_picks(self, run: "_ToolRun", picks: Any) -> list[str]:
+        if isinstance(picks, int):
+            picks = [picks]
+        if not isinstance(picks, list) or not picks:
+            raise AgentDecisionError("invalid_action", "fetch needs result numbers")
+        targets: list[dict[str, str]] = []
+        for pick in picks:
+            if not isinstance(pick, int) or not 1 <= pick <= len(run.hits):
+                raise AgentDecisionError("invalid_action", f"result {pick!r} out of range")
+            hit = run.hits[pick - 1]
+            if hit["url"] not in run.fetched and hit not in targets:
+                targets.append(hit)
+        room = self.max_fetch - len(run.fetched)
+        if room <= 0 or not targets:
+            raise AgentDecisionError("invalid_action", "fetch limit reached or nothing new")
+        for hit in targets[:room]:
+            await self._fetch(run, hit)
+        return [h["url"] for h in targets[:room]]
+
+    def _tool_prompt(self, run: "_ToolRun", *, objective: str, focus: str, steps_left: int) -> str:
+        results = "\n".join(
+            f"{i}. {h.get('title', '')} ({h.get('url')}){' [read]' if h['url'] in run.fetched else ''}: "
+            f"{str(h.get('snippet', ''))[:160]}"
+            for i, h in enumerate(run.hits[:12], 1)
+        ) or "(none yet - start with a search)"
+        return _TOOL_PROMPT.format(
+            max_searches=self.max_searches, max_fetch=self.max_fetch, objective=objective,
+            focus=f"Focus: {focus}\n" if focus else "", searches=run.searches or "none",
+            fetched=len(run.fetched), steps_left=steps_left, results=results,
+        )
+
+    async def _web_sources(
+        self, hits: list[dict[str, str]], query: str, *, prefetched: dict[str, tuple[str, str]] | None = None
+    ) -> tuple[list[Source], list[Evidence]]:
         sources: list[Source] = []
         evidence: list[Evidence] = []
+        if prefetched is not None:  # read pages first so they survive the source cap
+            hits = sorted(hits, key=lambda h: h["url"] not in prefetched)
         for index, hit in enumerate(hits):
             content, title, fetched = hit.get("snippet", ""), hit.get("title", ""), False
-            if index < self.max_fetch:
+            if prefetched is not None:
+                if hit["url"] in prefetched:
+                    title, content = prefetched[hit["url"]][0] or title, prefetched[hit["url"]][1]
+                    fetched = True
+            elif index < self.max_fetch:
                 page = await self.fetch_tool.execute(
                     ToolRequest(tool_name=WEB_FETCH_TOOL_ID, parameters={"url": hit["url"]})
                 )
@@ -164,6 +334,25 @@ class LiveResearchAgent(ResearchAgent):
         if not response.text.strip():
             return fallback, None, "empty_response"
         return response.text.strip(), response.model_id, None
+
+
+class _ToolRun:
+    """Mutable per-task record of tool calls and who chose them."""
+
+    def __init__(self) -> None:
+        self.searches: list[str] = []
+        self.hits: list[dict[str, str]] = []
+        self.fetched: list[str] = []
+        self.pages: dict[str, tuple[str, str]] = {}
+        self.last_search: ToolResult | None = None
+        self.policy = "fixed"
+        self.fallback_reason: str | None = None
+        self.model_id: str | None = None
+        self.trace: list[dict[str, Any]] = []
+
+    def labels(self) -> dict[str, Any]:
+        return {"tool_policy": self.policy, "tool_fallback_reason": self.fallback_reason,
+                "tool_model_id": self.model_id, "tool_trace": list(self.trace)}
 
 
 def _get(output: Any, key: str) -> Any:
