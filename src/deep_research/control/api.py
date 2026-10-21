@@ -12,6 +12,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from deep_research.api.error_handlers import install_error_handlers
+
 from .runtime import RunManager
 from .secrets_store import SecretStore, mask
 
@@ -60,6 +62,7 @@ def build_control_app(  # noqa: C901 - flat route table
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
     app = FastAPI(title=f"{title} control API", docs_url=None, redoc_url=None, openapi_url=None)
+    install_error_handlers(app)
     auth = [Depends(require_token)]
 
     def run_or_404(run_id: str) -> Any:

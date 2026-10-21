@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = Field(default="INFO")
+    log_format: Literal["json", "text"] = Field(default="json")
 
     # Phase 6 runtime limits
     max_research_iterations: int = Field(default=3, ge=1)

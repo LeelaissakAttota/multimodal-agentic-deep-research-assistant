@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .risk import RiskLevel, classify_step
+from deep_research.observability.redaction import redact_text, redact_value
 
 MAX_LOG_LINES = 2000
 
@@ -201,9 +202,16 @@ class ControlRun:
 
     # ----- logging -------------------------------------------------------------
     def log(self, message: str, level: str = "info", **extra: Any) -> None:
+        safe_extra = {key: redact_value(key, value) for key, value in extra.items()}
         with self._cond:
             self.logs.append(
-                {"seq": len(self.logs), "at": _now(), "level": level, "message": message, **extra}
+                {
+                    "seq": len(self.logs),
+                    "at": _now(),
+                    "level": level,
+                    "message": redact_text(message),
+                    **safe_extra,
+                }
             )
             if len(self.logs) > MAX_LOG_LINES:
                 del self.logs[: len(self.logs) - MAX_LOG_LINES]
