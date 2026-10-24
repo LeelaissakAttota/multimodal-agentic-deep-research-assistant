@@ -533,6 +533,12 @@ def cred_badge(cred: Any) -> str:
             f"{e(str(cred['label']))} {float(cred.get('score', 0)):.0%}</span>")
 
 
+def conf_badge(claim: dict[str, Any]) -> str:
+    label = {"High": "High", "Medium": "Medium"}.get(str(claim.get("label")), "Low")
+    return cred_badge({"label": label, "score": claim.get("score", 0), "reason": claim.get("reason", "")}).replace(
+        "Credibility", "Confidence")
+
+
 def cits(report: dict[str, Any], limit: int | None = None) -> None:
     rows = citations(report)
     st.markdown(f"<div class='ph'>Citations ({len(rows)})</div>", unsafe_allow_html=True)
@@ -571,11 +577,18 @@ def report_view(run_id: str) -> None:
         st.markdown(md_safe(str(report.get("content", ""))))
         cl = claims(report)
         if cl:
-            st.markdown("#### Claims")
+            scored = any(c.get("label") for c in cl)
+            st.markdown("#### Claim confidence" if scored else "#### Claims")
+            if scored:
+                st.markdown("<div class='muted'>Each cited statement, scored by how many distinct sources back it and how "
+                            "credible they are (hedged wording lowers it). Heuristic, not a fact check.</div>",
+                            unsafe_allow_html=True)
             st.markdown("".join(f"<div class='st-row'><div style='min-width:0;flex:1'>{e(c['text'])}</div>"
-                                f"<span class='badge b-ok'>{e(c['confidence'])}</span>"
-                                f"<span class='muted' style='white-space:nowrap'>{c['evidence']} evidence</span></div>"
-                                for c in cl[:12]), unsafe_allow_html=True)
+                                + (conf_badge(c) if c.get("label") else f"<span class='badge b-ok'>{e(c['confidence'])}</span>")
+                                + "<span class='muted' style='white-space:nowrap'>"
+                                + (f"cites {e(', '.join(f'[{n}]' for n in c['citations']))}" if c.get("citations")
+                                   else f"{c['evidence']} evidence") + "</span></div>"
+                                for c in cl[:20]), unsafe_allow_html=True)
     with right, st.container(border=True):
         cits(report)
         export_buttons(report, run_id)
@@ -633,7 +646,8 @@ def page_knowledge() -> None:
     with t2:
         st.markdown("<div class='panel'>" + ("".join(
             f"<div class='row'><div class='sq c2'>💡</div><div class='tx'><div class='ts' style='white-space:normal;color:#e6ecff;font-size:.84rem'>"
-            f"{e(c['text'])}</div></div><div class='rt'><span class='badge b-ok'>{e(c['confidence'])}</span></div></div>"
+            f"{e(c['text'])}</div></div><div class='rt'>"
+            + (conf_badge(c) if c.get("label") else f"<span class='badge b-ok'>{e(c['confidence'])}</span>") + "</div></div>"
             for c in kb["claims"][:60]) or "<div class='muted'>No claims yet.</div>") + "</div>", unsafe_allow_html=True)
     with t3:
         st.markdown("<div class='panel'>" + ("".join(

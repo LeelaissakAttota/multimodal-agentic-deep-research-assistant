@@ -100,6 +100,11 @@ def parse(report: dict[str, Any]) -> Doc:  # noqa: C901 - one linear markdown sc
     flush()
     cites = report.get("citations") or report.get("sources") or []
     doc.sources = [c for c in cites if isinstance(c, dict)]
+    if "claim_scores" not in report and doc.sources:
+        from deep_research.evidence.scoring import claim_scores, score_citations
+
+        score_citations(doc.sources)
+        report = {**report, "claim_scores": claim_scores(str(report.get("content") or ""), doc.sources)}
     doc.claims = [c for c in report.get("claim_scores") or [] if isinstance(c, dict)]
     stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     models = ", ".join(str(m) for m in report.get("models_used") or [])
@@ -118,7 +123,8 @@ def source_line(src: dict[str, Any]) -> str:
 
 
 def claim_line(claim: dict[str, Any]) -> str:
-    return f"{int(round(float(claim.get('confidence', 0)) * 100))}% - {_plain(str(claim.get('text', '')))}"
+    label = f" {claim['label']}" if claim.get("label") else ""
+    return f"{int(round(float(claim.get('confidence', 0)) * 100))}%{label} - {_plain(str(claim.get('text', '')))}"
 
 
 def export_report(report: dict[str, Any], fmt: str) -> bytes:

@@ -150,7 +150,8 @@ def test_display_helpers() -> None:
     assert preview_text(report["content"]) == "Body bold [1]"
     assert citations(report) == [{"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2,
                                  "credibility": {"score": 0.85, "label": "Provided", "reason": "user-attached file (primary material)"}}]
-    assert claims(report) == [{"text": "C", "evidence": 1, "confidence": "80%"}]
+    assert [(c["text"], c["citations"], c["label"]) for c in claims(report)] == [("Body bold", [1], "Medium")]
+    assert claims({"claims": report["claims"]}) == [{"text": "C", "evidence": 1, "confidence": "80%"}]
     run = {"status": "waiting_approval", "step_count": 3,
            "result": {"report": report, "runtime": {"usage": {"tool_calls": 2, "model_calls": 1, "elapsed_seconds": 4.25}}}}
     assert run_stats(run) == {"status": "Waiting Approval", "steps": "3", "calls": "3", "evidence": "1", "elapsed": "4.2 s"}

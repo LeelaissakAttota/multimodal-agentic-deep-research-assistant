@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from deep_research.context.context_builder import AgentContext
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.evidence.claim import Claim
-from deep_research.evidence.scoring import score_citations
+from deep_research.evidence.scoring import claim_scores, score_citations
 
 
 class ReportAgent(ABC):
@@ -170,6 +170,7 @@ def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> None:
     report["content"] = "\n\n".join(parts)
     report["citations"] = citations
     report["sources"] = citations
+    report["claim_scores"] = claim_scores(report["content"], citations)
     report["models_used"] = models
     report["synthesis"] = "llm" if models else "snippets"
     report["attachments"] = [

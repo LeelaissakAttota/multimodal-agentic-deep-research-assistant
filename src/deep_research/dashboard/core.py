@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from deep_research.evidence.scoring import credibility
+from deep_research.evidence.scoring import claim_scores, credibility
 
 DEFAULT_API_URL = "http://127.0.0.1:8711"
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -323,6 +323,19 @@ def provider_health(settings: Any, masked_keys: dict[str, Any] | None, api_ok: b
 
 
 def claims(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Per-claim confidence rows: scored cited statements when the report has citations, else engine claims."""
+
+    scored = report.get("claim_scores")
+    if scored is None and report.get("citations"):
+        scored = claim_scores(str(report.get("content") or ""),
+                              [{**c, "credibility": c["credibility"]} for c in citations(report)])
+    if scored:
+        return [{"text": shorten(re.sub(r"\s*\[\d[\d,\s\u2013-]*\]", "", str(c.get("text", ""))).strip(), 240),
+                 "evidence": len(c.get("citations") or []), "citations": list(c.get("citations") or []),
+                 "confidence": f"{float(c.get('confidence', 0)):.0%}", "score": float(c.get("confidence", 0)),
+                 "label": str(c.get("label") or ""), "reason": str(c.get("reason") or ""),
+                 "section": str(c.get("section") or "")}
+                for c in scored if isinstance(c, dict) and c.get("text")]
     out = []
     for c in report.get("claims") or []:
         if isinstance(c, dict) and c.get("text"):
