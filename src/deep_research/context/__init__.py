@@ -5,6 +5,17 @@ from deep_research.context.context_builder import (
     ContextEvidence,
     ContextPolicy,
     ResearchContextBuilder,
+    compress_text,
+    estimate_tokens,
+    sliding_window,
 )
 
-__all__ = ["AgentContext", "ContextEvidence", "ContextPolicy", "ResearchContextBuilder"]
+__all__ = [
+    "AgentContext",
+    "ContextEvidence",
+    "ContextPolicy",
+    "ResearchContextBuilder",
+    "compress_text",
+    "estimate_tokens",
+    "sliding_window",
+]
