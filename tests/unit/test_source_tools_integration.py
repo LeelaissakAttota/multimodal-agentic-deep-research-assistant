@@ -223,3 +223,12 @@ def test_live_application_wires_enabled_source_tools() -> None:
     agent = ResearchApplication(Settings(research_mode="live", live_source_tools="youtube_transcript"))
     built = agent._build_research_agent()
     assert list(built.source_tools) == ["youtube_transcript"]  # type: ignore[attr-defined]
+
+
+def test_source_tools_setting_is_documented() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    assert "DEEP_RESEARCH_LIVE_SOURCE_TOOLS=all" in (root / ".env.example").read_text(encoding="utf-8")
+    doc = (root / "docs" / "LIVE_MODE.md").read_text(encoding="utf-8")
+    assert all(tool in doc for tool in SOURCE_TOOL_IDS)
