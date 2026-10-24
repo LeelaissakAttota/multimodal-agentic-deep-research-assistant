@@ -77,5 +77,5 @@ strict = true
 exclude = ["tests", ".git", "__pycache__", "build", "dist"]
 
 [[tool.mypy.overrides]]
-module = ["streamlit", "streamlit.*"]
+module = ["streamlit", "streamlit.*", "chromadb", "chromadb.*", "sentence_transformers", "sentence_transformers.*"]
 ignore_missing_imports = true
