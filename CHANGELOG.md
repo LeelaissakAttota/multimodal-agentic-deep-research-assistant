@@ -1,6 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0] - 2026-10-24
+
+### Added
+- LLM planning and evaluation agents, each with a deterministic fallback for every decision. Added an optional human-in-the-loop step gate.
+- A supervised-control API (`deep-research-control`, 127.0.0.1 only, bearer token). It covers run lifecycle, step approve, reject and retry, an audit log, and write-only masked keys.
+- A plain-text log format, secret redaction, safe 422 responses, HTTP and crash context in logs, and research lifecycle events.
+- ZetaCell demo data with 24 ready-made requests (research, control and error cases).
+
+### Changed
+- Offline report titles now use the research objective instead of the request UUID.
+- Version 1.0.0. The LICENSE and package author are now Attota Leelaissak. `DEEP_RESEARCH_CONTROL_TOKEN` is documented in `.env.example`.
+- Policies, decisions, architecture and the testing strategy moved under `docs/`. Internal phase notes moved out of the repo. Screenshots were refreshed under `docs/images/`. The live-mode reference moved to `docs/LIVE_MODE.md`, and the README was rewritten.
+
+## [Unreleased before 1.0.0]
 
 ### Changed (breaking)
 - The old project acronym is gone everywhere. The settings env prefix is now `DEEP_RESEARCH_`, so rename the variables in an existing `.env`. The free-model cache dir is now `~/.cache/deep_research/` (`%LOCALAPPDATA%\deep_research\` on Windows). The demo command is `deep-research-demo`, the Docker image is `deep-research`, and the container user is `appuser`.

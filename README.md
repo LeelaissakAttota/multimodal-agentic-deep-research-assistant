@@ -1,317 +1,189 @@
 # Multimodal Agentic Deep Research Assistant
 
-A provider-neutral Python research engine for bounded, evidence-oriented, multimodal research workflows.
+**An agentic research engine that plans, searches, reads PDFs and images, writes cited reports, and checks its own work. It uses free models only.**
 
-## Quick Start
+You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-> **Windows:** see [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md) for a PowerShell step-by-step guide (keys in `.env`, starting the server, Swagger, PDF attachments).
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 267 passing | **License:** MIT | **Cost to run tests:** $0
 
-- **Prerequisites**: Python 3.12 and Git.
-- **Clone & enter repo**:
+[![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-```powershell
+[Architecture](docs/ARCHITECTURE.md) | [Live mode reference](docs/LIVE_MODE.md) | [Control API](docs/CONTROL_API.md) | [Demo guide](docs/DEMO.md) | [Windows setup](docs/SETUP_WINDOWS.md) | [Demo data](examples/demo-data/README.md)
+
+## The problem it solves
+
+"Deep research" assistants are easy to demo but hard to trust. They can loop without end, make up sources, leak keys into logs, or quietly run up a paid API bill. This project treats research as a bounded, auditable workflow:
+
+- every claim links back to evidence, and every piece of evidence links back to a source
+- every loop has a limit: research iterations, tool and model calls, tokens, time, and retries
+- every model call goes through a guard that allows only `:free` models
+- a human can supervise a run step by step and approve or reject each step before it runs
+
+## See it working
+
+<!-- DEMO VIDEO LINK: replace both occurrences of https://VIDEO_LINK below with the shared video link
+     (for a Drive file use https://drive.google.com/file/d/<FILE_ID>/preview so it plays directly). -->
+[![Watch the demo](https://img.shields.io/badge/%E2%96%B6%20Watch%20the%20demo-Deep%20Research%20walkthrough-red?style=for-the-badge)](https://VIDEO_LINK)
+
+▶ [Watch the Deep Research demo video](https://VIDEO_LINK)
+<!-- END DEMO VIDEO LINK -->
+
+| Swagger UI | `POST /research` |
+| --- | --- |
+| ![Swagger UI with the research and monitoring endpoints](docs/images/swagger-ui.png) | ![A completed research run with report title, claims and evidence](docs/images/post-research.png) |
+| All endpoints, with interactive "Try it out" calls. | A completed run: report, claims linked to evidence IDs, and runtime accounting. |
+
+| `GET /research/{session_id}` | Validation (422) |
+| --- | --- |
+| ![Fetching a finished session](docs/images/get-research.png) | ![Empty objective rejected with 422](docs/images/validation-422.png) |
+| Fetch the finished result of a session by its ID. | Invalid input is rejected, and the submitted value is never echoed back. |
+
+## What I built
+
+- **Agent pipeline:** separate planning, research, analysis, evaluation and report agents, coordinated by an explicit state machine. The evaluator returns COMPLETE, CONTINUE or FAILED, plus the gaps it found. CONTINUE triggers a bounded replan.
+- **LLM agents with deterministic fallback:** `LlmPlanningAgent` and `LlmEvaluationAgent` strictly validate the model's JSON. If a call hits a rate limit, a timeout, invalid JSON or a schema error, the deterministic agent makes that one decision instead, and the decision log records it.
+- **Live research on free sources:** search with automatic fallback (optional Tavily, then DuckDuckGo HTML and Lite, Wikipedia, and the DuckDuckGo Instant Answer API). Pages are fetched with SSRF and size protection. Synthesis uses `[n]` citations and a `## Sources` list.
+- **Automatic free-model selection:** reads the OpenRouter catalog, keeps only `:free` models, probes the top candidates, and saves the fastest one to a cache. A model that fails is demoted and the next one is tried. `FreeModelGuard` rejects any model that is not free.
+- **Multimodal inputs:** PDF text extraction with pypdf (scanned PDFs are handled without failing the run), image validation and description with a free vision model, and an audio transcription tool with a free speech-to-text router. Attachments are cited first, as primary sources.
+- **Supervised-control API:** a local, token-protected API to start, pause, resume and stop runs and to approve, reject or retry steps. Low-risk steps can be auto-approved, and every decision goes to an audit log. Keys are write-only and shown masked.
+- **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
+- **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
+- **Repeatable validation:** 267 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+
+## How it works
+
+```mermaid
+flowchart TD
+    Client["Client / Swagger UI"] --> API["FastAPI: POST /research"]
+    API --> Orch["Master research orchestrator (state machine)"]
+    Orch --> Plan["Planning agent (LLM + deterministic fallback)"]
+    Orch --> Research["Research agent"]
+    Research --> Tools["Tool registry: web search, page fetch, PDF, image, audio"]
+    Tools --> Evidence["Evidence + sources (provenance)"]
+    Orch --> Analysis["Analysis agent: claims linked to evidence"]
+    Orch --> Eval["Evaluation agent: COMPLETE / CONTINUE / FAILED + gaps"]
+    Eval -- "CONTINUE (bounded)" --> Plan
+    Orch --> Report["Report agent: Markdown + [n] citations"]
+    Orch -. "optional step gate" .-> Control["Control API: approve / reject / audit"]
+    Plan & Analysis & Eval --> Guard["Free-model guard + OpenRouter router"]
+    Orch --> Harness["Execution harness: budgets, retries, timeouts"]
+    Orch --> Store["SQLite session store"]
+```
+
+Research iterations, tool retries, model fallback and recovery are separate loops, and each has its own limit. Provider SDKs and SQLite never reach the agent or domain code directly. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DECISIONS.md](docs/DECISIONS.md).
+
+### Design decisions and tradeoffs
+
+| Decision | Why it helps | Tradeoff |
+| --- | --- | --- |
+| Free models only, enforced by a guard | Mistakes can never cost money | Free models are slower and rate-limited, so fallback is required |
+| Deterministic fallback for every LLM decision | A run always finishes, even when the model fails | Fallback decisions are simpler than LLM ones |
+| Hard limits on every loop | No endless loops or surprise bills | Very broad questions may hit the limits |
+| Attachments cited before web results | The user's own documents come first | Weak attachments can crowd out better web sources |
+| Offline deterministic test suite | Fast, free and reproducible CI | Live behaviour is checked by hand, not in CI |
+
+## Quick start
+
+> **Windows:** see [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md) for a PowerShell step-by-step guide.
+
+```bash
 git clone https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant.git
 cd multimodal-agentic-deep-research-assistant
-```
-
-- **Environment**: copy the example env and adjust if desired (the demo runs with defaults and needs no secrets):
-
-```powershell
-copy .env.example .env
-```
-
-- **Install dependencies (editable, test extras)**:
-
-```powershell
 python -m pip install -e ".[test]"
-```
+cp .env.example .env          # optional; offline mode needs no keys
 
-- **Run the offline demo** (deterministic, zero-network):
-
-```powershell
-deep-research-demo
-```
-
-- **Start the FastAPI app**:
-
-```powershell
+deep-research-demo            # offline, deterministic demo (JSON output)
 uvicorn deep_research.api.main:app --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000/docs
+curl -X POST http://127.0.0.1:8000/research -H "Content-Type: application/json" -d @examples/sample_request.json
 ```
 
-- **Open interactive API docs**: http://127.0.0.1:8000/docs (Swagger UI) or http://127.0.0.1:8000/redoc
+### Live mode (free)
 
-- **Minimal research request (curl)**:
-
-```powershell
-curl -X POST "http://127.0.0.1:8000/research" -H "Content-Type: application/json" -d @examples/sample_request.json
+```bash
+export DEEP_RESEARCH_RESEARCH_MODE=live
+export DEEP_RESEARCH_OPENROUTER_API_KEY=...      # free OpenRouter key; models are chosen automatically
+uvicorn deep_research.api.main:app --port 8000
 ```
 
-- **Retrieve a session**:
+Without an OpenRouter key, live mode still returns real search evidence, with a snippet summary in place of the synthesis. Full details, including model selection, the search chain, PDF and image limits, and report sections, are in [docs/LIVE_MODE.md](docs/LIVE_MODE.md).
 
-```powershell
-curl "http://127.0.0.1:8000/research/<SESSION_ID>"
+### PDF and image attachments
+
+`POST /research` accepts up to 5 attachments, each `{"kind": "pdf" | "image", "data": "data:<mime>;base64,...", "name": "optional"}`. Ready-made requests with a fictional PDF and chart are in [examples/demo-data](examples/demo-data/README.md).
+
+### Supervised control
+
+```bash
+export DEEP_RESEARCH_CONTROL_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
+deep-research-control --port 8711     # binds to 127.0.0.1 only
 ```
 
-- **Run tests**:
+See [docs/CONTROL_API.md](docs/CONTROL_API.md) for the endpoints, approval gates and key handling.
 
-```powershell
-pytest
+### Docker
+
+```bash
+docker build -t deep-research .
+docker run --rm -p 8000:8000 deep-research                 # offline
+docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. live mode
 ```
 
-## Project status
+## API
 
-Phase 7 — Final Integration is complete. The frozen roadmap defines no Phase 8 scope; Phase 8 has not started.
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health`, `/ready`, `/version` | Monitoring |
+| `POST /research` | Run research on an objective (at most 10,000 characters) with optional metadata and attachments |
+| `GET /research/{session_id}` | Fetch a finished result (the last 100 sessions are kept in memory) |
 
-The release includes:
+The input rules are strict: unknown fields, secret-like metadata, null characters, oversized metadata and non-finite numbers are all rejected. The OpenAPI spec is in [docs/openapi.json](docs/openapi.json), and more examples are in [docs/API-EXAMPLES.md](docs/API-EXAMPLES.md).
 
-- Dependency-injected planning, research, analysis, evaluation, and reporting agents
-- Deterministic tool selection for web and document research paths
-- Explicit bounded research-state transitions, reflection, evidence-gap detection, and replanning
-- Transactional SQLite session persistence, immutable evidence history, and session recovery
-- Bounded deterministic memory retrieval and provenance-aware agent context construction
-- Retries, timeouts, budgets, emergency stop, normalized failures, and ordered model fallback
-- Sanitized runtime events and traceable runtime usage reports
-- Bounded FastAPI submission and process-local result lookup
-- Offline demo scenarios and end-to-end/adversarial integration validation
-- Reproducible pytest, Ruff, strict MyPy, and GitHub Actions quality gates
+## Runtime limits
 
-## Install and validate
+These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 
-Python 3.12 is the primary supported development runtime.
+- 3 research iterations
+- tool calls: 20 per iteration and 60 per session
+- model calls: 15 per iteration and 45 per session
+- tokens: 4,000 per call and 50,000 per session
+- time: 300 seconds per session, 30 seconds per tool call and 60 seconds per model call
+- 2 retries per operation
 
-```powershell
-python -m pip install -e ".[test]"
-pytest
+`DEEP_RESEARCH_EMERGENCY_STOP=true` stops the run before the next operation. Every setting is listed in [.env.example](.env.example).
+
+## Validate
+
+```bash
+pytest          # 267 tests, offline, $0
 ruff check .
 mypy src
 ```
 
-The mandatory validation suite uses deterministic adapters, makes no live network or paid-model calls, requires no credentials, and costs $0.
-
-## Run the offline demo
-
-After installation:
-
-```powershell
-deep-research-demo
-```
-
-Or run a custom bounded objective:
-
-```powershell
-python -m deep_research.demo --objective "Assess reliability considerations for grid-scale battery storage"
-```
-
-The demo emits JSON containing terminal state, evidence/source identifiers, report data, and runtime accounting. It is intentionally synthetic and must not be represented as live web research.
-
-## Product API
-
-Start the API:
-
-```powershell
-uvicorn deep_research.api.main:app --host 127.0.0.1 --port 8000
-```
-
-`POST /research` accepts an objective of at most 10,000 characters plus bounded primitive metadata. Secret-like metadata, null characters, unknown fields, oversized metadata, and non-finite numbers are rejected. `GET /research/{session_id}` returns the process-local terminal result.
-
-The default API performs deterministic zero-network research and retains at most 100 insertion-ordered sessions. Durable or multi-worker deployments must compose the existing `ResearchSessionRepository` and `ResearchContextBuilder` boundaries.
-
-## Demo Preview
-
-### Swagger API Interface
-![Swagger API Interface](screenshots/swagger-ui.png)
-
-The Swagger UI shows the live OpenAPI specification and available endpoints (`/health`, `/ready`, `/version`, `/research`).
-
-### Research Submission
-![Research Submission](screenshots/post_response.png)
-
-Example successful `POST /research` response (HTTP 200) from the deterministic offline demo, showing `session_id`, `request_id`, `status`, `report`, and `runtime` usage.
-
-### Research Result Retrieval
-![Research Result Retrieval](screenshots/get_response.png)
-
-Use `GET /research/{session_id}` to fetch the terminal run result; the example demonstrates retrieving the same `ResearchRunResponse` returned by the submission.
-
-## Architecture
-
-The principal data and execution flows are:
-
-```text
-Durable Memory → Research State → ContextBuilder → Bounded AgentContext → Agent
-
-Orchestrator → ExecutionHarness → Agent abstraction → Provider/tool abstraction
-
-Claim → Evidence → Source
-```
-
-Research iterations, tool retries, model fallback attempts, and recovery attempts remain separate finite mechanisms. Provider SDKs and SQLite never enter agent/domain logic directly.
-
-See `ARCHITECTURE.md`, `DECISIONS.md`, and `PROJECT_RULES.md` for the frozen boundaries.
-
-## Multimodal status
-
-The modality taxonomy is `TEXT`, `WEB`, `DOCUMENT`, `PDF`, `IMAGE`, `VIDEO`, `AUDIO`, `ACADEMIC`, `SOCIAL`, and `STRUCTURED_DATA`.
-
-- Deterministic/tested: web search and document-reader tool paths, typed modality registry/selection, evidence/source identifier propagation
-- Infrastructure-compatible but not live verified: PDF, image, video, audio, academic, social, and structured-data provider adapters
-- Not implemented: live provider SDK integrations, multimedia transcription/vision pipelines, and a graphical UI
-
-No modality is claimed live without a real provider integration and live acceptance test.
-
-## Runtime defaults
-
-`DEEP_RESEARCH_` environment variables configure the Phase 6 harness. Defaults are 3 research iterations; 20/60 tool calls per iteration/session; 15/45 model calls per iteration/session; 4,000/50,000 measurable tokens per call/session; 300 seconds per session; 30 seconds per tool call; 60 seconds per model call; 10 paid external API calls; and 2 retries per tool or model operation. `DEEP_RESEARCH_EMERGENCY_STOP=true` fails closed before the next bounded operation.
-
-Retries consume call budgets but not research iterations. Unknown/permanent failures are not retried, and ordered model fallback occurs only after transient connection or timeout exhaustion.
-
 ## Repository map
 
-- `src/deep_research/` — application source and offline demo entry point
-- `tests/unit/` — domain, agent, runtime, API, persistence, and regression tests
-- `tests/integration/` — Phase 7 full-stack and adversarial validation
-- `.github/workflows/quality.yml` — GitHub quality gate
-- `docs/architecture/` — frozen architecture asset
-- Root Markdown files — authoritative policies, roadmap, decisions, audits, and release documentation
+| Path | Contents |
+| --- | --- |
+| `src/deep_research/api` | FastAPI app, research service, error handlers |
+| `src/deep_research/core` | agents, orchestrator, step gate, config, free-model guard |
+| `src/deep_research/control` | supervised-control API, run manager, risk rules, secret store |
+| `src/deep_research/tools` | web search and fetch, PDF, image, audio tools, registry and selector |
+| `src/deep_research/models` | OpenRouter gateway, catalog, routing, speech-to-text router |
+| `src/deep_research/{evidence,domain,persistence,runtime,memory,context,observability,security}` | contracts, storage, budgets, logging and redaction |
+| `tests/unit`, `tests/integration` | offline tests |
+| `docs/` | architecture, decisions, policies, live mode, control API, setup, images |
+| `examples/` | sample request and response, demo output, ZetaCell demo data |
 
 ## Security and limitations
 
-Never commit `.env`, credentials, runtime databases, generated research, logs, caches, or bytecode. See `SECURITY.md` and `SECURITY_GUIDELINES.md`.
-
-Known limitations include process-local API lookup, synchronous local SQLite, lexical rather than embedding retrieval, tokenizer-independent character bounds, cancellation-dependent async timeouts, and no automatic continuation of a partially completed recovered iteration. The release does not estimate monetary provider cost because no authoritative pricing catalog is defined.
+- Never commit `.env`, keys, runtime databases, logs or generated research. See [SECURITY.md](SECURITY.md) and [docs/SECURITY_GUIDELINES.md](docs/SECURITY_GUIDELINES.md).
+- Results are kept in memory by a single process. A durable or multi-worker deployment would need the existing `ResearchSessionRepository` boundary connected to the API.
+- Retrieval is lexical, not embedding-based, and token limits are counted in characters.
+- Free models can be slow or rate-limited. Live answers depend on whichever free model and search source respond at the time.
 
 ## License
 
-MIT — see `LICENSE`.
-
-## Live research mode (optional)
-
-By default the assistant runs fully offline with the deterministic agent
-(`DEEP_RESEARCH_RESEARCH_MODE=offline`), and all tests stay offline and free.
-
-To use real web research:
-
-```bash
-export DEEP_RESEARCH_RESEARCH_MODE=live
-# optional: LLM synthesis with citations via free OpenRouter models
-export DEEP_RESEARCH_OPENROUTER_API_KEY=...
-# default: automatic free-model selection (no model env needed)
-# export DEEP_RESEARCH_OPENROUTER_MODEL=auto
-# export DEEP_RESEARCH_OPENROUTER_VISION_MODEL=auto
-# optional pin (tried first, then auto-fallback): any slug ending in ":free"
-# export DEEP_RESEARCH_OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free
-# optional: Tavily is tried first in the automatic search chain when keyed
-# export DEEP_RESEARCH_TAVILY_API_KEY=...
-uvicorn deep_research.api.main:app
-```
-
-Live mode searches the web, fetches the top pages (public http(s) only, with
-private-network/SSRF protection and size limits), and asks the
-free-model-guarded LLM to answer with `[n]` citations. Without an OpenRouter
-key it returns the real search evidence with a snippet summary instead.
-
-### Automatic free-model selection
-
-With `DEEP_RESEARCH_OPENROUTER_MODEL=auto` (default) and `DEEP_RESEARCH_OPENROUTER_VISION_MODEL=auto`:
-
-1. On first use the gateway calls `GET https://openrouter.ai/api/v1/models`
-   and keeps only models whose id ends in `:free`.
-2. Text and vision candidates are ranked separately (vision = `image` in
-   `input_modalities`): general-purpose before specialty models
-   (content-safety, note/code previews), text+image before text-only for
-   vision, then larger context length first.
-3. **Probe + persist (first run / fresh clone):** the top
-   `DEEP_RESEARCH_OPENROUTER_PROBE_COUNT` (default 3) text and vision candidates get a
-   tiny concurrent probe (`"Reply with the single word: ok"`, a 1×1 image for
-   vision, `max_tokens=16`, `DEEP_RESEARCH_OPENROUTER_PROBE_TIMEOUT_SECONDS`, default 8s).
-   The fastest working model per kind is selected; working models are ordered
-   fastest-first and failing ones go last.
-4. The selection, ranked lists, probe results and a timestamp are saved as JSON
-   to `DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH`. If unset, the per-user cache dir is
-   used: `~/.cache/deep_research/openrouter_free_models.json` (Linux/XDG),
-   `~/Library/Caches/deep_research/…` (macOS), `%LOCALAPPDATA%\deep_research\…` (Windows).
-   Set it to `off` to disable. **The API key is never written.** Restarts reuse
-   the file for `DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_SECONDS` (default 6 hours); once
-   it expires (e.g. the next day) the app re-discovers and re-probes
-   automatically. A corrupt file, or one written for another base URL, is ignored.
-5. On HTTP 403/404/429/5xx, "unavailable for free", "only available on…",
-   rate-limit or overload responses, the failed model is demoted, the catalog
-   refreshed and the next free model tried automatically (up to 6 per call).
-6. Setting a concrete `:free` slug pins that model first; failures still fall
-   back to the rest of the free catalog. `FreeModelGuard` still rejects any
-   non-`:free` id.
-
-### Automatic free search chain
-
-With `DEEP_RESEARCH_SEARCH_PROVIDER=auto` (default) sources are tried in order and
-blocked or empty ones are skipped with no extra config:
-
-1. Tavily, only if `DEEP_RESEARCH_TAVILY_API_KEY` is set
-2. DuckDuckGo HTML (`html.duckduckgo.com`); HTTP 202 / bot-challenge pages count as failure
-3. DuckDuckGo Lite (`lite.duckduckgo.com`)
-4. Wikipedia full-text search API
-5. DuckDuckGo Instant Answer API
-
-The search query is the research objective itself (no `latest` prefix).
-`DEEP_RESEARCH_SEARCH_PROVIDER=duckduckgo` uses only the free chain;
-`DEEP_RESEARCH_SEARCH_PROVIDER=tavily` uses only Tavily.
-
-## PDF and image inputs
-
-`POST` research submissions accept up to 5 `attachments`, each
-`{"kind": "pdf" | "image", "data": "data:<mime>;base64,...", "name": "optional"}`.
-
-* **PDF** (`pdf_reader`, pypdf): offline per-page text extraction; 20 MiB,
-  200 pages and 200k characters max; encrypted and malformed files return safe
-  structured errors.
-  * **Scanned / image-only PDFs don't fail the run.** The result carries the
-    note `no extractable text`, the page count, metadata and an inventory of
-    embedded images (count, page, pixel size). If a free vision model is
-    available, the first page's embedded images (up to 2) are described;
-    otherwise the note says what is present.
-* **Image** (`image_analyzer`, Pillow): PNG/JPEG/WebP/GIF validation (declared
-  type must match real format), 10 MiB / 40 MP limits, metadata extraction.
-  With `DEEP_RESEARCH_OPENROUTER_API_KEY` set it also asks the free vision model
-  (`DEEP_RESEARCH_OPENROUTER_VISION_MODEL`, default `auto`; `:free` only, guard-enforced) for a
-  description; otherwise it returns metadata only and never invents one.
-
-Each attachment becomes its own research task in both offline and live modes,
-scheduled **before** the web tasks. In live mode the extracted PDF text is
-split into ~1.2k-character page chunks, and image or scan descriptions are
-added too. Each web section gets the most query-relevant chunks (up to 4) as
-**primary** sources numbered ahead of web results. The LLM is told to use and
-cite them first, and the report lists them as `[n] <file> (attached pdf, p.N)
-- user attachment`. An `## Attached files` section summarises each
-attachment (pages; for scans: no extractable text and image count). If web
-search is blocked, sections still complete from the attachments alone.
-
-### Report sections
-
-Section headings are short and keyword-based; they never repeat the whole
-question. The first section is always **Fundamentals**. The next two come from
-aspects detected in the question: **Benefits** (benefit, advantage, pros),
-**Risks** (risk, drawback, cons, challenge), **Costs and economics**,
-**Comparison**, **History**, **Recent developments**. If fewer than two
-aspects are detected, **Recent developments** and **Significance and impact**
-fill the gap. Each section's search query and LLM focus are scoped to its
-aspect, which avoids three near-identical answers.
-
-## Viewing a live run
-
-There is no web UI. The simplest way to try it is the Swagger UI:
-
-```bash
-DEEP_RESEARCH_RESEARCH_MODE=live DEEP_RESEARCH_OPENROUTER_API_KEY=... uvicorn deep_research.api.main:app --port 8000
-# open http://127.0.0.1:8000/docs -> POST /research -> "Try it out"
-```
-
-The `report.content` field is Markdown, with numbered citations and a
-`## Sources` list.
-
-## Docker
-
-```bash
-docker build -t deep-research .
-docker run --rm -p 8000:8000 deep-research                      # offline mode
-docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. DEEP_RESEARCH_RESEARCH_MODE=live
-```
+MIT. See [LICENSE](LICENSE). © 2026 Attota Leelaissak.
