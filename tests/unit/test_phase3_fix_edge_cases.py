@@ -28,11 +28,7 @@ def _no_heavy(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize("value", ["auto", "semantic", "lexical", "off", "OFF"])
 def test_env_values_accepted(value: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEP_RESEARCH_LONG_TERM_MEMORY", value)
-    if value == "OFF":
-        with pytest.raises(ValidationError):  # Literal is case-sensitive even with case_sensitive=False keys
-            Settings()
-        return
-    assert Settings().long_term_memory == value
+    assert Settings().long_term_memory == value.lower()  # modes are case-insensitive
 
 
 def test_env_invalid_value_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,10 +59,24 @@ def test_auto_falls_back_to_lexical_without_deps(tmp_path: Path) -> None:
     assert mem is not None and mem.mode == "lexical"
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: unknown mode silently builds semantic memory instead of raising")
 def test_factory_invalid_mode_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         factory.build_long_term_memory("bogus", tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+def test_memory_mode_case_insensitive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import ValidationError
+
+    assert factory.resolve_memory_mode("  OFF ") == "off"
+    assert factory.build_long_term_memory(" Off", tmp_path) is None
+    mem = factory.build_long_term_memory("LEXICAL", tmp_path)
+    assert mem is not None and mem.mode == "lexical"
+    monkeypatch.setenv("DEEP_RESEARCH_LONG_TERM_MEMORY", " Semantic ")
+    assert Settings().long_term_memory == "semantic"
+    monkeypatch.setenv("DEEP_RESEARCH_LONG_TERM_MEMORY", "bogus")
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_app_auto_writes_only_under_memory_dir(tmp_path: Path) -> None:

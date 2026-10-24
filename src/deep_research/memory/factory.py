@@ -25,9 +25,22 @@ def semantic_extra_available() -> bool:
     return any(importlib.util.find_spec(name) is not None for name in ("chromadb", "sentence_transformers"))
 
 
-def resolve_memory_mode(mode: str) -> str:
-    """Map ``auto`` to ``semantic`` or ``lexical``; pass other modes through."""
+MEMORY_MODES = ("auto", "semantic", "lexical", "off")
 
+
+def normalize_memory_mode(mode: str) -> str:
+    """Strip/lowercase a mode; raise ValueError for unknown modes."""
+
+    norm = str(mode).strip().lower()
+    if norm not in MEMORY_MODES:
+        raise ValueError(f"unknown long_term_memory mode {mode!r}; expected one of {', '.join(MEMORY_MODES)}")
+    return norm
+
+
+def resolve_memory_mode(mode: str) -> str:
+    """Map ``auto`` to ``semantic`` or ``lexical``; pass other valid modes through."""
+
+    mode = normalize_memory_mode(mode)
     if mode == "auto":
         return "semantic" if semantic_extra_available() else "lexical"
     return mode
