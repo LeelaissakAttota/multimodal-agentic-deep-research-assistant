@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import time
 import warnings
@@ -18,6 +19,7 @@ from deep_research.evidence.source import Source
 from deep_research.models.model_gateway import ModelGateway, ModelRequest
 from deep_research.tools.definition import ToolCapability, ToolDefinition, ToolInput, ToolOutput
 from deep_research.tools.media import MediaDecodeError, decode_data_url, to_data_url
+from deep_research.tools.ocr import ocr_image
 from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 IMAGE_TOOL_ID = "image_analyzer"
@@ -105,23 +107,28 @@ class ImageAnalysisTool(Tool):
 
         prompt = params.get("prompt") if isinstance(params.get("prompt"), str) else _DEFAULT_PROMPT
         description, model_id, vision_error = await self._describe(to_data_url(raw, mime), prompt or _DEFAULT_PROMPT)
+        ocr = await asyncio.to_thread(ocr_image, raw)
         title = params.get("source_title") or None
         source = Source(title=title, description="Embedded image",
                         metadata={"tool_identifier": IMAGE_TOOL_ID, **info})
         content = description or (
             f"Image ({info['format']}, {info['width']}x{info['height']}, mode {info['mode']}); no description available."
         )
+        if ocr is not None:
+            content = f"{content}\n\nText found in the image (OCR, {ocr.engine}):\n{ocr.text}"
         evidence = Evidence(source_id=source.id, content=content,
                             content_type="image_description" if description else "image_metadata",
                             metadata={"tool_identifier": IMAGE_TOOL_ID, "model_id": model_id})
         return ToolResult(
             success=True,
             output={**info, "description": description, "model_id": model_id, "summary": content,
+                    "ocr_text": ocr.text if ocr else None, "ocr_engine": ocr.engine if ocr else None,
                     "evidence_ids": [evidence.id], "source_ids": [source.id],
                     "evidence_objects": [evidence], "source_objects": [source]},
             tool_name=IMAGE_TOOL_ID, execution_time_ms=(time.monotonic() - start) * 1000,
             metadata={"tool_identifier": IMAGE_TOOL_ID, "model_id": model_id, "vision_error": vision_error,
-                      "description_source": "vision_model" if description else "metadata_only"},
+                      "description_source": "vision_model" if description else "ocr" if ocr else "metadata_only",
+                      "ocr_engine": ocr.engine if ocr else None},
         )
 
     def _inspect(self, raw: bytes) -> dict[str, Any]:

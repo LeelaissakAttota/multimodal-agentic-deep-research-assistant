@@ -377,7 +377,7 @@ def page_new() -> None:
         c = st.columns(2)
         web = c[0].toggle("Web Search", value=p["default_mode"] == "live", help="On = live mode (free web search + models). Off = offline demo.")
         c[1].toggle("Document Analysis", value=True, disabled=True, help="Always on: PDF, DOCX, PPTX, TXT and MD files are read with page/slide citations.")
-        c[0].toggle("Image Analysis", value=True, disabled=True, help="Always on: attached images are analysed.")
+        c[0].toggle("Image Analysis", value=True, disabled=True, help="Always on: attached images and scanned PDFs are analysed, with local OCR when installed.")
         c[1].toggle("Video Analysis (coming soon)", value=False, disabled=True, help="Not supported by the engine yet.")
         files = st.file_uploader("Upload files (optional): PDF, DOCX, PPTX, TXT, MD or images",
                                  type=["pdf", "docx", "pptx", "txt", "md", "png", "jpg", "jpeg", "webp", "gif"],

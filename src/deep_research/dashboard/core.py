@@ -508,7 +508,7 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
         {"name": "Web Page Fetch", "detail": "reads up to the configured number of public pages per task",
          "state": "on" if live else "live mode", "icon": "🔗"},
         {"name": "Document Analysis", "detail": "PDF, DOCX, PPTX, TXT and Markdown with page/slide citations", "state": "on", "icon": "📄"},
-        {"name": "Image Analysis", "detail": "free vision model (needs OpenRouter key), metadata fallback",
+        {"name": "Image Analysis", "detail": "free vision model (OpenRouter key) + local OCR (RapidOCR), metadata fallback",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🖼️"},
         {"name": "LLM Agents", "detail": "planning, analysis, evaluation and reporting on ':free' models",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🧠"},

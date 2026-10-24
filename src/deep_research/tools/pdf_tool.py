@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import time
 from typing import Any
@@ -133,6 +134,7 @@ class PdfReaderTool(Tool):
         """No text layer: report what is present and describe first-page images if a vision model exists."""
 
         images = _inventory_images(raw)
+        ocr_pages = await asyncio.to_thread(_ocr_pages, images)
         descriptions, model_id, vision_error = await self._describe_first_page(images)
         lines = [f"PDF '{title or 'attachment'}': {NO_TEXT_NOTE} (likely scanned or image-only).",
                  f"Pages: {page_count}."]
@@ -145,6 +147,8 @@ class PdfReaderTool(Tool):
             lines.append("Embedded images: none found (pages may be vector drawings).")
         for item in descriptions:
             lines.append(f"Image on page {item['page']} ({item['name']}): {item['description']}")
+        if ocr_pages:
+            lines.append(f"OCR ({ocr_pages[0]['engine']}) read text on {len(ocr_pages)} page(s).")
         if images and not descriptions:
             reason = vision_error or "no free vision model configured"
             lines.append(f"Image content not described ({reason}).")
@@ -158,7 +162,9 @@ class PdfReaderTool(Tool):
         return ToolResult(
             success=True,
             output={
-                "text": "", "pages": [], "page_count": page_count, "pages_read": page_count, "truncated": False,
+                "text": "\n\n".join(p["text"] for p in ocr_pages),
+                "pages": [{"page": p["page"], "text": p["text"]} for p in ocr_pages], "page_count": page_count,
+                "ocr_engine": ocr_pages[0]["engine"] if ocr_pages else None, "pages_read": page_count, "truncated": False,
                 "metadata": meta, "summary": content, "note": NO_TEXT_NOTE, "has_text": False,
                 "images": public_images, "image_count": len(images), "image_descriptions": descriptions,
                 "evidence_ids": [evidence.id], "source_ids": [source.id],
@@ -167,6 +173,7 @@ class PdfReaderTool(Tool):
             tool_name=PDF_TOOL_ID, execution_time_ms=(time.monotonic() - start) * 1000,
             metadata={"tool_identifier": PDF_TOOL_ID, "page_count": page_count, "has_text": False,
                       "note": NO_TEXT_NOTE, "image_count": len(images), "model_id": model_id,
+                      "ocr_pages": len(ocr_pages),
                       "vision_error": vision_error},
         )
 
@@ -280,6 +287,24 @@ def _image_entry(page_number: int, image: Any) -> dict[str, Any]:
     usable = mime is not None and 0 < len(data) <= MAX_VISION_IMAGE_BYTES
     return {"page": page_number, "name": str(getattr(image, "name", "image")), "width": width, "height": height,
             "format": fmt or "unknown", "bytes": len(data), "mime": mime, "data": data if usable else None}
+
+
+MAX_OCR_IMAGES = 20
+
+
+def _ocr_pages(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """OCR embedded page images (scans) into per-page text; empty when no OCR engine is installed."""
+
+    from deep_research.tools.ocr import ocr_image
+
+    by_page: dict[int, list[str]] = {}
+    engine = ""
+    for img in [i for i in images if i.get("data")][:MAX_OCR_IMAGES]:
+        result = ocr_image(img["data"])
+        if result is not None:
+            by_page.setdefault(int(img["page"]), []).append(result.text)
+            engine = result.engine
+    return [{"page": page, "text": "\n".join(texts), "engine": engine} for page, texts in sorted(by_page.items())]
 
 
 class _EncryptedPdf(Exception):

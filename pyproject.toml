@@ -86,5 +86,5 @@ strict = true
 exclude = ["tests", ".git", "__pycache__", "build", "dist"]
 
 [[tool.mypy.overrides]]
-module = ["streamlit", "streamlit.*", "fpdf", "fpdf.*", "docx", "docx.*", "pptx", "pptx.*", "rapidocr_onnxruntime", "pytesseract"]
+module = ["numpy", "streamlit", "streamlit.*", "fpdf", "fpdf.*", "docx", "docx.*", "pptx", "pptx.*", "rapidocr_onnxruntime", "pytesseract"]
 ignore_missing_imports = true
