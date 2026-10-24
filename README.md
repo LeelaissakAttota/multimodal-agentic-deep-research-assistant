@@ -158,7 +158,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 337 tests, offline, $0
+pytest          # 359 tests, offline, $0
 ruff check .
 mypy src
 ```
