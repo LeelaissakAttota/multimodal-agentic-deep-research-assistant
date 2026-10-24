@@ -370,5 +370,8 @@ def _default_media_tools() -> dict[str, Tool]:
     from deep_research.tools.image_tool import ImageAnalysisTool
     from deep_research.tools.pdf_tool import PdfReaderTool
 
-    tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False), DocumentReaderTool()]
+    from deep_research.tools.web_page_tool import WebPageReaderTool
+
+    tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False), DocumentReaderTool(),
+                         WebPageReaderTool()]
     return {tool.name: tool for tool in tools}

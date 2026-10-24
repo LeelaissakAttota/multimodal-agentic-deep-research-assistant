@@ -414,7 +414,8 @@ def run_tags(run: dict[str, Any]) -> list[str]:
     params = run.get("params") or {}
     tags = [str(params.get("mode") or "offline").title()]
     kinds = {str(a.get("kind")) for a in params.get("attachments") or [] if isinstance(a, dict)}
-    tags += [label for kind, label in (("pdf", "PDF"), ("document", "Doc"), ("image", "Image")) if kind in kinds]
+    tags += [label for kind, label in (("pdf", "PDF"), ("document", "Doc"), ("image", "Image"), ("url", "Link"))
+             if kind in kinds]
     if run.get("approval_mode"):
         tags.append("Step approval")
     report = report_of(run)
@@ -550,27 +551,56 @@ def needs_detail(run: dict[str, Any]) -> bool:
     return run.get("status") == "completed" and "result" not in run
 
 
-def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = None) -> dict[str, str]:
-    """Download a public PDF/image link and encode it like an upload. Web pages are not supported yet."""
+MAX_URL_BYTES = 20 * 1024 * 1024
+_PAGE_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
 
+
+def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = None,  # noqa: C901 - one guarded download
+                        validator: Any = None) -> dict[str, str]:
+    """Attach a public link: PDF/image/Office files are downloaded; web pages become ``url`` attachments.
+
+    Every hop goes through the engine's SSRF guard (public http(s) hosts only, redirects re-checked),
+    and downloads are capped at 20 MB. Web pages are read by the engine in live mode.
+    """
+
+    from deep_research.tools.web_tools import is_public_http_url
+
+    check = validator or is_public_http_url
     url = url.strip()
-    if not re.match(r"https://[^\s/]+\.[^\s]+$", url):
-        raise ValueError("enter a full https:// link to a PDF or image")
+    if not re.match(r"https?://[^\s/]+\.[^\s]+$", url):
+        raise ValueError("enter a full https:// link to a web page, PDF, document or image")
+    files = {v: k for k, v in {**PDF_TYPES, **IMAGE_TYPES, **DOC_TYPES}.items()}
     try:
-        with httpx.Client(timeout=20.0, follow_redirects=True, transport=transport) as http:
-            resp = http.get(url)
+        with httpx.Client(timeout=20.0, follow_redirects=False, transport=transport) as http:
+            for _ in range(6):
+                if not check(url):
+                    raise ValueError("that link points to a private or non-public address")
+                with http.stream("GET", url) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        url = str(resp.url.join(resp.headers["location"]))
+                        continue
+                    if resp.status_code >= 400:
+                        raise ValueError(f"the link returned HTTP {resp.status_code}")
+                    ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                    if ctype in _PAGE_TYPES or not ctype:
+                        return {"kind": "url", "name": shorten(url, 200), "data": url}
+                    ext = files.get(ctype)
+                    if ext is None:
+                        raise ValueError(f"unsupported link type {ctype}; use a web page, PDF, DOCX, PPTX, TXT/MD or image")
+                    body = b""
+                    for chunk in resp.iter_bytes():
+                        body += chunk
+                        if len(body) > MAX_URL_BYTES:
+                            raise ValueError("the linked file is larger than 20 MB")
+                    break
+            else:
+                raise ValueError("too many redirects")
     except httpx.HTTPError as exc:
         raise ValueError(f"could not download the link ({type(exc).__name__})") from None
-    if resp.status_code >= 400:
-        raise ValueError(f"the link returned HTTP {resp.status_code}")
-    ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-    ext = {v: k for k, v in {**PDF_TYPES, **IMAGE_TYPES}.items()}.get(ctype)
-    if ext is None:
-        raise ValueError("only direct PDF or image links are supported; web-page URLs are coming soon")
     name = Path(url.split("?")[0]).name or "download"
     if not name.lower().endswith(f".{ext}") and not (ext == "jpeg" and name.lower().endswith(".jpg")):
         name = f"{name}.{ext}"
-    return build_attachment(name, resp.content)
+    return build_attachment(name, body)
 
 
 def md_safe(markdown: str) -> str:

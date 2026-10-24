@@ -164,15 +164,16 @@ def _attachment_tasks(request: ResearchRequest) -> list[ResearchTask]:
     tasks: list[ResearchTask] = []
     for index, attachment in enumerate(request.attachments, 1):
         tool_id, param = ATTACHMENT_TOOLS[attachment.kind]
-        label = attachment.name or f"{attachment.kind} attachment {index}"
+        kind = "web page" if attachment.kind == "url" else attachment.kind
+        label = attachment.name or f"{kind} attachment {index}"
         tasks.append(
             ResearchTask(
                 plan_id=UUID(int=0),
-                description=f"Analyze {attachment.kind} input '{label}' for: {request.objective}",
-                objective=f"Extract evidence from the provided {attachment.kind} relevant to {request.objective}",
+                description=f"Analyze {kind} input '{label}' for: {request.objective}",
+                objective=f"Extract evidence from the provided {kind} relevant to {request.objective}",
                 assigned_tool=tool_id,
                 tool_input={param: attachment.data, "source_title": label},
-                metadata={"section": f"Attached {attachment.kind}: {label}", "question": request.objective},
+                metadata={"section": f"Attached {kind}: {label}", "question": request.objective},
             )
         )
     return tasks

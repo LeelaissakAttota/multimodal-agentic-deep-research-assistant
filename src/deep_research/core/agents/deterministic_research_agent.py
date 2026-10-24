@@ -202,7 +202,9 @@ class DeterministicResearchAgent(ResearchAgent):
         from deep_research.tools.image_tool import ImageAnalysisTool
         from deep_research.tools.pdf_tool import PdfReaderTool
 
-        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool()):
+        from deep_research.tools.web_page_tool import WebPageReaderTool
+
+        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool(), WebPageReaderTool(offline=True)):
             self.registry.register(type(tool))
             self._tools[tool.name] = tool
 
@@ -255,8 +257,9 @@ class DeterministicResearchAgent(ResearchAgent):
                 execution_time_ms=0.0
             )
 
-        # Instantiate the tool (in a real implementation, we might cache instances)
-        tool_instance = tool_class()
+        # The web-page reader must keep its offline configuration; other tools are built fresh.
+        configured = self._tools.get(tool_definition.identifier)
+        tool_instance = configured if tool_definition.identifier == "web_page_reader" and configured else tool_class()
 
         # Create tool request from task
         tool_request = ToolRequest(

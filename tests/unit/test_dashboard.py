@@ -267,7 +267,7 @@ def test_prefs_roundtrip_and_validation(tmp_path: Path) -> None:
     assert prefs.load() == core.Prefs.DEFAULTS
 
 
-def test_attachment_from_url_accepts_pdf_and_rejects_pages() -> None:
+def test_attachment_from_url_files_pages_and_ssrf() -> None:
     pdf = (ROOT / "examples/demo-data/data/field_note.pdf").read_bytes()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -275,18 +275,31 @@ def test_attachment_from_url_accepts_pdf_and_rejects_pages() -> None:
             return httpx.Response(200, content=pdf, headers={"content-type": "application/pdf"})
         if request.url.path == "/404":
             return httpx.Response(404)
-        return httpx.Response(200, content=b"<html>", headers={"content-type": "text/html"})
+        if request.url.path == "/hop":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1/admin"})
+        if request.url.path == "/zip":
+            return httpx.Response(200, content=b"PK", headers={"content-type": "application/zip"})
+        return httpx.Response(200, content=b"<html>", headers={"content-type": "text/html; charset=utf-8"})
 
     tr = httpx.MockTransport(handler)
-    att = core.attachment_from_url("https://ex.org/doc/report.pdf?x=1", transport=tr)
-    assert att["kind"] == "pdf" and att["name"] == "report.pdf" and att["data"].startswith("data:application/pdf;base64,")
-    with pytest.raises(ValueError, match="coming soon"):
-        core.attachment_from_url("https://ex.org/page", transport=tr)
-    with pytest.raises(ValueError, match="404"):
-        core.attachment_from_url("https://ex.org/404", transport=tr)
-    with pytest.raises(ValueError, match="https"):
-        core.attachment_from_url("http://ex.org/a.pdf", transport=tr)
 
+    def public(u: str) -> bool:
+        return "127.0.0.1" not in u and "localhost" not in u
+
+    att = core.attachment_from_url("https://ex.org/doc/report.pdf?x=1", transport=tr, validator=public)
+    assert att["kind"] == "pdf" and att["name"] == "report.pdf" and att["data"].startswith("data:application/pdf;base64,")
+    page = core.attachment_from_url("https://ex.org/page", transport=tr, validator=public)
+    assert page == {"kind": "url", "name": "https://ex.org/page", "data": "https://ex.org/page"}
+    with pytest.raises(ValueError, match="404"):
+        core.attachment_from_url("https://ex.org/404", transport=tr, validator=public)
+    with pytest.raises(ValueError, match="private"):
+        core.attachment_from_url("https://ex.org/hop", transport=tr, validator=public)
+    with pytest.raises(ValueError, match="private"):
+        core.attachment_from_url("http://localhost.test/x", transport=tr, validator=public)
+    with pytest.raises(ValueError, match="unsupported"):
+        core.attachment_from_url("https://ex.org/zip", transport=tr, validator=public)
+    with pytest.raises(ValueError, match="https"):
+        core.attachment_from_url("ftp://ex.org/a.pdf", transport=tr)
 
 def test_md_safe_needs_detail_and_ist_display(monkeypatch: pytest.MonkeyPatch) -> None:
     assert core.md_safe("from $4,000 to $7,000") == r"from \$4,000 to \$7,000"

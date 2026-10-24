@@ -16,7 +16,8 @@ from typing import Any
 from deep_research.evidence.evidence import Evidence
 from deep_research.evidence.source import Source
 
-ATTACHMENT_TOOL_KINDS = {"pdf_reader": "pdf", "image_analyzer": "image", "document_parser": "document"}
+ATTACHMENT_TOOL_KINDS = {"pdf_reader": "pdf", "image_analyzer": "image", "document_parser": "document",
+                         "web_page_reader": "web page"}
 CHUNK_CHARS = 1_200
 MAX_ENTRY_CHARS = 40_000
 _WORD = re.compile(r"[a-z0-9]{3,}")
@@ -60,6 +61,7 @@ def attachment_entry(tool_id: str | None, output: Mapping[str, Any]) -> dict[str
         "has_text": output.get("has_text", kind == "pdf"),
         "note": output.get("note"),
         "image_count": output.get("image_count"),
+        "url": str(getattr(first, "url", None) or "") or None,
         "chunks": chunks,
     }
 
@@ -93,8 +95,9 @@ def select_attachment_sources(
     evidence: list[Evidence] = []
     for _, _, entry, chunk in picked:
         page = chunk.get("page")
-        label = f"{entry['title']} (attached {entry['kind']}{f', p.{page}' if page else ''})"
-        source = Source(title=label, description=f"User-attached {entry['kind']}",
+        unit = "§" if entry.get("url") else "p."
+        label = f"{entry['title']} (attached {entry['kind']}{f', {unit}{page}' if page else ''})"
+        source = Source(title=label, url=entry.get("url") or None, description=f"User-attached {entry['kind']}",
                         metadata={"attachment": True, "attachment_kind": entry["kind"], "page": page,
                                   "attachment_title": entry["title"]})
         sources.append(source)

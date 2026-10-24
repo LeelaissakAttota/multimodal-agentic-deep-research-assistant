@@ -370,9 +370,10 @@ def page_new() -> None:
                         "They are sent with the question from the first tab. Audio and video uploads are "
                         "<span class='badge b-soon'>coming soon</span>.</div>", unsafe_allow_html=True)
         with t3:
-            url = st.text_input("Direct link to a PDF or image", placeholder="https://example.org/report.pdf")
-            st.markdown("<div class='muted'>The file is downloaded and attached. Reading arbitrary web pages "
-                        "by URL is <span class='badge b-soon'>coming soon</span>; live mode already searches and reads pages.</div>",
+            url = st.text_input("Web page or file link", placeholder="https://example.org/article  or  …/report.pdf")
+            st.markdown("<div class='muted'>Web pages are read as a cited primary source (needs Web Search on). "
+                        "PDF, DOCX, PPTX, TXT/MD and image links are downloaded and attached. Only public addresses "
+                        "are allowed. YouTube/video links are <span class='badge b-soon'>coming soon</span>.</div>",
                         unsafe_allow_html=True)
         c = st.columns(2)
         web = c[0].toggle("Web Search", value=p["default_mode"] == "live", help="On = live mode (free web search + models). Off = offline demo.")
@@ -393,6 +394,8 @@ def page_new() -> None:
                 atts = [build_attachment(f.name, f.getvalue()) for f in (files or [])][:5]
                 if url.strip():
                     atts.append(attachment_from_url(url))
+                    if atts[-1]["kind"] == "url" and not web:
+                        raise ValueError("Reading a web page needs Web Search on (live mode).")
                 client().update_settings(approval_mode=step, auto_approve_low_risk=False)
                 run = client().create_run(str(q).strip(), mode="live" if web else "offline", attachments=atts)
             except (ValueError, ControlError) as exc:
@@ -631,8 +634,8 @@ def page_sources() -> None:
     s = Settings()
     rows = source_rows(runs_cache)
     providers = [("🌐", "c1", "Web Search", "Tavily / DuckDuckGo / Wikipedia", "Active" if s.research_mode == "live" else "Live mode"),
-                 ("📄", "c3", "Documents", "Local PDF upload", "Active"), ("🖼️", "c4", "Images", "Local image upload", "Active"),
-                 ("🔗", "c5", "Direct links", "PDF / image URL", "Active"), ("🎬", "c6", "Video", "YouTube etc.", "Coming soon"),
+                 ("📄", "c3", "Documents", "PDF, DOCX, PPTX, TXT/MD", "Active"), ("🖼️", "c4", "Images", "Local image upload", "Active"),
+                 ("🔗", "c5", "Web links", "Web pages, PDF / doc / image URLs", "Active"), ("🎬", "c6", "Video", "YouTube etc.", "Coming soon"),
                  ("🗄️", "c2", "Databases", "Academic DBs", "Coming soon")]
     cells = "".join(f"<div class='cap{' dis' if st_ == 'Coming soon' else ''}'><div class='sq {c}' style='width:34px;height:34px'>{i}</div>"
                     f"<div class='ct'>{e(n)}</div><div class='cs'>{e(d)}<br><span class='badge {'b-soon' if st_ == 'Coming soon' else 'b-ok' if st_ == 'Active' else 'b-off'}'>"

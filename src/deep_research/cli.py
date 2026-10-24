@@ -33,6 +33,8 @@ _KIND_BY_SUFFIX = {".pdf": "pdf", ".png": "image", ".jpg": "image", ".jpeg": "im
 def attachment_for(spec: str) -> ResearchAttachment:
     """Turn a ``--file`` argument (local path or http(s) URL) into a validated attachment."""
 
+    if spec.lower().startswith(("http://", "https://")):
+        return ResearchAttachment.model_validate({"kind": "url", "data": spec, "name": spec[:200]})
     path = Path(spec).expanduser()
     if not path.is_file():
         raise SystemExit(f"--file not found: {spec}")

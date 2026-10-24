@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 #: Maps attachment kinds to the tool and parameter that process them.
@@ -13,15 +13,27 @@ ATTACHMENT_TOOLS: dict[str, tuple[str, str]] = {
     "pdf": ("pdf_reader", "pdf_data"),
     "image": ("image_analyzer", "image_data"),
     "document": ("document_parser", "document_data"),
+    "url": ("web_page_reader", "page_url"),
 }
 
 
 class ResearchAttachment(BaseModel):
     """A multimodal input embedded as a base64 data URL."""
 
-    kind: Literal["pdf", "image", "document"] = Field(..., description="Attachment type")
-    data: str = Field(..., min_length=1, max_length=28_000_000, description="data:<mime>;base64,<payload>")
+    kind: Literal["pdf", "image", "document", "url"] = Field(..., description="Attachment type")
+    data: str = Field(..., min_length=1, max_length=28_000_000,
+                      description="data:<mime>;base64,<payload>, or an http(s) page URL when kind is 'url'")
     name: str | None = Field(default=None, max_length=200, description="Optional display name")
+
+    @model_validator(mode="after")
+    def _check_data(self) -> "ResearchAttachment":
+        if self.kind == "url":
+            if not self.data.lower().startswith(("http://", "https://")) or len(self.data) > 2_000 or any(
+                    c.isspace() for c in self.data):
+                raise ValueError("a 'url' attachment needs one http(s) link (max 2000 chars)")
+        elif not self.data.startswith("data:"):
+            raise ValueError("file attachments must be data: URLs")
+        return self
 
 
 class ResearchRequest(BaseModel):
