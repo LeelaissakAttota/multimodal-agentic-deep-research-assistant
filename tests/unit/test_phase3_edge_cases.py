@@ -66,7 +66,6 @@ def test_store_k_larger_than_size_negative_k_duplicates(tmp_path: Path) -> None:
     assert vs.LocalVectorStore(bad).count() == 1
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: valid non-object JSON (e.g. []) is accepted as the item map")
 def test_store_non_object_json_file(tmp_path: Path) -> None:
     (tmp_path / "research_memory.json").write_text("[]", encoding="utf-8")
     s = vs.LocalVectorStore(tmp_path)

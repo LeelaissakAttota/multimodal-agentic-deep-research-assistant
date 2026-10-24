@@ -65,3 +65,10 @@ def test_factory_fallback_and_chroma(monkeypatch, tmp_path: Path) -> None:  # ty
     mod.PersistentClient = _FakeClient  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "chromadb", mod)
     assert get_vector_store(tmp_path / "vs").backend == "chroma"
+
+
+def test_non_object_json_logs_warning(tmp_path: Path, caplog) -> None:  # type: ignore[no-untyped-def]
+    (tmp_path / "c.json").write_text("[1, 2]", encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        assert LocalVectorStore(tmp_path, "c").count() == 0
+    assert "not a JSON object" in caplog.text

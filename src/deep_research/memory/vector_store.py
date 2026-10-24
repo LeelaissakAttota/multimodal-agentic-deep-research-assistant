@@ -6,11 +6,14 @@ Data lives under ``data/vector_store`` by default (git-ignored). Nothing leaves 
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from deep_research.memory.embeddings import cosine
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_VECTOR_DIR = Path("data") / "vector_store"
 DEFAULT_COLLECTION = "research_memory"
@@ -50,9 +53,14 @@ class LocalVectorStore:
         self._items: dict[str, dict[str, Any]] = {}
         if self.path is not None and self.path.exists():
             try:
-                self._items = json.loads(self.path.read_text(encoding="utf-8"))
+                data = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
-                self._items = {}
+                data = {}
+                logger.warning("vector store file %s unreadable; starting empty", self.path)
+            if not isinstance(data, dict):
+                logger.warning("vector store file %s is not a JSON object; starting empty", self.path)
+                data = {}
+            self._items = data
 
     def upsert(self, ids: list[str], vectors: list[list[float]], texts: list[str], metadatas: list[Metadata]) -> None:
         for i, v, t, m in zip(ids, vectors, texts, metadatas, strict=True):
