@@ -705,6 +705,12 @@ def _source_row(source: Any) -> Optional[Dict[str, Any]]:
     if is_attachment and isinstance(metadata, dict):
         row["kind"] = "attachment"
         row["page"] = metadata.get("page")
+    elif isinstance(metadata, dict) and metadata.get("source_type"):
+        # Public-source tools (academic / video / social / image): keep what the citation needs.
+        row["source_type"] = str(metadata["source_type"])
+        for key in ("tool_identifier", "provider", "authors", "year", "venue", "image_url", "license"):
+            if metadata.get(key):
+                row["tool" if key == "tool_identifier" else key] = str(metadata[key])
     return row
 
 

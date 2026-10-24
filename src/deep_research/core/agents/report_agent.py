@@ -197,6 +197,9 @@ class _CitationBuilder:
                 if source.get("kind") == "attachment":
                     entry["kind"] = "attachment"
                     entry["page"] = source.get("page")
+                elif source.get("source_type"):
+                    entry["kind"] = source["source_type"]
+                    entry.update({k: source[k] for k in _CITATION_EXTRAS if source.get(k)})
                 self.citations.append(entry)
                 self._index[key] = len(self.citations)
             mapping[local] = self._index[key]
@@ -213,10 +216,27 @@ class _CitationBuilder:
         return re.sub(_CITE, _sub, summary)
 
 
+_CITATION_EXTRAS = ("tool", "provider", "authors", "year", "venue", "image_url", "license")
+_KIND_LABELS = {"academic": "paper", "video": "video transcript", "social": "community discussion",
+                "image": "image"}
+
+
 def _citation_line(citation: Dict[str, Any]) -> str:
     if citation.get("kind") == "attachment":
         return f"[{citation['number']}] {citation['title']} - user attachment"
-    return f"[{citation['number']}] {citation['title']} - {citation['url']}"
+    label = _KIND_LABELS.get(str(citation.get("kind") or ""))
+    if label is None:
+        return f"[{citation['number']}] {citation['title']} - {citation['url']}"
+    details = [label]
+    if citation.get("authors"):
+        details.append(str(citation["authors"]).split(",")[0] + (" et al." if "," in str(citation["authors"]) else ""))
+    if citation.get("year"):
+        details.append(str(citation["year"]))
+    if citation.get("venue"):
+        details.append(str(citation["venue"]))
+    if citation.get("license"):
+        details.append(str(citation["license"]))
+    return f"[{citation['number']}] {citation['title']} ({', '.join(details)}) - {citation['url']}"
 
 
 def _attachment_line(finding: Dict[str, Any]) -> str:

@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr | None = Field(default=None)
     live_max_search_results: int = Field(default=5, ge=1, le=10)
     live_max_fetch_pages: int = Field(default=2, ge=0, le=5)
+    # Keyless public-source tools the planner may route tasks to in live mode:
+    # "all" (default), "none", or a comma list of academic_search, youtube_transcript,
+    # reddit_search, commons_image_search.
+    live_source_tools: str = Field(default="all", max_length=200)
 
     # Agent mode: "auto" = LLM planner/evaluator/tool choice in live mode when an
     # OpenRouter key is set, deterministic otherwise (offline/fixture runs stay
@@ -89,6 +93,12 @@ class Settings(BaseSettings):
         case_sensitive=False,
         env_prefix="DEEP_RESEARCH_",
     )
+
+    def enabled_source_tools(self) -> list[str]:
+        """Validated list of enabled public-source tool ids (see ``live_source_tools``)."""
+        from deep_research.tools.registry import parse_source_tools
+
+        return parse_source_tools(self.live_source_tools)
 
     def runtime_limits(self) -> RuntimeLimits:
         """Build the validated provider-neutral runtime policy."""
