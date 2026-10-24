@@ -23,6 +23,8 @@ from deep_research.core.orchestration.master_research_orchestrator import (
 from deep_research.core.orchestration.step_gate import StepGate
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.domain.research_request import ResearchAttachment, ResearchRequest
+from deep_research.context.context_builder import ResearchContextBuilder
+from deep_research.memory.factory import LongTermMemory, build_long_term_memory
 from deep_research.models.model_gateway import ModelGateway
 from deep_research.runtime.contracts import OperationKind
 from deep_research.runtime.harness import ExecutionHarness, InMemoryRuntimeObserver
@@ -91,6 +93,8 @@ class ResearchApplication:
         self._states: dict[UUID, ResearchState] = {}
         self._run_gateway: ModelGateway | None = None
         self._run_budget_hook: Callable[[str], None] | None = None
+        self._memory: LongTermMemory | None = None
+        self._memory_built = False
 
     async def submit(
         self, submission: ResearchSubmission, *, step_gate: StepGate | None = None
@@ -148,6 +152,7 @@ class ResearchApplication:
             harness.budget.before_call(OperationKind.MODEL, operation=operation)
 
         self._run_gateway, self._run_budget_hook = gateway, charge_model_call
+        memory = self.long_term_memory
 
         return MasterResearchOrchestrator(
             planning_agent=planning_agent,
@@ -157,7 +162,17 @@ class ResearchApplication:
             report_agent=DeterministicReportAgent(),
             max_iterations=limits.max_research_iterations,
             execution_harness=harness,
+            session_repository=memory.repository if memory else None,
+            context_builder=ResearchContextBuilder(memory.memory) if memory else None,
         )
+
+    @property
+    def long_term_memory(self) -> LongTermMemory | None:
+        """Lazily built, cached long-term memory (``None`` when ``long_term_memory=off``)."""
+        if not self._memory_built:
+            self._memory = build_long_term_memory(self.settings.long_term_memory, self.settings.memory_dir)
+            self._memory_built = True
+        return self._memory
 
     def build_research_agent(self) -> ResearchAgent:
         """Public accessor used by the control API to re-run a single step."""

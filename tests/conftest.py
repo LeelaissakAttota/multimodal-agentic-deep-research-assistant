@@ -11,3 +11,5 @@ import os
 for _name in [n for n in os.environ if n.upper().startswith("DEEP_RESEARCH_")]:
     del os.environ[_name]
 os.environ["DEEP_RESEARCH_ENV_FILE"] = os.path.join(os.path.dirname(__file__), "__no_env_file__")
+# Long-term memory writes SQLite/vector files; tests opt in explicitly with a tmp dir.
+os.environ["DEEP_RESEARCH_LONG_TERM_MEMORY"] = "off"
