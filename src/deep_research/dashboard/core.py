@@ -476,13 +476,58 @@ def source_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(seen.values(), key=lambda x: (-len(x["runs"]), str(x["title"])))
 
 
+#: Citation ``kind`` of public-source tools -> Sources-page filter label.
+SOURCE_KIND_LABELS = {"academic": "Academic", "video": "Video", "social": "Discussions"}
+SOURCE_FILTERS = ["All Sources", "Web", "Academic", "Video", "Discussions", "Images", "Documents"]
+KIND_ICONS = {"Web": ("🌐", "c1"), "Academic": ("🎓", "c2"), "Video": ("🎬", "c6"), "Discussions": ("💬", "c5"),
+              "Images": ("🖼️", "c4"), "Documents": ("📄", "c3"), "Other": ("📎", "c3")}
+
+
 def source_kind(row: dict[str, Any]) -> str:
     kind = str(row.get("kind") or "")
     if kind in ("pdf", "document"):
         return "Documents"
     if kind == "image":
         return "Images"
+    if kind in SOURCE_KIND_LABELS:
+        return SOURCE_KIND_LABELS[kind]
     return "Web" if row.get("url") else "Other"
+
+
+def _source_tool_state(settings: Any, mode: str, tool_id: str) -> str:
+    try:
+        enabled = settings.enabled_source_tools()
+    except AttributeError:
+        enabled = []
+    if tool_id not in enabled:
+        return "disabled"
+    return "on" if mode == "live" else "live mode"
+
+
+#: (tool id, dashboard name, detail, icon, filter label) for the keyless public-source tools.
+SOURCE_TOOL_ROWS = (
+    ("academic_search", "Academic Search", "arXiv, Semantic Scholar, OpenAlex (keyless)", "🎓", "Academic"),
+    ("youtube_transcript", "YouTube Transcripts", "public caption tracks of videos (keyless)", "🎬", "Video"),
+    ("reddit_search", "Reddit Discussions", "public Reddit JSON: posts and top comments (keyless)", "💬", "Discussions"),
+    ("commons_image_search", "Image Search", "Wikimedia Commons, freely licensed, with licence/author", "🖼️", "Images"),
+)
+
+
+def source_catalog(settings: Any, mode: str) -> list[dict[str, str]]:
+    """Source types for the Sources page with their real state (no 'coming soon' placeholders)."""
+    live = mode == "live"
+    rows = [
+        {"name": "Web Search", "detail": "Tavily / DuckDuckGo / Wikipedia", "icon": "🌐", "cls": "c1",
+         "state": "Active" if live else "Live mode"},
+        {"name": "Documents", "detail": "PDF, DOCX, PPTX, TXT/MD", "icon": "📄", "cls": "c3", "state": "Active"},
+        {"name": "Uploaded images", "detail": "Local image upload", "icon": "🖼️", "cls": "c4", "state": "Active"},
+        {"name": "Web links", "detail": "Web pages, PDF / doc / image URLs", "icon": "🔗", "cls": "c5", "state": "Active"},
+    ]
+    for tool_id, name, detail, icon, label in SOURCE_TOOL_ROWS:
+        state = _source_tool_state(settings, mode, tool_id)
+        rows.append({"name": name, "detail": detail, "icon": icon, "cls": KIND_ICONS[label][1], "tool": tool_id,
+                     "state": {"on": "Active", "live mode": "Live mode", "disabled": "Disabled"}[state]})
+    return rows
 
 
 def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -543,6 +588,8 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🖼️"},
         {"name": "LLM Agents", "detail": "planning, analysis, evaluation and reporting on ':free' models",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🧠"},
+        *({"name": name, "detail": detail, "state": _source_tool_state(settings, mode, tool_id), "icon": icon,
+           "tool": tool_id} for tool_id, name, detail, icon, _ in SOURCE_TOOL_ROWS),
         {"name": "OCR", "detail": "local RapidOCR for images and scanned PDFs (free, no key)" if _ocr_ready()
          else "pip install rapidocr-onnxruntime to read text in images and scans",
          "state": "on" if _ocr_ready() else "not installed", "icon": "🔤"},
@@ -553,7 +600,8 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
          "state": "on", "icon": "📤"},
         {"name": "Audio Analysis", "detail": "NVIDIA speech-to-text (engine tool, not exposed in the dashboard yet)",
          "state": "coming soon", "icon": "🎙️"},
-        {"name": "Video Analysis", "detail": "not supported by the engine yet", "state": "coming soon", "icon": "🎬"},
+        {"name": "Video Analysis",
+         "detail": "video file analysis not supported yet (YouTube transcripts are)", "state": "coming soon", "icon": "🎬"},
     ]
     return rows
 

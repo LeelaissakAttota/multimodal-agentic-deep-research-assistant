@@ -29,10 +29,12 @@ from deep_research.core.agents.llm_support import (
     record_decision,
 )
 from deep_research.core.agents.planning_agent import (
+    SOURCE_ROUTES,
     DeterministicPlanningAgent,
     PlanningAgent,
     _attachment_tasks,
 )
+from deep_research.tools.registry import SOURCE_TOOLS
 from deep_research.domain.research.research_plan import ResearchPlan
 from deep_research.domain.research.research_state import ResearchState
 from deep_research.domain.research.research_task import ResearchTask
@@ -43,9 +45,9 @@ _PLAN_PROMPT = """You are the planning agent of a web research system.
 Decide which web research tasks to run next. Each task is one web search followed by reading the best pages.
 Return ONLY a JSON object, no prose:
 {{"rationale": "<one sentence>", "tasks": [
-  {{"section": "<short report heading>", "query": "<web search query>", "focus": "<what to extract>"}}]}}
+  {{"section": "<short report heading>", "query": "<search query>", "focus": "<what to extract>"{tool_field}}}]}}
 Rules: 1 to {max_tasks} tasks; queries must be specific and different from already-run queries; no duplicate queries.
-
+{tools}
 Research question: {question}
 Iteration: {iteration} of {max_iterations}
 {attachments}{history}{gaps}"""
@@ -77,11 +79,13 @@ class LlmPlanningAgent(PlanningAgent):
         max_iterations: int = 3,
         timeout_seconds: float = 40.0,
         max_tokens: int = 1_500,
+        source_tools: List[str] | None = None,
     ) -> None:
         if max_tasks < 1:
             raise ValueError("max_tasks must be at least 1")
         self.gateway = gateway
-        self.fallback = fallback or DeterministicPlanningAgent()
+        self.source_tools = [t for t in (source_tools or []) if t in SOURCE_ROUTES]
+        self.fallback = fallback or DeterministicPlanningAgent(self.source_tools)
         self.max_tasks = max_tasks
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
@@ -135,7 +139,17 @@ class LlmPlanningAgent(PlanningAgent):
             max_tasks=self.max_tasks, question=request.objective,
             iteration=state.iteration_number + 1, max_iterations=self.max_iterations,
             attachments=attachments, history=history, gaps=gap_text,
+            tool_field=', "tool": "web_search|' + "|".join(self.source_tools) + '"' if self.source_tools else "",
+            tools=self._tools_text(),
         )
+
+    def _tools_text(self) -> str:
+        if not self.source_tools:
+            return ""
+        lines = ["Tools (pick the best one per task; default web_search):",
+                 "- web_search: general web pages"]
+        lines += [f"- {t}: {SOURCE_TOOLS[t][1]}" for t in self.source_tools]
+        return "\n".join(lines) + "\n"
 
     def _validate(
         self, reply: Dict[str, Any], request: ResearchRequest, state: ResearchState
@@ -158,13 +172,19 @@ class LlmPlanningAgent(PlanningAgent):
             seen.add(query.lower())
             section = clean_text(item.get("section"), max_len=80) or query[:60]
             focus = clean_text(item.get("focus"), max_len=300)
+            tool = clean_text(item.get("tool"), max_len=40) or "web_search"
+            if tool != "web_search" and tool not in self.source_tools:
+                raise AgentDecisionError("invalid_plan", f"tool {tool!r} not allowed")
+            metadata: Dict[str, Any] = {"section": section, "question": request.objective, "focus": focus}
+            if tool != "web_search":
+                metadata["source_tool"] = tool
             tasks.append(ResearchTask(
                 plan_id=UUID(int=0),
                 description=f"Research {section.lower()} for: {request.objective}",
                 objective=f"{section}: {focus or query}",
-                assigned_tool="web_search",
-                tool_input={"query": query, "limit": 5},
-                metadata={"section": section, "question": request.objective, "focus": focus},
+                assigned_tool=tool,
+                tool_input={"query": query, "limit": 2 if tool == "youtube_transcript" else 5},
+                metadata=metadata,
             ))
         if not tasks:
             raise AgentDecisionError("invalid_plan", "every proposed query was a duplicate")

@@ -3,6 +3,7 @@ Planning Agent abstraction for decomposing research requests into tasks.
 """
 import re
 from abc import ABC, abstractmethod
+from typing import Iterable
 from uuid import UUID
 
 from deep_research.context.context_builder import AgentContext
@@ -42,7 +43,14 @@ class DeterministicPlanningAgent(PlanningAgent):
     """
     Deterministic implementation of PlanningAgent for Phases 2 and 4.
     Creates tasks based on the research request and evaluation gaps.
+
+    ``source_tools`` lists the public-source tools (academic, video, social,
+    image) this run may use; matching questions get one extra task routed to
+    each relevant tool. Empty (default) keeps the web-only plan.
     """
+
+    def __init__(self, source_tools: Iterable[str] = ()) -> None:
+        self.source_tools = [t for t in source_tools if t in SOURCE_ROUTES]
 
     async def create_plan(
         self,
@@ -71,7 +79,8 @@ class DeterministicPlanningAgent(PlanningAgent):
             ]
         else:
             # Attachments first: their content becomes primary sources for later web tasks.
-            tasks = [*_attachment_tasks(request), *_web_tasks(request.objective)]
+            tasks = [*_attachment_tasks(request), *_web_tasks(request.objective),
+                     *source_tasks(request.objective, self.source_tools)]
 
         plan = ResearchPlan(
             request_id=request.id,
@@ -174,6 +183,59 @@ def _attachment_tasks(request: ResearchRequest) -> list[ResearchTask]:
                 assigned_tool=tool_id,
                 tool_input={param: attachment.data, "source_title": label},
                 metadata={"section": f"Attached {kind}: {label}", "question": request.objective},
+            )
+        )
+    return tasks
+
+
+#: Source tool id -> (keyword stems that route a question to it, section heading, task verb).
+SOURCE_ROUTES: dict[str, tuple[tuple[str, ...], str, str]] = {
+    "academic_search": (("paper", "study", "studies", "research", "academic", "scientific", "journal", "arxiv",
+                         "peer-review*", "literature", "clinical", "trial", "meta-analy*", "survey of",
+                         "state of the art", "benchmark", "preprint", "citation"),
+                        "Academic literature", "Find peer-reviewed papers and preprints on"),
+    "youtube_transcript": (("youtube", "video", "lecture", "talk", "keynote", "tutorial", "podcast", "interview",
+                            "explainer", "watch"),
+                           "Video sources", "Read transcripts of videos about"),
+    "reddit_search": (("reddit", "opinion", "community", "communities", "experience", "people think", "users say",
+                       "discussion", "forum", "sentiment", "anecdot*", "real-world", "worth it", "reviews"),
+                      "Community discussion", "Survey community discussion on"),
+    "commons_image_search": (("image", "picture", "photo", "photograph", "diagram", "illustration", "look like", "looks like",
+                              "map of", "visual", "chart"),
+                             "Images", "Find freely licensed images of"),
+}
+
+
+def route_source_tools(question: str, enabled: Iterable[str]) -> list[str]:
+    """Source tools whose keywords appear in the question (in SOURCE_ROUTES order), max two."""
+    allowed = set(enabled)
+    lowered = question.lower()
+    picked = [tool for tool, (keys, _, _) in SOURCE_ROUTES.items()
+              if tool in allowed and any(re.search(_key_pattern(k), lowered) for k in keys)]
+    return picked[:2]
+
+
+def _key_pattern(key: str) -> str:
+    """Whole word (plural allowed); a trailing ``*`` marks a prefix stem."""
+    if key.endswith("*"):
+        return rf"\b{re.escape(key[:-1])}"
+    return rf"\b{re.escape(key)}(?:s|es)?\b"
+
+
+def source_tasks(question: str, enabled: Iterable[str]) -> list[ResearchTask]:
+    """One task per routed public-source tool; each is cited like a web task."""
+    tasks: list[ResearchTask] = []
+    for tool in route_source_tools(question, enabled):
+        _, heading, verb = SOURCE_ROUTES[tool]
+        tasks.append(
+            ResearchTask(
+                plan_id=UUID(int=0),
+                description=f"{verb}: {question}",
+                objective=f"{heading} relevant to {question}",
+                assigned_tool=tool,
+                tool_input={"query": question, "limit": 5 if tool != "youtube_transcript" else 2},
+                metadata={"section": heading, "question": question, "source_tool": tool,
+                          "focus": f"what the {heading.lower()} say about the question"},
             )
         )
     return tasks

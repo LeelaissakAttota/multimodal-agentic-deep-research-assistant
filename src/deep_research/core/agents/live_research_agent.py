@@ -7,6 +7,7 @@ evidence and a snippet-based summary, never fabricated content.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -25,6 +26,7 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 from deep_research.tools.web_tools import WEB_FETCH_TOOL_ID, WEB_SEARCH_TOOL_ID
 
 LIVE_RESEARCH_TOOL_ID = "live_research"
+logger = logging.getLogger(__name__)
 
 _SYNTH_PROMPT = (
     "You are a careful research assistant. Using ONLY the numbered sources below, "
@@ -82,7 +84,9 @@ class LiveResearchAgent(ResearchAgent):
         decision_budget_seconds: float = 40.0,
         decision_timeout_seconds: float = 20.0,
         budget_hook: Callable[[str], None] | None = None,
+        source_tools: dict[str, Tool] | None = None,
     ) -> None:
+        self.source_tools: dict[str, Tool] = dict(source_tools or {})
         self.tool_gateway = tool_gateway
         self.tool_steps = tool_steps
         self.max_searches = max_searches
@@ -111,6 +115,16 @@ class LiveResearchAgent(ResearchAgent):
         att_sources, att_evidence = select_attachment_sources(task.metadata.get("attachment_context"), objective)
 
         focus = str(task.metadata.get("focus") or "")
+        source_fallback: str | None = None
+        if task.assigned_tool and task.assigned_tool in self.source_tools:
+            sourced = await self._source_task(task.assigned_tool, params, query=query, objective=objective,
+                                              focus=focus, att=(att_sources, att_evidence), start=start)
+            if sourced.success:
+                return sourced
+            # Honest fallback: the public source failed or was empty, so research the same query on the web.
+            source_fallback = str(sourced.metadata.get("failure_kind") or sourced.error or "source_failed")
+            logger.warning("Source tool %s unavailable (%s); falling back to web search for this task",
+                           task.assigned_tool, source_fallback)
         run = _ToolRun()
         if self.tool_gateway is not None:
             await self._llm_tool_loop(run, objective=objective, query=query, focus=focus, start=start)
@@ -156,8 +170,43 @@ class LiveResearchAgent(ResearchAgent):
                       "queries": list(run.searches), **run.labels(), "model_id": model_id,
                       "synthesis": "llm" if model_id else "snippets", "synthesis_error": synth_error,
                       "attachment_sources": len(att_sources),
+                      **({"source_tool": task.assigned_tool, "source_tool_fallback": source_fallback}
+                         if source_fallback else {}),
                       "search_error": None if search is None or search.success
                       else (search.error or "search_failed")},
+        )
+
+    async def _source_task(self, tool_id: str, params: dict[str, Any], *, query: str, objective: str, focus: str,
+                           att: tuple[list[Source], list[Evidence]], start: float) -> ToolResult:
+        """Run one public-source tool (academic/video/social/image) and synthesise from its hits."""
+        tool_params = {k: v for k, v in params.items() if k != "query"}
+        tool_params["query"] = query
+        result = await self.source_tools[tool_id].execute(ToolRequest(tool_name=tool_id, parameters=tool_params))
+        hits = [h for h in (_get(result.output, "results") or []) if isinstance(h, dict)] if result.success else []
+        sources, evidence = source_hits_to_evidence(hits[: self.max_results], tool_id, query,
+                                                    max_chars=self.max_source_chars)
+        if not evidence:
+            return ToolResult(success=False, error=result.error or f"No {tool_id} results for: {query}",
+                              tool_name=tool_id, execution_time_ms=_ms(start),
+                              metadata={**result.metadata, "failure_kind": result.metadata.get("failure_kind")
+                                        or "no_results", "tool_identifier": tool_id})
+        att_sources, att_evidence = att
+        all_sources, all_evidence = [*att_sources, *sources], [*att_evidence, *evidence]
+        summary, model_id, synth_error = await self._synthesize(objective, all_sources, all_evidence, focus=focus,
+                                                                has_attachments=bool(att_sources))
+        return ToolResult(
+            success=True,
+            output={"summary": summary, "evidence_ids": [e.id for e in all_evidence],
+                    "source_ids": [s.id for s in all_sources], "evidence_objects": all_evidence,
+                    "source_objects": all_sources, "results": hits},
+            tool_name=LIVE_RESEARCH_TOOL_ID, execution_time_ms=_ms(start),
+            metadata={"tool_identifier": LIVE_RESEARCH_TOOL_ID, "source_tool": tool_id, "query": query,
+                      "queries": [query], "tool_policy": "planner", "tool_fallback_reason": None,
+                      "tool_model_id": None, "tool_trace": [{"action": tool_id, "query": query, "source": "planner"}],
+                      "model_id": model_id, "synthesis": "llm" if model_id else "snippets",
+                      "synthesis_error": synth_error, "attachment_sources": len(att_sources),
+                      "provider": result.metadata.get("provider"),
+                      "provider_errors": result.metadata.get("provider_errors") or {}, "search_error": None},
         )
 
     async def _search(self, run: "_ToolRun", query: str) -> None:
@@ -353,6 +402,34 @@ class _ToolRun:
     def labels(self) -> dict[str, Any]:
         return {"tool_policy": self.policy, "tool_fallback_reason": self.fallback_reason,
                 "tool_model_id": self.model_id, "tool_trace": list(self.trace)}
+
+
+#: Hit fields copied into Source.metadata so citations can show what kind of source it is.
+_SOURCE_META_FIELDS = ("source_type", "provider", "authors", "year", "venue", "doi", "arxiv_id", "video_id",
+                       "subreddit", "score", "image_url", "license", "artist", "caption_kind", "language")
+
+
+def source_hits_to_evidence(hits: list[dict[str, Any]], tool_id: str, query: str, *,
+                            max_chars: int = 3_000) -> tuple[list[Source], list[Evidence]]:
+    """Turn public-source tool hits into citable Source + Evidence pairs (hits without text are skipped)."""
+    sources: list[Source] = []
+    evidence: list[Evidence] = []
+    for h in hits:
+        content = str(h.get("content") or h.get("snippet") or "").strip()
+        if not content or not h.get("url"):
+            continue
+        meta = {"tool_identifier": tool_id, "query": query,
+                **{k: h[k] for k in _SOURCE_META_FIELDS if h.get(k)}}
+        try:
+            source = Source.model_validate({"url": h["url"], "title": h.get("title") or None,
+                                            "description": h.get("snippet") or None, "metadata": meta})
+        except ValueError:
+            continue
+        sources.append(source)
+        evidence.append(Evidence(source_id=source.id, content=content[:max_chars],
+                                 content_type=f"{meta.get('source_type') or 'web'}_text",
+                                 metadata={"fetched": False, "url": h["url"], "provenance": tool_id}))
+    return sources, evidence
 
 
 def _get(output: Any, key: str) -> Any:

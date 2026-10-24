@@ -124,3 +124,55 @@ class ToolRegistry:
             definition for definition in self._definitions.values()
             if definition.modality == modality and capability in definition.capabilities
         ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 public-source tools (keyless, live mode only)
+# ---------------------------------------------------------------------------
+
+#: Source tool id -> (source type label used in citations, planner hint).
+SOURCE_TOOLS: Dict[str, tuple[str, str]] = {
+    "academic_search": ("academic", "peer-reviewed papers and preprints (arXiv, Semantic Scholar, OpenAlex)"),
+    "youtube_transcript": ("video", "YouTube video transcripts (lectures, talks, explainers)"),
+    "reddit_search": ("social", "Reddit community discussion (opinions, first-hand experience; not authoritative)"),
+    "commons_image_search": ("image", "freely licensed images/diagrams from Wikimedia Commons"),
+}
+SOURCE_TOOL_IDS: tuple[str, ...] = tuple(SOURCE_TOOLS)
+
+
+def parse_source_tools(value: str | None) -> List[str]:
+    """``"all"``/empty-default -> every source tool; ``"none"``/``""`` -> none; else a comma list (unknown ids dropped)."""
+    text = (value if value is not None else "all").strip().lower()
+    if text == "all":
+        return list(SOURCE_TOOL_IDS)
+    if text in ("", "none", "off"):
+        return []
+    return [t for t in dict.fromkeys(p.strip() for p in text.split(",")) if t in SOURCE_TOOLS]
+
+
+def build_source_tools(enabled: List[str] | None = None) -> Dict[str, Tool]:
+    """Instantiate the enabled keyless source tools (all by default)."""
+    from deep_research.tools.academic_tool import AcademicSearchTool
+    from deep_research.tools.commons_image_tool import CommonsImageSearchTool
+    from deep_research.tools.reddit_tool import RedditSearchTool
+    from deep_research.tools.youtube_tool import YouTubeTranscriptTool
+
+    classes: Dict[str, Type[Tool]] = {
+        "academic_search": AcademicSearchTool, "youtube_transcript": YouTubeTranscriptTool,
+        "reddit_search": RedditSearchTool, "commons_image_search": CommonsImageSearchTool,
+    }
+    wanted = list(SOURCE_TOOL_IDS) if enabled is None else enabled
+    return {tool_id: classes[tool_id]() for tool_id in wanted if tool_id in classes}
+
+
+def default_registry(enabled_sources: List[str] | None = None) -> ToolRegistry:
+    """Registry with the real multimodal tools plus the enabled public-source tools."""
+    from deep_research.tools.image_tool import ImageAnalysisTool
+    from deep_research.tools.pdf_tool import PdfReaderTool
+
+    registry = ToolRegistry()
+    for cls in (PdfReaderTool, ImageAnalysisTool):
+        registry.register(cls)
+    for tool in build_source_tools(enabled_sources).values():
+        registry.register(type(tool))
+    return registry

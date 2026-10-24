@@ -131,3 +131,22 @@ docker build -t deep-research .
 docker run --rm -p 8000:8000 deep-research                      # offline mode
 docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. DEEP_RESEARCH_RESEARCH_MODE=live
 ```
+
+## Public-source tools (Phase 2)
+
+Besides web search, live mode has four keyless, free source tools. The planner routes a
+task to one when the question calls for it (deterministic keyword routing, or the LLM
+planner's `"tool"` field, validated against the enabled set):
+
+| Tool id | Source | Cited as |
+|---|---|---|
+| `academic_search` | arXiv, Semantic Scholar, OpenAlex (merged, de-duplicated by DOI / arXiv id / title) | paper (authors, year, venue) |
+| `youtube_transcript` | public YouTube caption tracks (URL/id or search) | video transcript |
+| `reddit_search` | public Reddit `.json` search (+ optional top comments; NSFW skipped) | community discussion |
+| `commons_image_search` | Wikimedia Commons file search (caption, licence, author, thumbnail) | image (licence) |
+
+`DEEP_RESEARCH_LIVE_SOURCE_TOOLS` = `all` (default), `none`, or a comma list of tool ids.
+A source tool that fails or returns nothing falls back to web search for the same query
+(`source_tool_fallback` in the task metadata), so a blocked provider never fails the run.
+Every hit becomes a `Source` with `source_type` metadata; report citations carry `kind`
+(`academic` / `video` / `social` / `image`) and the dashboard Sources page filters by it.

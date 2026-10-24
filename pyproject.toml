@@ -88,3 +88,7 @@ exclude = ["tests", ".git", "__pycache__", "build", "dist"]
 [[tool.mypy.overrides]]
 module = ["numpy", "streamlit", "streamlit.*", "fpdf", "fpdf.*", "docx", "docx.*", "pptx", "pptx.*", "rapidocr_onnxruntime", "pytesseract"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
