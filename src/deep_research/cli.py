@@ -85,8 +85,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _safe_streams() -> None:
+    """Never crash on non-UTF-8 consoles (Windows cp1252): replace unencodable characters."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    _safe_streams()
     if len(args.file) > 5:
         raise SystemExit("at most 5 --file attachments")
     result = asyncio.run(run_once(args.question, args.file, mode=args.mode))

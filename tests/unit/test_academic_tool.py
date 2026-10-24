@@ -156,3 +156,10 @@ def test_mixed_items_skip_non_dicts_with_log(caplog: Any) -> None:
         result = asyncio.run(tool.execute(ToolRequest(tool_name=ACADEMIC_TOOL_ID, parameters={"query": "rag"})))
     assert result.success and len(result.output.results) == 1
     assert "skipped 1 malformed result item" in caplog.text
+
+
+def test_openalex_query_strips_wildcards():
+    from deep_research.tools.academic_tool import _openalex_query
+
+    assert _openalex_query("Does heat cause coral bleaching?") == "Does heat cause coral bleaching"
+    assert _openalex_query("coral* reef") == "coral reef"

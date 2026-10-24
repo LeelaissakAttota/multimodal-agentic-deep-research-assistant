@@ -30,7 +30,8 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 WEB_SEARCH_TOOL_ID = "live_web_search"
 WEB_FETCH_TOOL_ID = "live_web_fetch"
-_USER_AGENT = "Mozilla/5.0 (compatible; deep-research/0.1)"
+# Wikimedia (and others) reject generic browser-like agents; send a descriptive one with a URL.
+_USER_AGENT = "deep-research/0.1 (+https://github.com/; research assistant; keyless public APIs)"
 
 
 def _elapsed(start: float) -> float:

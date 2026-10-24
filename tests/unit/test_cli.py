@@ -34,3 +34,18 @@ def test_cli_offline_run_prints_report_and_exports(tmp_path: Path, capsys: pytes
     assert code == 0 and "[status: completed | mode: offline]" in err
     assert out.strip()
     assert sorted(p.suffix for p in tmp_path.iterdir()) == [".json", ".md"]
+
+
+def test_safe_streams_replaces_unencodable_characters(monkeypatch):
+    import io
+    import sys
+
+    from deep_research import cli
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+    cli._safe_streams()
+    print("ok \u2705", file=sys.stdout)
+    stream.flush()
+    assert raw.getvalue() == b"ok ?\r\n" or raw.getvalue() == b"ok ?\n"

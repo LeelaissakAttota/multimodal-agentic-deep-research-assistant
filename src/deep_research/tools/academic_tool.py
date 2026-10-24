@@ -172,7 +172,8 @@ class AcademicSearchTool(Tool):
         return rows
 
     async def _openalex(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
-        response = await self._get(client, OPENALEX_URL, {"search": query, "per-page": limit})
+        # OpenAlex rejects ? and * (wildcards) in stemmed search with HTTP 400.
+        response = await self._get(client, OPENALEX_URL, {"search": _openalex_query(query), "per-page": limit})
         rows = []
         for work in _items(response, "results", "openalex"):
             doi = str(work.get("doi") or "")
@@ -232,3 +233,8 @@ def _dedupe(rows: list[dict[str, str]], limit: int) -> list[dict[str, str]]:
             if bucket and len(out) < limit:
                 out.append(bucket.pop(0))
     return out
+
+
+def _openalex_query(query: str) -> str:
+    """Drop wildcard characters OpenAlex refuses in its default (stemmed) search."""
+    return " ".join(re.sub(r"[?*]", " ", query).split())
