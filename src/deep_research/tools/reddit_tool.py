@@ -32,6 +32,10 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 REDDIT_TOOL_ID = "reddit_search"
 REDDIT_BASE = "https://www.reddit.com"
+OAUTH_BASE = "https://oauth.reddit.com"
+TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+#: Reddit asks API clients for "<platform>:<app id>:<version> (by /u/<user>)"; override with REDDIT_USER_AGENT.
+OAUTH_USER_AGENT = "python:deep-research-assistant:0.2 (research assistant; app-only OAuth)"
 logger = logging.getLogger(__name__)
 _SUBREDDIT = re.compile(r"^[A-Za-z0-9_]{2,21}$")
 
@@ -45,6 +49,24 @@ def _post_dicts(children: Any) -> list[dict[str, Any]]:
     return [c["data"] for c in children if isinstance(c, dict) and isinstance(c.get("data"), dict)]
 
 
+def _env(name: str) -> str:
+    """Process env first, then the project's .env (pydantic Settings does not export unknown keys)."""
+    import os
+
+    value = os.getenv(name, "")
+    if value:
+        return value
+    try:
+        from dotenv import dotenv_values
+    except ImportError:  # pragma: no cover - python-dotenv ships with pydantic-settings
+        return ""
+    path = os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env"
+    try:
+        return str(dotenv_values(path).get(name) or "")
+    except OSError:
+        return ""
+
+
 class RedditSearchInput(SourceSearchInput):
     subreddit: str = ""
     comments: int = 0
@@ -52,10 +74,46 @@ class RedditSearchInput(SourceSearchInput):
 
 class RedditSearchTool(Tool):
     def __init__(self, *, http_client: httpx.AsyncClient | None = None, timeout: float = 15.0,
-                 include_nsfw: bool = False) -> None:
+                 include_nsfw: bool = False, client_id: str | None = None, client_secret: str | None = None,
+                 user_agent: str | None = None) -> None:
         self._client = http_client
         self._timeout = timeout
         self._nsfw = include_nsfw
+        # Official app-only OAuth (client credentials). Env is only read for real use (no injected client), so
+        # tests stay hermetic; without credentials the keyless public JSON path is used as before.
+        use_env = http_client is None
+        self._client_id = client_id if client_id is not None else (_env("REDDIT_CLIENT_ID") if use_env else "")
+        self._client_secret = client_secret if client_secret is not None else (
+            _env("REDDIT_CLIENT_SECRET") if use_env else "")
+        self._ua = user_agent or (_env("REDDIT_USER_AGENT") if use_env else "") or OAUTH_USER_AGENT
+        self._token: tuple[str, float] | None = None
+        self._auth: str | None = None
+
+    @property
+    def oauth_configured(self) -> bool:
+        return bool(self._client_id.strip() and self._client_secret.strip())
+
+    async def _access_token(self, client: httpx.AsyncClient) -> str | None:
+        """App-only bearer token (cached until shortly before expiry); None on any failure -> public JSON."""
+        if not self.oauth_configured:
+            return None
+        if self._token and self._token[1] > time.monotonic() + 30:
+            return self._token[0]
+        try:
+            response = await client.post(TOKEN_URL, data={"grant_type": "client_credentials"},
+                                         auth=(self._client_id.strip(), self._client_secret.strip()),
+                                         headers={"User-Agent": self._ua}, timeout=self._timeout)
+            response.raise_for_status()
+            body = response.json()
+            token = str(body.get("access_token") or "")
+            if not token:
+                raise ValueError("no access_token in response")
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            logger.warning("Reddit OAuth token request failed (%s); using public JSON", status or error_kind(exc))
+            return None
+        self._token = (token, time.monotonic() + float(body.get("expires_in") or 3600))
+        return token
 
     @property
     def name(self) -> str:
@@ -64,7 +122,7 @@ class RedditSearchTool(Tool):
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             identifier=REDDIT_TOOL_ID, name="Reddit Discussions",
-            description="Search public Reddit posts and comments (keyless public JSON).",
+            description="Search public Reddit posts and comments (app-only OAuth with REDDIT_CLIENT_ID/SECRET, else public JSON).",
             modality=Modality.SOCIAL, capabilities=[ToolCapability.SEARCH],
             input_schema=RedditSearchInput, output_schema=SourceSearchOutput,
             cost_class="FREE", network_required=True, auth_required=False, reliability="MEDIUM",
@@ -92,9 +150,10 @@ class RedditSearchTool(Tool):
         client = self._client or httpx.AsyncClient(follow_redirects=True)
         errors: dict[str, str] = {}
         try:
+            token = await self._access_token(client)
+            self._auth = token
             try:
-                response = await client.get(REDDIT_BASE + path, params=params,
-                                            headers={"User-Agent": USER_AGENT}, timeout=self._timeout)
+                response = await self._search_get(client, path, params, token)
                 response.raise_for_status()
                 children = response.json()["data"]["children"]
             except httpx.HTTPStatusError as exc:
@@ -116,7 +175,15 @@ class RedditSearchTool(Tool):
         finally:
             if self._client is None:
                 await client.aclose()
-        return ok(REDDIT_TOOL_ID, start, rows, "reddit_json", errors)
+        return ok(REDDIT_TOOL_ID, start, rows, "reddit_oauth" if token else "reddit_json", errors)
+
+    async def _search_get(self, client: httpx.AsyncClient, path: str, params: dict[str, Any],
+                          token: str | None) -> httpx.Response:
+        if token:
+            return await client.get(OAUTH_BASE + path.removesuffix(".json"), params=params, timeout=self._timeout,
+                                    headers={"User-Agent": self._ua, "Authorization": f"bearer {token}"})
+        return await client.get(REDDIT_BASE + path, params=params, headers={"User-Agent": USER_AGENT},
+                                timeout=self._timeout)
 
     def _post(self, data: dict[str, Any]) -> dict[str, str] | None:
         permalink = str(data.get("permalink") or "")
@@ -134,9 +201,13 @@ class RedditSearchTool(Tool):
                    author=str(data.get("author") or ""), permalink=permalink)
 
     async def _comments(self, client: httpx.AsyncClient, permalink: str, n: int) -> list[str]:
-        response = await client.get(f"{REDDIT_BASE}{permalink.rstrip('/')}.json",
-                                    params={"limit": n, "sort": "top", "raw_json": 1, "depth": 1},
-                                    headers={"User-Agent": USER_AGENT}, timeout=self._timeout)
+        params: dict[str, Any] = {"limit": n, "sort": "top", "raw_json": 1, "depth": 1}
+        if self._auth:
+            response = await client.get(f"{OAUTH_BASE}{permalink.rstrip('/')}", params=params, timeout=self._timeout,
+                                        headers={"User-Agent": self._ua, "Authorization": f"bearer {self._auth}"})
+        else:
+            response = await client.get(f"{REDDIT_BASE}{permalink.rstrip('/')}.json", params=params,
+                                        headers={"User-Agent": USER_AGENT}, timeout=self._timeout)
         response.raise_for_status()
         listing = response.json()[1]["data"]["children"]
         out = []

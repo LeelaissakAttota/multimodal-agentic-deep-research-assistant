@@ -539,7 +539,7 @@ def _source_tool_state(settings: Any, mode: str, tool_id: str) -> str:
 SOURCE_TOOL_ROWS = (
     ("academic_search", "Academic Search", "arXiv, Semantic Scholar, OpenAlex (keyless)", "🎓", "Academic"),
     ("youtube_transcript", "YouTube Transcripts", "public caption tracks of videos (keyless)", "🎬", "Video"),
-    ("reddit_search", "Reddit Discussions", "public Reddit JSON: posts and top comments (keyless)", "💬", "Discussions"),
+    ("reddit_search", "Reddit Discussions", "Reddit posts + comments (official OAuth if keys set, else public JSON)", "💬", "Discussions"),
     ("commons_image_search", "Image Search", "Wikimedia Commons, freely licensed, with licence/author", "🖼️", "Images"),
 )
 

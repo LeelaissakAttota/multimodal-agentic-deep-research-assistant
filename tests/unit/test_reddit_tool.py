@@ -119,3 +119,65 @@ def test_live_agent_logs_and_falls_back_when_reddit_blocked(caplog: Any) -> None
         result = asyncio.run(agent.execute_task(task))
     assert result.success and result.metadata["source_tool_fallback"] == "blocked"
     assert "falling back to web search for this task" in caplog.text
+
+
+def _oauth_client(calls: list[httpx.Request], token_status: int = 200) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path == "/api/v1/access_token":
+            if token_status != 200:
+                return httpx.Response(token_status)
+            return httpx.Response(200, json={"access_token": "tok123", "expires_in": 3600})
+        if request.url.host == "oauth.reddit.com" and request.url.path == "/search":
+            return httpx.Response(200, json=SEARCH)
+        if request.url.host == "oauth.reddit.com":
+            return httpx.Response(200, json=COMMENTS)
+        if request.url.path.endswith("search.json"):
+            return httpx.Response(200, json=SEARCH)
+        return httpx.Response(200, json=COMMENTS)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_oauth_app_only_flow_uses_bearer_and_oauth_host() -> None:
+    calls: list[httpx.Request] = []
+    tool = RedditSearchTool(http_client=_oauth_client(calls), client_id="cid", client_secret="sec", user_agent="ua/1")
+    result = _run(tool, query="rag", comments=1)
+    assert result.success and result.output.provider == "reddit_oauth"
+    token_req = calls[0]
+    assert token_req.method == "POST" and token_req.headers["authorization"].startswith("Basic ")
+    assert b"grant_type=client_credentials" in token_req.content
+    search = calls[1]
+    assert search.url.host == "oauth.reddit.com" and search.headers["authorization"] == "bearer tok123"
+    assert search.headers["user-agent"] == "ua/1"
+    assert result.output.results[0]["url"].startswith("https://www.reddit.com/r/")
+    assert all(c.url.host == "oauth.reddit.com" for c in calls[1:])
+
+
+def test_oauth_token_failure_falls_back_to_public_json(caplog) -> None:
+    import logging
+
+    calls: list[httpx.Request] = []
+    tool = RedditSearchTool(http_client=_oauth_client(calls, token_status=401), client_id="cid", client_secret="bad")
+    with caplog.at_level(logging.WARNING, logger="deep_research.tools.reddit_tool"):
+        result = _run(tool, query="rag")
+    assert result.success and result.output.provider == "reddit_json"
+    assert "OAuth token request failed (401)" in caplog.text and "bad" not in caplog.text
+
+
+def test_env_credentials_ignored_with_injected_client(monkeypatch) -> None:
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "x")
+    monkeypatch.setenv("REDDIT_CLIENT_SECRET", "y")
+    assert not RedditSearchTool(http_client=_client([])).oauth_configured
+    assert RedditSearchTool().oauth_configured
+    monkeypatch.delenv("REDDIT_CLIENT_ID")
+    assert not RedditSearchTool().oauth_configured
+
+
+def test_credentials_read_from_dotenv_file(monkeypatch, tmp_path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("REDDIT_CLIENT_ID=abc\nREDDIT_CLIENT_SECRET=def\n", encoding="utf-8")
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(env))
+    assert RedditSearchTool().oauth_configured

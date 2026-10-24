@@ -142,7 +142,7 @@ planner's `"tool"` field, validated against the enabled set):
 |---|---|---|
 | `academic_search` | arXiv, Semantic Scholar, OpenAlex (merged, de-duplicated by DOI / arXiv id / title) | paper (authors, year, venue) |
 | `youtube_transcript` | public YouTube caption tracks (URL/id or search) | video transcript |
-| `reddit_search` | public Reddit `.json` search (+ optional top comments; NSFW skipped) | community discussion |
+| `reddit_search` | official app-only OAuth (`REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`, optional `REDDIT_USER_AGENT`) or public `.json` fallback (+ optional top comments; NSFW skipped) | community discussion |
 | `commons_image_search` | Wikimedia Commons file search (caption, licence, author, thumbnail) | image (licence) |
 
 `DEEP_RESEARCH_LIVE_SOURCE_TOOLS` = `all` (default), `none`, or a comma list of tool ids.
