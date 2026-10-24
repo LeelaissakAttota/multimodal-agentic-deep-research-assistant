@@ -138,7 +138,8 @@ def test_academic_bad_provider() -> None:
 @pytest.mark.parametrize("code", [403, 429, 500])
 def test_reddit_status_fail_graceful(code: int) -> None:
     res = _run(RedditSearchTool(http_client=_client(_status(code))), query="rag")
-    assert not res.success and res.metadata["failure_kind"] == f"http_{code}"
+    expected = {403: "blocked", 429: "rate_limited"}.get(code, f"http_{code}")
+    assert not res.success and res.metadata["failure_kind"] == expected and res.metadata["http_status"] == code
 
 
 def test_reddit_timeout() -> None:
@@ -170,12 +171,13 @@ def test_reddit_comment_403_recorded_not_fatal() -> None:
     assert list(res.output.errors.values()) == ["http_403"]
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError,
-                   reason="BUG: children=null iterated outside try -> TypeError crash (reddit_tool.py:91)")
 def test_reddit_null_children_should_not_crash() -> None:
     res = _run(RedditSearchTool(http_client=_client(
         lambda r: httpx.Response(200, json={"data": {"children": None}}))), query="x")
-    assert res.success or not res.success
+    assert res.success and res.output.results == []
+    odd = _run(RedditSearchTool(http_client=_client(
+        lambda r: httpx.Response(200, json={"data": {"children": ["x", {"data": "y"}]}}))), query="x")
+    assert odd.success and odd.output.results == []
 
 
 # ---------- youtube ----------

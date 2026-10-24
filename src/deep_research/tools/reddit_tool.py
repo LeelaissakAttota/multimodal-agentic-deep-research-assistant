@@ -36,6 +36,15 @@ logger = logging.getLogger(__name__)
 _SUBREDDIT = re.compile(r"^[A-Za-z0-9_]{2,21}$")
 
 
+
+def _post_dicts(children: Any) -> list[dict[str, Any]]:
+    """Return the post ``data`` dicts from a listing, skipping null/wrong-shaped entries."""
+    if not isinstance(children, list):
+        logger.warning("Reddit returned no post list (%s); treating as no results", type(children).__name__)
+        return []
+    return [c["data"] for c in children if isinstance(c, dict) and isinstance(c.get("data"), dict)]
+
+
 class RedditSearchInput(SourceSearchInput):
     subreddit: str = ""
     comments: int = 0
@@ -94,7 +103,7 @@ class RedditSearchTool(Tool):
                 kind = error_kind(exc)
                 logger.warning("Reddit search failed (%s); falling back to web search", kind)
                 return fail(REDDIT_TOOL_ID, start, f"Reddit search failed ({kind}).", kind)
-            rows = [r for r in (self._post(c.get("data") or {}) for c in children if isinstance(c, dict)) if r]
+            rows = [r for r in (self._post(d) for d in _post_dicts(children)) if r]
             rows = rows[:limit]
             for row in rows[: (2 if n_comments else 0)]:
                 try:
