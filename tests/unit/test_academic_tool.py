@@ -73,7 +73,7 @@ def test_definition_is_free_keyless_academic() -> None:
 
 
 def test_auto_merges_and_dedupes_providers() -> None:
-    result = _run(AcademicSearchTool(http_client=_client(_router())), query="attention transformer", limit=5)
+    result = _run(AcademicSearchTool(http_client=_client(_router()), min_relevance=0.0), query="attention transformer", limit=5)
     assert result.success
     rows = result.output.results
     titles = [r["title"] for r in rows]
@@ -138,7 +138,7 @@ def test_semantic_scholar_429_logs_and_skips_cleanly(caplog: Any) -> None:
             return httpx.Response(200, json={"results": [{"id": "https://openalex.org/W1", "display_name": "T"}]})
         return httpx.Response(200, text='<feed xmlns="http://www.w3.org/2005/Atom"></feed>')
 
-    tool = AcademicSearchTool(http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    tool = AcademicSearchTool(http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), min_relevance=0.0)
     with caplog.at_level(logging.WARNING, logger="deep_research.tools.academic_tool"):
         result = asyncio.run(tool.execute(ToolRequest(tool_name=ACADEMIC_TOOL_ID, parameters={"query": "rag"})))
     assert result.success
@@ -151,7 +151,7 @@ def test_mixed_items_skip_non_dicts_with_log(caplog: Any) -> None:
 
     body = {"data": ["oops", {"title": "Ok", "url": "https://s2.org/p/1"}]}
     tool = AcademicSearchTool(provider="semantic_scholar", http_client=httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))))
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))), min_relevance=0.0)
     with caplog.at_level(logging.WARNING, logger="deep_research.tools.academic_tool"):
         result = asyncio.run(tool.execute(ToolRequest(tool_name=ACADEMIC_TOOL_ID, parameters={"query": "rag"})))
     assert result.success and len(result.output.results) == 1
@@ -163,3 +163,35 @@ def test_openalex_query_strips_wildcards():
 
     assert _openalex_query("Does heat cause coral bleaching?") == "Does heat cause coral bleaching"
     assert _openalex_query("coral* reef") == "coral reef"
+
+
+def test_unrelated_papers_are_dropped_and_ranked():
+    from deep_research.tools.source_common import filter_relevant, relevance
+
+    q = "What does recent academic research say about marine heatwaves causing coral bleaching?"
+    rows = [{"title": "Does Gravity Care About Electric Charge? A Minimalist Model", "content": "gravity charge"},
+            {"title": "Marine heatwaves and coral bleaching", "content": "heatwave driven bleaching of coral reefs"},
+            {"title": "Coral reef fish", "content": "fish counts"}]
+    kept = filter_relevant(q, rows)
+    assert [r["title"] for r in kept] == ["Marine heatwaves and coral bleaching"]
+    assert relevance("", "anything") == 1.0
+
+
+def test_429_is_retried_then_succeeds():
+    import asyncio
+
+    import httpx
+
+    from deep_research.tools.source_common import get_with_backoff
+
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(429, headers={"Retry-After": "0"}) if calls["n"] < 3 else httpx.Response(200, json={"ok": 1})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await get_with_backoff(c, "https://x.test", base_delay=0.0)
+
+    assert asyncio.run(go()).json() == {"ok": 1} and calls["n"] == 3

@@ -85,7 +85,7 @@ def test_semantic_scholar_429_skipped_others_used() -> None:
             return httpx.Response(200, text='<feed xmlns="http://www.w3.org/2005/Atom"/>')
         return httpx.Response(200, json={"results": [{"doi": "https://doi.org/10.1/x", "display_name": "Ωmega",
                                                       "abstract_inverted_index": None}]})
-    res = _run(AcademicSearchTool(http_client=_client(h)), query="rag")
+    res = _run(AcademicSearchTool(http_client=_client(h), min_relevance=0.0), query="rag")
     assert res.success
     assert res.output.errors == {"semantic_scholar": "http_429"}
     assert res.output.results[0]["title"] == "Ωmega"

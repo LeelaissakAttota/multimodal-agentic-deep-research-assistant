@@ -89,3 +89,54 @@ def hit(*, title: str, url: str, snippet: str, content: str, source_type: str, *
            "content": clean(content), "source_type": source_type}
     row.update({k: clean(v, 300) for k, v in extra.items() if v not in (None, "", [])})
     return row
+
+
+async def get_with_backoff(client: httpx.AsyncClient, url: str, *, params: dict[str, Any] | None = None,
+                           headers: dict[str, str] | None = None, timeout: float = 15.0,
+                           retries: int = 2, base_delay: float = 1.0) -> httpx.Response:
+    """GET with retry/backoff on HTTP 429 and 503 (honours a short ``Retry-After``); raises on final failure."""
+    import asyncio
+
+    for attempt in range(retries + 1):
+        response = await client.get(url, params=params, headers=headers, timeout=timeout)
+        if response.status_code not in (429, 503) or attempt == retries:
+            response.raise_for_status()
+            return response
+        retry_after = response.headers.get("Retry-After", "")
+        delay = float(retry_after) if retry_after.isdigit() else base_delay * (2 ** attempt)
+        if base_delay > 0:
+            await asyncio.sleep(min(delay, 8.0))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+_STOP = frozenset(
+    "a an and are as at be by can does do for from has have how in into is it its of on or say says should than that the "
+    "their there these this those to was were what when where which while who why will with about recent latest new "
+    "research researchers study studies academic paper papers evidence review show shows effect effects role impact "
+    "impacts between vs versus explain explained tell me".split())
+
+
+def query_terms(query: str) -> list[str]:
+    """Content words of a query (lower-cased, stop words removed, de-duplicated)."""
+    words = re.findall(r"[a-z0-9]+", query.lower())
+    return list(dict.fromkeys(w for w in words if len(w) > 2 and w not in _STOP))
+
+
+def relevance(query: str, text: str) -> float:
+    """Share of the query's content words found in ``text`` (prefix match tolerates plurals/stems)."""
+    terms = query_terms(query)
+    if not terms:
+        return 1.0
+    words = set(re.findall(r"[a-z0-9]+", text.lower()))
+    stems = {w[:5] for w in words}
+    found = sum(1 for t in terms if t in words or t[:5] in stems)
+    return found / len(terms)
+
+
+def filter_relevant(query: str, rows: list[dict[str, str]], threshold: float = 0.34) -> list[dict[str, str]]:
+    """Drop rows whose title+abstract barely match the query, then sort best-first (stable)."""
+    scored = [(relevance(query, f"{r.get('title', '')} {r.get('content') or r.get('snippet', '')}"), i, r)
+              for i, r in enumerate(rows)]
+    kept = [(s, i, r) for s, i, r in scored if s >= threshold]
+    kept.sort(key=lambda t: (-t[0], t[1]))
+    return [{**r, "relevance": f"{s:.2f}"} for s, _, r in kept]

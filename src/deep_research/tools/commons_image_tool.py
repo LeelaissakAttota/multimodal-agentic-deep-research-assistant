@@ -21,6 +21,7 @@ from deep_research.tools.source_common import (
     clean,
     error_kind,
     fail,
+    get_with_backoff,
     hit,
     ok,
     read_query,
@@ -34,8 +35,9 @@ _IMAGE_MIME = ("image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+
 
 class CommonsImageSearchTool(Tool):
     def __init__(self, *, http_client: httpx.AsyncClient | None = None, timeout: float = 15.0,
-                 thumb_width: int = 640) -> None:
+                 thumb_width: int = 640, retry_delay: float | None = None) -> None:
         self._client = http_client
+        self._retry_delay = (0.0 if http_client is not None else 1.0) if retry_delay is None else retry_delay
         self._timeout = timeout
         self._width = thumb_width
 
@@ -69,9 +71,8 @@ class CommonsImageSearchTool(Tool):
         }
         client = self._client or httpx.AsyncClient(follow_redirects=True)
         try:
-            response = await client.get(COMMONS_API, params=params, headers={"User-Agent": USER_AGENT},
-                                        timeout=self._timeout)
-            response.raise_for_status()
+            response = await get_with_backoff(client, COMMONS_API, params=params, headers={"User-Agent": USER_AGENT},
+                                              timeout=self._timeout, base_delay=self._retry_delay)
             pages = (response.json().get("query") or {}).get("pages") or []
         except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
             return fail(COMMONS_TOOL_ID, start, "Wikimedia Commons search failed.", error_kind(exc))

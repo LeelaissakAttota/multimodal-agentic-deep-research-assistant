@@ -24,6 +24,8 @@ from deep_research.tools.source_common import (
     clean,
     error_kind,
     fail,
+    filter_relevant,
+    get_with_backoff,
     hit,
     ok,
     read_query,
@@ -76,12 +78,15 @@ class AcademicSearchTool(Tool):
     """Search scholarly literature through free, keyless APIs."""
 
     def __init__(self, *, provider: str = "auto", http_client: httpx.AsyncClient | None = None,
-                 timeout: float = 15.0) -> None:
+                 timeout: float = 15.0, retry_delay: float | None = None, min_relevance: float = 0.34) -> None:
         if provider != "auto" and provider not in PROVIDERS:
             raise ValueError(f"Unsupported academic provider: {provider}")
         self.provider = provider
         self._client = http_client
         self._timeout = timeout
+        # Back off on 429/503 in real use; injected (test) clients don't sleep.
+        self._retry_delay = (0.0 if http_client is not None else 1.0) if retry_delay is None else retry_delay
+        self._min_relevance = min_relevance
 
     @property
     def name(self) -> str:
@@ -125,14 +130,13 @@ class AcademicSearchTool(Tool):
         if len(errors) == len(names):
             return fail(ACADEMIC_TOOL_ID, start, "All academic providers failed.", "all_providers_failed",
                         provider_errors=errors)
-        results = _dedupe(merged, limit)
+        results = _dedupe(filter_relevant(query, merged, self._min_relevance), limit)
         used = ",".join(n for n in names if n not in errors)
         return ok(ACADEMIC_TOOL_ID, start, results, used, errors)
 
     async def _get(self, client: httpx.AsyncClient, url: str, params: dict[str, Any]) -> httpx.Response:
-        response = await client.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=self._timeout)
-        response.raise_for_status()
-        return response
+        return await get_with_backoff(client, url, params=params, headers={"User-Agent": USER_AGENT},
+                                      timeout=self._timeout, base_delay=self._retry_delay)
 
     async def _arxiv(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
         response = await self._get(client, ARXIV_URL, {"search_query": f"all:{query}", "start": 0,
