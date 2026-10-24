@@ -55,3 +55,25 @@ def test_json_markdown_and_names() -> None:
     assert set(FORMATS) == {"pdf", "docx", "pptx", "json", "md"}
     with pytest.raises(ValueError):
         export_report(REPORT, "exe")
+
+
+def test_pdf_safe_text_maps_emoji_to_labels():
+    from deep_research.export import pdf_safe_text
+
+    assert pdf_safe_text("✅ supported, 🟡 partial, ❌ contradicted, ⚪ unsupported") == \
+        "[OK] supported, [~] partial, [X] contradicted, [?] unsupported"
+    assert pdf_safe_text("Café 🦄 naïve — ok") == "Café naïve — ok"
+
+
+def test_pdf_with_emoji_has_no_missing_glyph_warning(caplog):
+    import logging
+
+    import pytest
+
+    pytest.importorskip("fpdf")
+    from deep_research.export import export_report
+
+    report = {"title": "T", "content": "## Verification\n- ✅ supported claim\n- 🟡 partial claim", "citations": []}
+    with caplog.at_level(logging.WARNING):
+        data = export_report(report, "pdf")
+    assert data.startswith(b"%PDF") and "missing the following glyphs" not in caplog.text

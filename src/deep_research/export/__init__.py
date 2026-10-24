@@ -174,6 +174,24 @@ _FONT_CANDIDATES = (
 _BOLD = {"DejaVuSans.ttf": "DejaVuSans-Bold.ttf", "arial.ttf": "arialbd.ttf", "segoeui.ttf": "segoeuib.ttf"}
 
 
+# Emoji are missing from normal text fonts (fpdf2 prints '?'); map the ones reports use to text labels
+# and drop any other pictographs, so PDFs never show '?' boxes.
+_EMOJI_LABELS = {
+    "\u2705": "[OK]", "\u2714": "[OK]", "\u2611": "[OK]", "\U0001f7e2": "[OK]", "\U0001f7e1": "[~]", "\U0001f7e0": "[~]",
+    "\u26aa": "[?]", "\u2753": "[?]", "\u2754": "[?]", "\u274c": "[X]", "\u2716": "[X]", "\U0001f534": "[X]",
+    "\u26a0": "[!]", "\u2757": "[!]", "\U0001f4a1": "*", "\U0001f50d": "", "\U0001f4c4": "", "\U0001f310": "",
+    "\u2b50": "*", "\u2192": "->", "\u2190": "<-",
+}
+_PICTOGRAPH = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0E\uFE0F\u200D]")
+
+
+def pdf_safe_text(s: str) -> str:
+    """Replace emoji with short text labels and strip other pictographs (keeps all normal Unicode text)."""
+    for emoji, label in _EMOJI_LABELS.items():
+        s = s.replace(emoji, label)
+    return re.sub(r"[ \t]{2,}", " ", _PICTOGRAPH.sub("", s))
+
+
 def _font() -> tuple[str | None, str | None]:
     for cand in _FONT_CANDIDATES:
         path = Path(cand)
@@ -199,6 +217,7 @@ def _pdf(doc: Doc) -> bytes:  # noqa: C901 - flat renderer
         family = "Body"
 
     def txt(s: str) -> str:
+        s = pdf_safe_text(s)
         return s if regular else s.encode("latin-1", "replace").decode("latin-1")
 
     pdf.add_page()
