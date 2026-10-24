@@ -70,7 +70,10 @@ class LocalVectorStore:
             self.path.write_text(json.dumps(self._items), encoding="utf-8")
 
     def search(self, vector: list[float], k: int) -> list[VectorHit]:
-        hits = [VectorHit(i, cosine(vector, it["vector"]), it["text"], it["metadata"]) for i, it in self._items.items()]
+        hits = [VectorHit(i, cosine(vector, it["vector"]), it["text"], it["metadata"])
+                for i, it in self._items.items() if len(it["vector"]) == len(vector)]
+        if len(hits) < len(self._items):
+            logger.warning("skipped %d stored vectors with a different dimension", len(self._items) - len(hits))
         hits.sort(key=lambda h: (-h.score, h.id))
         return hits[: max(k, 0)]
 

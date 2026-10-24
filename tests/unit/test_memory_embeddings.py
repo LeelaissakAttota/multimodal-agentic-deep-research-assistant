@@ -53,3 +53,10 @@ def test_get_embedder_uses_local_model_when_installed(monkeypatch) -> None:  # t
     monkeypatch.setitem(sys.modules, "sentence_transformers", mod)
     emb = get_embedder()
     assert isinstance(emb, SentenceTransformerEmbedder) and emb.dimension == 3
+
+
+def test_cosine_rejects_length_mismatch() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="mismatch"):
+        cosine([1.0, 0.0], [1.0])

@@ -34,8 +34,10 @@ def _normalise(vector: list[float]) -> list[float]:
 
 
 def cosine(a: list[float], b: list[float]) -> float:
-    """Cosine similarity for (possibly un-normalised) vectors."""
+    """Cosine similarity for (possibly un-normalised) vectors; lengths must match."""
 
+    if len(a) != len(b):
+        raise ValueError(f"vector length mismatch: {len(a)} != {len(b)}")
     dot = sum(x * y for x, y in zip(a, b))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))

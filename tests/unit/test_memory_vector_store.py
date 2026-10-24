@@ -72,3 +72,9 @@ def test_non_object_json_logs_warning(tmp_path: Path, caplog) -> None:  # type: 
     with caplog.at_level("WARNING"):
         assert LocalVectorStore(tmp_path, "c").count() == 0
     assert "not a JSON object" in caplog.text
+
+
+def test_search_skips_other_dimension_vectors() -> None:
+    s = LocalVectorStore()
+    s.upsert(["a", "b"], [[1.0, 0.0], [1.0]], ["x", "y"], [{}, {}])
+    assert [h.id for h in s.search([1.0, 0.0], 5)] == ["a"]
