@@ -46,6 +46,8 @@ def compress_text(text: str, query: str, budget: int) -> str:
         return text
     terms = {w.casefold() for w in _WORD.findall(query) if len(w) > 2}
     sentences = [x for x in _SENTENCE.split(text.strip()) if x]
+    if not sentences:
+        return ""
     ranked = sorted(
         range(len(sentences)),
         key=lambda i: (-len(terms & {w.casefold() for w in _WORD.findall(sentences[i])}), i),

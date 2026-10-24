@@ -105,6 +105,5 @@ def test_token_estimate_window_and_compress() -> None:
     assert len(compress_text("東京は大きい。" * 100, "東京", 10)) <= 10
 
 
-@pytest.mark.xfail(strict=True, raises=IndexError, reason="BUG: whitespace-only text over budget -> IndexError")
 def test_compress_text_whitespace_only() -> None:
     assert compress_text("      ", "q", 2) == ""
