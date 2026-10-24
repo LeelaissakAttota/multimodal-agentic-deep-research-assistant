@@ -7,6 +7,7 @@ evidence and a snippet-based summary, never fabricated content.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -25,6 +26,7 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 from deep_research.tools.web_tools import WEB_FETCH_TOOL_ID, WEB_SEARCH_TOOL_ID
 
 LIVE_RESEARCH_TOOL_ID = "live_research"
+logger = logging.getLogger(__name__)
 
 _SYNTH_PROMPT = (
     "You are a careful research assistant. Using ONLY the numbered sources below, "
@@ -121,6 +123,8 @@ class LiveResearchAgent(ResearchAgent):
                 return sourced
             # Honest fallback: the public source failed or was empty, so research the same query on the web.
             source_fallback = str(sourced.metadata.get("failure_kind") or sourced.error or "source_failed")
+            logger.warning("Source tool %s unavailable (%s); falling back to web search for this task",
+                           task.assigned_tool, source_fallback)
         run = _ToolRun()
         if self.tool_gateway is not None:
             await self._llm_tool_loop(run, objective=objective, query=query, focus=focus, start=start)

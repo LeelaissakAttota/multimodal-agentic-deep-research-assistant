@@ -8,6 +8,7 @@ is community discussion, not authoritative evidence; hits carry
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Any
@@ -31,6 +32,7 @@ from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 REDDIT_TOOL_ID = "reddit_search"
 REDDIT_BASE = "https://www.reddit.com"
+logger = logging.getLogger(__name__)
 _SUBREDDIT = re.compile(r"^[A-Za-z0-9_]{2,21}$")
 
 
@@ -86,8 +88,12 @@ class RedditSearchTool(Tool):
                                             headers={"User-Agent": USER_AGENT}, timeout=self._timeout)
                 response.raise_for_status()
                 children = response.json()["data"]["children"]
+            except httpx.HTTPStatusError as exc:
+                return _blocked_or_failed(start, exc.response.status_code)
             except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-                return fail(REDDIT_TOOL_ID, start, "Reddit search failed.", error_kind(exc))
+                kind = error_kind(exc)
+                logger.warning("Reddit search failed (%s); falling back to web search", kind)
+                return fail(REDDIT_TOOL_ID, start, f"Reddit search failed ({kind}).", kind)
             rows = [r for r in (self._post(c.get("data") or {}) for c in children if isinstance(c, dict)) if r]
             rows = rows[:limit]
             for row in rows[: (2 if n_comments else 0)]:
@@ -132,3 +138,18 @@ class RedditSearchTool(Tool):
             if len(out) >= n:
                 break
         return out
+
+
+def _blocked_or_failed(start: float, status: int) -> ToolResult:
+    """Typed failure for Reddit HTTP errors; 403/429 are expected blocks, not crashes."""
+    if status == 403:
+        message = "Reddit blocked request (HTTP 403), likely datacenter IP; falling back to web search"
+        kind = "blocked"
+    elif status == 429:
+        message = "Reddit rate-limited request (HTTP 429); falling back to web search"
+        kind = "rate_limited"
+    else:
+        message = f"Reddit search failed (HTTP {status}); falling back to web search"
+        kind = f"http_{status}"
+    logger.warning(message)
+    return fail(REDDIT_TOOL_ID, start, message, kind, http_status=status)
