@@ -243,6 +243,7 @@ class _CitationBuilder:
             if isinstance(excerpt, str) and excerpt.strip():
                 number = self._index[key]
                 self.excerpts[number] = (self.excerpts.get(number, "") + "\n" + excerpt).strip()[:4000]
+                self.citations[number - 1]["excerpt"] = self.excerpts[number][:1200]
             mapping[local] = self._index[key]
         return mapping
 
