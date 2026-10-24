@@ -5,6 +5,7 @@ from deep_research.memory.research_memory import (
     MemoryQuery,
     MemoryRecord,
     ResearchMemory,
+    SemanticResearchMemory,
 )
 
-__all__ = ["BoundedResearchMemory", "MemoryQuery", "MemoryRecord", "ResearchMemory"]
+__all__ = ["BoundedResearchMemory", "MemoryQuery", "MemoryRecord", "ResearchMemory", "SemanticResearchMemory"]
