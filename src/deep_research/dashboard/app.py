@@ -504,12 +504,12 @@ def research_view(run_id: str, status: str) -> None:
     lines = "".join(f"<div class='ln{' new' if x['seq'] > seen and not first else ''}' title='{e(x['text'])}'>[{e(x['time'])}] <b>{e(x['tag']):<6}</b> {e(x['text'])}</div>"
                     for x in feed["lines"])
     state = "LIVE" if live else "FINISHED"
-    empty = "" if cards else (f"<div class='empty'>{'Waiting for the first source…' if live else 'No web sources were logged for this run.'}</div>")
+    empty = "" if cards else (f"<div class='empty'>{'Waiting for the first source…' if live else ('No web sources were logged for this run.' if logs else 'Source trail not available for this saved run.')}</div>")
     st.markdown(
         f"<div class='ph'>Live Research View <span class='muted'>{feed['sources']} sources · {feed['queries']} searches · real run events only</span></div>"
         f"<div class='lucy'><div class='stack'><div class='hd'><span>SOURCES BEING READ</span><span>{state}</span></div>{''.join(cards)}{empty}</div>"
         f"<div class='term'><div class='hd'><span>agent@deep-research:~$ tail -f run/{e(run_id[:8])}.log</span><span>{state}</span></div>"
-        f"<div class='body'>{lines or '<div class=ln>waiting for events…</div>'}"
+        f"<div class='body'>{lines or ('<div class=ln>waiting for events…</div>' if live else '<div class=ln>run log not available here (saved run, or it predates this view)</div>')}"
         f"<div class='ln'>{'<span class=cur></span>' if live else '— run ' + e(status) + ' —'}</div></div></div></div>",
         unsafe_allow_html=True)
 
