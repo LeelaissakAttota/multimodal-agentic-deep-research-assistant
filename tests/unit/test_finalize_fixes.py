@@ -112,3 +112,18 @@ def test_env_file_override_is_honoured(tmp_path: Path, monkeypatch: pytest.Monke
     env.write_text("DEEP_RESEARCH_RESEARCH_MODE=live\n", encoding="utf-8")
     monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(env))
     assert Settings(_env_file=str(env)).research_mode == "live"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_secret_store_file_is_owner_only(tmp_path: Path) -> None:
+    import stat
+
+    from deep_research.control.secrets_store import SecretStore
+
+    path = tmp_path / "cfg" / "secrets.json"
+    SecretStore(path, ("DEEP_RESEARCH_TAVILY_API_KEY",)).set("DEEP_RESEARCH_TAVILY_API_KEY", "abcd1234")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_ci_type_checks_windows_platform() -> None:
+    assert "mypy --platform win32 src" in (ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")

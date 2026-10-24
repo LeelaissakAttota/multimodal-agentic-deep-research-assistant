@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -101,7 +102,7 @@ class SecretStore:
             os.chmod(directory, stat.S_IRWXU)
         fd, tmp = tempfile.mkstemp(dir=directory, prefix=".secrets-")
         try:
-            if os.name != "nt":
+            if sys.platform != "win32":  # sys.platform lets mypy narrow; os.fchmod is POSIX-only
                 os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
