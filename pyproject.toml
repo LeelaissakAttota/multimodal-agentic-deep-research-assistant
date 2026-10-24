@@ -33,6 +33,7 @@ dependencies = [
     "pypdf>=4.0",
     "structlog>=24.0",
     "uvicorn>=0.25.0",
+    "youtube-transcript-api>=1.2",
 ]
 
 [project.optional-dependencies]

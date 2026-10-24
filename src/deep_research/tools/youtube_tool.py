@@ -10,6 +10,8 @@ is downloaded and flattened to text. Videos without captions are reported in
 
 from __future__ import annotations
 
+import asyncio
+import html
 import json
 import logging
 import re
@@ -72,8 +74,12 @@ class YouTubeTranscriptInput(SourceSearchInput):
 
 class YouTubeTranscriptTool(Tool):
     def __init__(self, *, http_client: httpx.AsyncClient | None = None, timeout: float = 15.0,
-                 max_chars: int = 6_000, preferred_language: str = "en") -> None:
+                 max_chars: int = 6_000, preferred_language: str = "en",
+                 use_transcript_api: bool | None = None) -> None:
         self._client = http_client
+        # youtube-transcript-api uses YouTube's current player API (the old timedtext baseUrl now needs a
+        # PO token and returns empty). Default on for real use; injected test clients keep the httpx path.
+        self._use_api = (http_client is None) if use_transcript_api is None else use_transcript_api
         self._timeout = timeout
         self._max_chars = max_chars
         self._lang = preferred_language
@@ -132,6 +138,11 @@ class YouTubeTranscriptTool(Tool):
         """Fetch each video's transcript; failures are logged and recorded in ``errors``."""
         rows: list[dict[str, str]] = []
         for vid in ids:
+            if self._use_api:
+                api_row = await self._api_transcript(client, vid, errors)
+                if api_row is not None:
+                    rows.append(api_row)
+                    continue
             try:
                 row = await self._transcript(client, vid)
             except _NoCaptions as exc:
@@ -149,6 +160,49 @@ class YouTubeTranscriptTool(Tool):
                 continue
             rows.append(row)
         return rows
+
+    async def _api_transcript(self, client: httpx.AsyncClient, vid: str,
+                              errors: dict[str, str]) -> dict[str, str] | None:
+        """Transcript via youtube-transcript-api (None when unavailable, so the legacy path runs)."""
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+        except ImportError:
+            return None
+        langs = list(dict.fromkeys([self._lang, "en", "en-US", "en-GB"]))
+
+        def fetch() -> tuple[str, str, bool]:
+            api = YouTubeTranscriptApi()
+            listing = api.list(vid)
+            try:
+                tr = listing.find_transcript(langs)
+            except Exception:  # noqa: BLE001 - no preferred language: take any (translated to English if possible)
+                tr = next(iter(listing))
+                if tr.is_translatable and not tr.language_code.startswith("en"):
+                    tr = tr.translate("en")
+            fetched = tr.fetch()
+            text = clean(" ".join(s.text.replace("\n", " ") for s in fetched.snippets))
+            return text, str(tr.language_code), bool(tr.is_generated)
+
+        try:
+            text, lang, generated = await asyncio.to_thread(fetch)
+        except Exception as exc:  # noqa: BLE001 - library raises many types (disabled, unavailable, blocked)
+            logger.info("youtube-transcript-api %s: %s", vid, type(exc).__name__)
+            errors[f"{vid}:api"] = type(exc).__name__
+            return None
+        if not text:
+            return None
+        title = f"YouTube video {vid}"
+        try:
+            page = await client.get(WATCH_URL, params={"v": vid}, timeout=self._timeout,
+                                    headers={"User-Agent": _BROWSER_UA, "Accept-Language": "en"})
+            m = _TITLE.search(page.text)
+            if m and m.group(1).strip():
+                title = clean(html.unescape(m.group(1)))
+        except httpx.HTTPError:
+            pass
+        return hit(title=title, url=f"https://www.youtube.com/watch?v={vid}", snippet=text[:300],
+                   content=text[: self._max_chars], source_type="video", provider="youtube",
+                   video_id=vid, language=lang, caption_kind="auto" if generated else "manual")
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int) -> list[str | None]:
         response = await client.get(RESULTS_URL, params={"search_query": query},

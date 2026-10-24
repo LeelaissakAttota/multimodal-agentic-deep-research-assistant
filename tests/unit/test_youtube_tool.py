@@ -136,3 +136,68 @@ def test_unreadable_caption_xml_is_no_captions() -> None:
 
     result = _run(YouTubeTranscriptTool(http_client=_custom(handler)), video=VID)
     assert result.metadata["provider_errors"] == {VID: "no_captions"}
+
+
+def test_transcript_api_path_used_first(monkeypatch):
+    import asyncio
+    import sys
+    import types
+
+    import httpx
+
+    from deep_research.tools.tool import ToolRequest
+    from deep_research.tools.youtube_tool import YOUTUBE_TOOL_ID, YouTubeTranscriptTool
+
+    class Snip:
+        def __init__(self, t):
+            self.text = t
+
+    class Tr:
+        language_code, is_generated, is_translatable = "en", True, False
+
+        def fetch(self):
+            return types.SimpleNamespace(snippets=[Snip("hello"), Snip("coral\nworld")])
+
+    class Listing:
+        def find_transcript(self, langs):
+            return Tr()
+
+        def __iter__(self):
+            return iter([Tr()])
+
+    class Api:
+        def list(self, vid):
+            return Listing()
+
+    monkeypatch.setitem(sys.modules, "youtube_transcript_api", types.SimpleNamespace(YouTubeTranscriptApi=Api))
+
+    def handler(request):
+        return httpx.Response(200, text='<meta name="title" content="Reef &amp; heat">')
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    tool = YouTubeTranscriptTool(http_client=client, use_transcript_api=True)
+    r = asyncio.run(tool.execute(ToolRequest(tool_name=YOUTUBE_TOOL_ID, parameters={"video": "dQw4w9WgXcQ"})))
+    assert r.success
+    row = r.output.results[0]
+    assert row["content"] == "hello coral world" and row["title"] == "Reef & heat" and row["caption_kind"] == "auto"
+
+
+def test_transcript_api_failure_falls_back(monkeypatch):
+    import sys
+    import types
+
+    from deep_research.tools.youtube_tool import YouTubeTranscriptTool
+
+    class Api:
+        def list(self, vid):
+            raise RuntimeError("blocked")
+
+    monkeypatch.setitem(sys.modules, "youtube_transcript_api", types.SimpleNamespace(YouTubeTranscriptApi=Api))
+    import asyncio
+
+    import httpx
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="")))
+    errors: dict[str, str] = {}
+    out = asyncio.run(YouTubeTranscriptTool(http_client=client, use_transcript_api=True)._api_transcript(client, "dQw4w9WgXcQ", errors))
+    assert out is None and errors == {"dQw4w9WgXcQ:api": "RuntimeError"}
