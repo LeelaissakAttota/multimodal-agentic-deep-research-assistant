@@ -520,8 +520,43 @@ def memory_items(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"id": k, **v} for k, v in items.items()]
 
 
-def memory_search(runs: list[dict[str, Any]], query: str, k: int = 10) -> list[dict[str, Any]]:
-    """Semantic search over saved research memory (deterministic embedder + lexical rerank)."""
+def persistent_memory_search(runs: list[dict[str, Any]], query: str, k: int, vector_dir: Path) -> list[dict[str, Any]]:
+    """Search the on-disk long-term vector store written by research runs; [] when absent/unusable."""
+
+    if not vector_dir.is_dir() or not any(vector_dir.iterdir()):
+        return []
+    try:
+        from deep_research.memory.embeddings import get_embedder
+        from deep_research.memory.reranker import LexicalReranker
+        from deep_research.memory.vector_store import get_vector_store
+
+        store = get_vector_store(vector_dir)
+        if store.count() == 0:
+            return []
+        hits = [h for h in store.search(get_embedder().embed([query])[0], k * 3) if h.score > 0]
+    except Exception:  # noqa: BLE001 - corrupt store / dimension mismatch -> fall back
+        return []
+    by_session = {str((r.get("result") or {}).get("session_id")): r for r in runs if isinstance(r.get("result"), dict)}
+    rr = LexicalReranker().score(query, [h.text for h in hits])
+    ranked = sorted(zip(hits, rr), key=lambda p: (-(0.5 * p[0].score + 0.5 * p[1]), p[0].id))
+    out = []
+    for h, r in ranked[:k]:
+        run = by_session.get(str(h.metadata.get("session_id")))
+        out.append({"id": h.id, "kind": "memory", "text": shorten(h.text, 240), "score": round(0.5 * h.score + 0.5 * r, 3),
+                    "run_id": run.get("run_id") if run else None,
+                    "title": title_of(run) if run else f"session {str(h.metadata.get('session_id'))[:8]}",
+                    "backend": "persistent"})
+    return out
+
+
+def memory_search(runs: list[dict[str, Any]], query: str, k: int = 10,
+                  vector_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Semantic search: the persistent vector store when present, else an in-memory index of saved runs."""
+
+    if vector_dir is not None and query.strip():
+        persistent = persistent_memory_search(runs, query, k, vector_dir)
+        if persistent:
+            return persistent
 
     from deep_research.memory.embeddings import HashingEmbedder
     from deep_research.memory.reranker import LexicalReranker
@@ -537,7 +572,7 @@ def memory_search(runs: list[dict[str, Any]], query: str, k: int = 10) -> list[d
     rr = LexicalReranker().score(query, [h.text for h in hits])
     ranked = sorted(zip(hits, rr), key=lambda p: (-(0.5 * p[0].score + 0.5 * p[1]), p[0].id))
     by_id = {i["id"]: i for i in items}
-    return [{**by_id[h.id], "score": round(0.5 * h.score + 0.5 * r, 3)} for h, r in ranked[:k]]
+    return [{**by_id[h.id], "score": round(0.5 * h.score + 0.5 * r, 3), "backend": "in-memory"} for h, r in ranked[:k]]
 
 
 def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -> list[dict[str, str]]:

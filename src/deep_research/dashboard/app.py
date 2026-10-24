@@ -589,7 +589,7 @@ def page_knowledge() -> None:
     st.markdown(f"<div class='panel'><div class='ph'>Categories</div><div class='grid g6'>{cells}</div></div>", unsafe_allow_html=True)
     t1, t2, t3, t4 = st.tabs(["Reports", "Claims", "Files", "Memory"])
     with t4:
-        ms = memory_status()
+        ms = memory_status(Path(Settings().memory_dir) / "vector_store")
         st.markdown("<div class='panel'><div class='ph'>Long-term memory</div>" + "".join(
             f"<div class='row'><div class='tx'><div class='tt'>{e(k)}</div></div><div class='rt'>{e(str(v))}</div></div>"
             for k, v in [("Embeddings", ms["embedder"]), ("Reranker", ms["reranker"]), ("Vector store", ms["vector_store"]),
@@ -598,12 +598,18 @@ def page_knowledge() -> None:
             unsafe_allow_html=True)
         q = st.text_input("Search memory", placeholder="Search claims and sources across all saved researches")
         if q:
-            hits = memory_search(runs_cache, q)
-            st.markdown("<div class='panel'>" + ("".join(
-                f"<a class='row' target='_self' href='{link('researches', run=str(h['run_id']), view='report')}'>"
-                f"<div class='sq {'c2' if h['kind'] == 'claim' else 'c1'}'>{'💡' if h['kind'] == 'claim' else '🌐'}</div>"
-                f"<div class='tx'><div class='tt' style='white-space:normal'>{e(h['text'])}</div><div class='ts'>{e(h['title'])}</div></div>"
-                f"<div class='rt'>{h['score']:.2f}</div></a>" for h in hits) or "<div class='muted'>No matching memory.</div>") + "</div>",
+            hits = memory_search(runs_cache, q, vector_dir=Path(ms["path"]))
+            st.caption(f"Searched the {hits[0]['backend']} index" if hits else "")
+
+            def _row(h: dict[str, Any]) -> str:
+                icon = {"claim": ("c2", "💡"), "source": ("c1", "🌐")}.get(h["kind"], ("c5", "◈"))
+                inner = (f"<div class='sq {icon[0]}'>{icon[1]}</div><div class='tx'><div class='tt' style='white-space:normal'>"
+                         f"{e(h['text'])}</div><div class='ts'>{e(h['title'])}</div></div><div class='rt'>{h['score']:.2f}</div>")
+                if h.get("run_id"):
+                    return f"<a class='row' target='_self' href='{link('researches', run=str(h['run_id']), view='report')}'>{inner}</a>"
+                return f"<div class='row'>{inner}</div>"
+
+            st.markdown("<div class='panel'>" + ("".join(_row(h) for h in hits) or "<div class='muted'>No matching memory.</div>") + "</div>",
                 unsafe_allow_html=True)
     with t1:
         st.markdown("<div class='panel'>" + ("".join(
