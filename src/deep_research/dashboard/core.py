@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -38,6 +39,15 @@ STAGES: dict[str, tuple[str, str, str]] = {
 }
 STATE_ICON = {"succeeded": "✓", "approved": "✓", "running": "▶", "pending_approval": "!",
               "rejected": "✕", "failed": "✕", "skipped": "–"}
+
+
+def display_zone() -> Any:
+    """Zone for all displayed times: DEEP_RESEARCH_DISPLAY_TZ, default Asia/Kolkata (IST)."""
+
+    try:
+        return ZoneInfo(os.environ.get("DEEP_RESEARCH_DISPLAY_TZ") or "Asia/Kolkata")
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
 
 
 class ControlError(RuntimeError):
@@ -315,9 +325,247 @@ def local_time(value: Any) -> str:
     """ISO timestamp (UTC) -> local wall time with a zone label, e.g. '2026-10-24 22:18 IST'."""
 
     try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone()
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(display_zone())
     except ValueError:
         return str(value or "")[:16]
     offset = dt.utcoffset()
     label = "IST" if offset is not None and offset.total_seconds() == 19800 else (dt.tzname() or "")
     return f"{dt:%Y-%m-%d %H:%M} {label}".strip()
+
+
+# ----- v2 dashboard aggregates (all derived from real runs, never invented) -------------------
+
+APP_TITLE = "Multimodal Agentic Deep Research Assistant"
+REPO_URL = "https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant"
+ACTIVE = ("queued", "running", "paused", "waiting_approval", "stopping")
+
+
+def _parse(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def duration_seconds(run: dict[str, Any]) -> float | None:
+    """Wall-clock seconds of a finished run: engine usage first, else finished_at - created_at."""
+
+    result = run.get("result") if isinstance(run.get("result"), dict) else {}
+    elapsed = (((result or {}).get("runtime") or {}).get("usage") or {}).get("elapsed_seconds")
+    if isinstance(elapsed, (int, float)) and elapsed > 0:
+        return float(elapsed)
+    start, end = _parse(run.get("created_at")), _parse(run.get("finished_at"))
+    if start and end and end >= start:
+        return (end - start).total_seconds()
+    return None
+
+
+def fmt_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "–"
+    if seconds < 1:
+        return "< 1 s"
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Counts for the four dashboard tiles."""
+
+    total = len(runs)
+    done = [r for r in runs if r.get("status") == "completed"]
+    active = [r for r in runs if r.get("status") not in TERMINAL]
+    failed = [r for r in runs if r.get("status") in ("failed", "stopped")]
+    durations = [d for d in (duration_seconds(r) for r in done) if d is not None]
+    avg = sum(durations) / len(durations) if durations else None
+    return {"total": total, "completed": len(done), "active": len(active), "failed": len(failed),
+            "success_rate": f"{len(done) / total:.0%}" if total else "–",
+            "avg_seconds": avg, "avg": fmt_duration(avg), "timed": len(durations),
+            "awaiting": sum(bool(r.get("pending_approvals")) for r in active)}
+
+
+def status_badge(status: Any) -> tuple[str, str]:
+    """(label, css class) for a run status."""
+
+    s = str(status or "unknown")
+    if s == "completed":
+        return "Completed", "b-ok"
+    if s in ("failed", "stopped"):
+        return s.title(), "b-bad"
+    if s == "waiting_approval":
+        return "Needs approval", "b-wait"
+    return "In Progress" if s in ACTIVE else s.replace("_", " ").title(), "b-run"
+
+
+def run_tags(run: dict[str, Any]) -> list[str]:
+    """Factual tags: mode, attachment kinds, approval mode, citation count."""
+
+    params = run.get("params") or {}
+    tags = [str(params.get("mode") or "offline").title()]
+    kinds = {str(a.get("kind")) for a in params.get("attachments") or [] if isinstance(a, dict)}
+    tags += [label for kind, label in (("pdf", "PDF"), ("image", "Image")) if kind in kinds]
+    if run.get("approval_mode"):
+        tags.append("Step approval")
+    report = report_of(run)
+    if report and report.get("citations"):
+        tags.append(f"{len(report['citations'])} sources")
+    return tags
+
+
+def filter_runs(runs: list[dict[str, Any]], query: str = "", status: str = "All") -> list[dict[str, Any]]:
+    q = query.strip().lower()
+    out = []
+    for r in runs:
+        label = status_badge(r.get("status"))[0]
+        if status != "All" and label != status:
+            continue
+        hay = " ".join([title_of(r), str(r.get("run_id", "")), " ".join(run_tags(r))]).lower()
+        if q and q not in hay:
+            continue
+        out.append(r)
+    return out
+
+
+def _domain(url: Any) -> str:
+    m = re.match(r"https?://(?:www\.)?([^/:?#]+)", str(url or ""))
+    return m.group(1) if m else ""
+
+
+def source_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every cited source across saved reports, de-duplicated by URL (or title for non-web)."""
+
+    seen: dict[str, dict[str, Any]] = {}
+    for r in runs:
+        report = report_of(r)
+        if not report:
+            continue
+        for c in citations(report):
+            key = str(c.get("url") or f"{c['kind']}:{c['title']}")
+            row = seen.setdefault(key, {**c, "domain": _domain(c.get("url")) or c["kind"], "runs": [],
+                                        "first_seen": r.get("created_at")})
+            if r.get("run_id") not in row["runs"]:
+                row["runs"].append(r.get("run_id"))
+    return sorted(seen.values(), key=lambda x: (-len(x["runs"]), str(x["title"])))
+
+
+def source_kind(row: dict[str, Any]) -> str:
+    kind = str(row.get("kind") or "")
+    if kind in ("pdf", "document"):
+        return "Documents"
+    if kind == "image":
+        return "Images"
+    return "Web" if row.get("url") else "Other"
+
+
+def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Knowledge-base counts and items: reports, claims, sources and uploaded files."""
+
+    reports, claim_rows, files = [], [], []
+    for r in runs:
+        params = r.get("params") or {}
+        for a in params.get("attachments") or []:
+            if isinstance(a, dict):
+                files.append({"name": str(a.get("name") or "file"), "kind": str(a.get("kind") or ""),
+                              "run_id": r.get("run_id"), "when": r.get("created_at")})
+        report = report_of(r)
+        if report:
+            reports.append({"title": title_of(r), "run_id": r.get("run_id"), "when": r.get("created_at"),
+                            "claims": len(claims(report)), "citations": len(citations(report))})
+            claim_rows += [{**c, "run_id": r.get("run_id")} for c in claims(report)]
+    sources = source_rows(runs)
+    return {"reports": reports, "claims": claim_rows, "sources": sources, "files": files,
+            "web": sum(source_kind(s) == "Web" for s in sources),
+            "documents": sum(f["kind"] == "pdf" for f in files),
+            "images": sum(f["kind"] == "image" for f in files)}
+
+
+def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -> list[dict[str, str]]:
+    """Real engine tools with an honest state: on / needs key / offline only / coming soon."""
+
+    keys = (masked_keys or {}).get("keys") or {}
+
+    def has(name: str, field: str) -> bool:
+        info = keys.get(name) if isinstance(keys, dict) else None
+        return bool(isinstance(info, dict) and info.get("configured")) or getattr(settings, field, None) is not None
+
+    live = mode == "live"
+    tavily = has("TAVILY_API_KEY", "tavily_api_key")
+    rows = [
+        {"name": "Web Search", "detail": "Tavily, then DuckDuckGo / Wikipedia (keyless)" if tavily
+         else "DuckDuckGo / Wikipedia, keyless (Tavily key not set)",
+         "state": "on" if live else "live mode", "icon": "🌐"},
+        {"name": "Web Page Fetch", "detail": "reads up to the configured number of public pages per task",
+         "state": "on" if live else "live mode", "icon": "🔗"},
+        {"name": "Document Analysis", "detail": "PDF text extraction with page-level citations", "state": "on", "icon": "📄"},
+        {"name": "Image Analysis", "detail": "free vision model (needs OpenRouter key), metadata fallback",
+         "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🖼️"},
+        {"name": "LLM Agents", "detail": "planning, analysis, evaluation and reporting on ':free' models",
+         "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🧠"},
+        {"name": "Audio Analysis", "detail": "NVIDIA speech-to-text (engine tool, not exposed in the dashboard yet)",
+         "state": "coming soon", "icon": "🎙️"},
+        {"name": "Video Analysis", "detail": "not supported by the engine yet", "state": "coming soon", "icon": "🎬"},
+    ]
+    return rows
+
+
+class Prefs:
+    """Small JSON preferences file next to the saved runs (no secrets)."""
+
+    DEFAULTS: dict[str, Any] = {"default_mode": "offline", "step_approval": True, "list_limit": 5,
+                                "show_closed": True}
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def load(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        return {k: data.get(k, v) for k, v in self.DEFAULTS.items()}
+
+    def save(self, **values: Any) -> dict[str, Any]:
+        data = {**self.load(), **{k: v for k, v in values.items() if k in self.DEFAULTS}}
+        if data["default_mode"] not in ("offline", "live"):
+            raise ValueError("default_mode must be offline or live")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        return data
+
+
+def needs_detail(run: dict[str, Any]) -> bool:
+    """A finished run listed without its result should be fetched once (to get report + citations)."""
+
+    return run.get("status") == "completed" and "result" not in run
+
+
+def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = None) -> dict[str, str]:
+    """Download a public PDF/image link and encode it like an upload. Web pages are not supported yet."""
+
+    url = url.strip()
+    if not re.match(r"https://[^\s/]+\.[^\s]+$", url):
+        raise ValueError("enter a full https:// link to a PDF or image")
+    try:
+        with httpx.Client(timeout=20.0, follow_redirects=True, transport=transport) as http:
+            resp = http.get(url)
+    except httpx.HTTPError as exc:
+        raise ValueError(f"could not download the link ({type(exc).__name__})") from None
+    if resp.status_code >= 400:
+        raise ValueError(f"the link returned HTTP {resp.status_code}")
+    ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+    ext = {v: k for k, v in {**PDF_TYPES, **IMAGE_TYPES}.items()}.get(ctype)
+    if ext is None:
+        raise ValueError("only direct PDF or image links are supported; web-page URLs are coming soon")
+    name = Path(url.split("?")[0]).name or "download"
+    if not name.lower().endswith(f".{ext}") and not (ext == "jpeg" and name.lower().endswith(".jpg")):
+        name = f"{name}.{ext}"
+    return build_attachment(name, resp.content)
+
+
+def md_safe(markdown: str) -> str:
+    """Escape ``$`` so Streamlit does not render prices like "$4,000–7,000" as LaTeX."""
+
+    return re.sub(r"(?<!\\)\$", r"\\$", str(markdown))

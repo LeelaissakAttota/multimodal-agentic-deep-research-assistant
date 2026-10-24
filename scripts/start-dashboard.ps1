@@ -1,4 +1,4 @@
-# Starts the MDRA control API (127.0.0.1:8711) and the Streamlit dashboard (127.0.0.1:8502).
+# Starts the Multimodal Agentic Deep Research Assistant control API (127.0.0.1:8711) and dashboard (127.0.0.1:8502).
 # A fresh control token is generated for this session if none is set. It is never printed.
 param([int]$ApiPort = 8711, [int]$DashPort = 8502)
 $ErrorActionPreference = "Stop"

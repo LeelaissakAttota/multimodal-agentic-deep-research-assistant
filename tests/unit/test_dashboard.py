@@ -172,7 +172,7 @@ def test_start_script_and_app_present() -> None:
     assert "8502" in script and "8711" in script and "127.0.0.1" in script
     assert "Write-Host $env:DEEP_RESEARCH_CONTROL_TOKEN" not in script
     app = (ROOT / "src/deep_research/dashboard/app.py").read_text(encoding="utf-8")
-    for page in ("New Research", "Live Run", "Report Viewer", "All Runs", "Provider Health", "Settings"):
+    for page in ("New Research", "Live Run", "Research Report", "My Researches", "Provider Health", "Settings"):
         assert page in app
     assert "dashboard_runs/" in (ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -181,8 +181,124 @@ def test_app_smoke_renders_every_page(tmp_path: Path, monkeypatch: pytest.Monkey
     testing = pytest.importorskip("streamlit.testing.v1")
     monkeypatch.setenv("DEEP_RESEARCH_DASHBOARD_DIR", str(tmp_path))
     monkeypatch.setenv("DEEP_RESEARCH_CONTROL_URL", "http://127.0.0.1:9")
-    for page in ("New Research", "Live Run", "Report Viewer", "All Runs", "Provider Health", "Settings"):
+    RunStore(tmp_path).save(_run("abc123", cites=2, atts=["pdf"]))
+    views = [{"page": p} for p in ("dashboard", "new", "researches", "knowledge", "sources", "tools", "settings", "bogus")]
+    views += [{"page": "researches", "run": "abc123", "view": "report"}, {"page": "new", "run": "abc123", "view": "live"},
+              {"page": "researches", "run": "missing", "view": "report"}]
+    for q in views:
         at = testing.AppTest.from_file(str(ROOT / "src/deep_research/dashboard/app.py"), default_timeout=30)
-        at.session_state["nav"] = page
+        for k, v in q.items():
+            at.query_params[k] = v
         at.run()
-        assert not at.exception, page
+        assert not at.exception, q
+        text = " ".join(m.value for m in at.markdown)
+        assert "Multimodal Agentic Deep Research Assistant" in text and "Control API offline" in text
+
+
+# ----- v2 aggregates -------------------------------------------------------------------------------
+
+def _run(rid: str, status: str = "completed", *, cites: int = 0, mode: str = "offline",
+         atts: list[str] | None = None, elapsed: float | None = 30.0) -> dict[str, Any]:
+    report = {"content": "# R\nPrice is $4,000.", "claims": [{"text": "c", "confidence": 0.8, "evidence_ids": ["e"]}],
+              "citations": [{"number": i + 1, "title": f"S{i}", "url": f"https://www.site{i}.org/p"} for i in range(cites)]}
+    run: dict[str, Any] = {"run_id": rid, "status": status, "created_at": f"2026-10-24T10:0{len(rid) % 9}:00+00:00",
+                           "params": {"objective": f"Q {rid}", "mode": mode,
+                                      "attachments": [{"kind": k, "name": f"f.{k}"} for k in atts or []]}}
+    if status == "completed":
+        run["result"] = {"report": report, "runtime": {"usage": {"elapsed_seconds": elapsed}}}
+    return run
+
+
+def test_summary_counts_only_real_runs() -> None:
+    assert core.summary([])["total"] == 0 and core.summary([])["avg"] == "–"
+    runs = [_run("a", elapsed=30), _run("b", elapsed=90), _run("c", "failed"),
+            {**_run("d", "waiting_approval"), "pending_approvals": ["s1"]}]
+    s = core.summary(runs)
+    assert (s["total"], s["completed"], s["active"], s["failed"], s["awaiting"]) == (4, 2, 1, 1, 1)
+    assert s["success_rate"] == "50%" and s["avg"] == "1.0 min" and s["timed"] == 2
+
+
+def test_duration_falls_back_to_timestamps_and_formats() -> None:
+    run = {"created_at": "2026-10-24T10:00:00Z", "finished_at": "2026-10-24T10:02:00Z"}
+    assert core.duration_seconds(run) == 120
+    assert core.duration_seconds({"created_at": "x"}) is None
+    assert [core.fmt_duration(x) for x in (None, 0.2, 42, 600, 7200)] == ["–", "< 1 s", "42 s", "10.0 min", "2.0 h"]
+
+
+def test_status_badges_tags_and_filter() -> None:
+    assert core.status_badge("completed") == ("Completed", "b-ok")
+    assert core.status_badge("waiting_approval")[0] == "Needs approval"
+    assert core.status_badge("running")[0] == "In Progress"
+    assert core.status_badge("stopped")[1] == "b-bad"
+    run = {**_run("a", cites=3, mode="live", atts=["pdf", "image"]), "approval_mode": True}
+    assert core.run_tags(run) == ["Live", "PDF", "Image", "Step approval", "3 sources"]
+    runs = [run, _run("bb", "failed")]
+    assert [r["run_id"] for r in core.filter_runs(runs, "pdf")] == ["a"]
+    assert [r["run_id"] for r in core.filter_runs(runs, "", "Failed")] == ["bb"]
+    assert core.filter_runs(runs, "nothing-matches") == []
+
+
+def test_sources_deduplicate_across_runs_and_knowledge_counts() -> None:
+    runs = [_run("a", cites=2, atts=["pdf"]), _run("b", cites=3, atts=["image"]), _run("c", "running")]
+    rows = core.source_rows(runs)
+    assert len(rows) == 3 and rows[0]["runs"] == ["a", "b"] and rows[0]["domain"] == "site0.org"
+    assert core.source_kind(rows[0]) == "Web" and core.source_kind({"kind": "pdf"}) == "Documents"
+    kb = core.knowledge(runs)
+    assert (len(kb["reports"]), len(kb["claims"]), kb["web"], kb["documents"], kb["images"]) == (2, 2, 3, 1, 1)
+
+
+def test_tool_catalog_is_honest_about_mode_keys_and_unsupported() -> None:
+    off = {t["name"]: t["state"] for t in core.tool_catalog(Settings(research_mode="offline"), None, "offline")}
+    assert off["Web Search"] == "live mode" and off["Video Analysis"] == "coming soon"
+    assert off["Document Analysis"] == "on" and off["Image Analysis"] == "needs key"
+    keys = {"keys": {"OPENROUTER_API_KEY": {"configured": True, "masked": "****abcd"}}}
+    live = {t["name"]: t["state"] for t in core.tool_catalog(Settings(), keys, "live")}
+    assert live["Web Search"] == "on" and live["Image Analysis"] == "on" and live["LLM Agents"] == "on"
+
+
+def test_prefs_roundtrip_and_validation(tmp_path: Path) -> None:
+    prefs = core.Prefs(tmp_path / "p" / "prefs.json")
+    assert prefs.load() == core.Prefs.DEFAULTS
+    assert prefs.save(default_mode="live", list_limit=7, junk=1)["default_mode"] == "live"
+    assert prefs.load()["list_limit"] == 7 and "junk" not in prefs.load()
+    with pytest.raises(ValueError):
+        prefs.save(default_mode="turbo")
+    (tmp_path / "p" / "prefs.json").write_text("{bad", encoding="utf-8")
+    assert prefs.load() == core.Prefs.DEFAULTS
+
+
+def test_attachment_from_url_accepts_pdf_and_rejects_pages() -> None:
+    pdf = (ROOT / "examples/demo-data/data/field_note.pdf").read_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(".pdf"):
+            return httpx.Response(200, content=pdf, headers={"content-type": "application/pdf"})
+        if request.url.path == "/404":
+            return httpx.Response(404)
+        return httpx.Response(200, content=b"<html>", headers={"content-type": "text/html"})
+
+    tr = httpx.MockTransport(handler)
+    att = core.attachment_from_url("https://ex.org/doc/report.pdf?x=1", transport=tr)
+    assert att["kind"] == "pdf" and att["name"] == "report.pdf" and att["data"].startswith("data:application/pdf;base64,")
+    with pytest.raises(ValueError, match="coming soon"):
+        core.attachment_from_url("https://ex.org/page", transport=tr)
+    with pytest.raises(ValueError, match="404"):
+        core.attachment_from_url("https://ex.org/404", transport=tr)
+    with pytest.raises(ValueError, match="https"):
+        core.attachment_from_url("http://ex.org/a.pdf", transport=tr)
+
+
+def test_md_safe_needs_detail_and_ist_display(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert core.md_safe("from $4,000 to $7,000") == r"from \$4,000 to \$7,000"
+    assert core.md_safe(r"already \$5") == r"already \$5"
+    assert core.needs_detail({"status": "completed"}) and not core.needs_detail({"status": "completed", "result": {}})
+    monkeypatch.delenv("DEEP_RESEARCH_DISPLAY_TZ", raising=False)
+    assert local_time("2026-10-24T17:12:00Z") == "2026-10-24 22:42 IST"
+
+
+def test_app_title_everywhere_and_no_short_name() -> None:
+    src = (ROOT / "src/deep_research/dashboard/app.py").read_text(encoding="utf-8")
+    assert core.APP_TITLE == "Multimodal Agentic Deep Research Assistant"
+    assert "page_title=APP_TITLE" in src and "MDRA" not in src
+    for label in ("Dashboard", "New Research", "My Researches", "Knowledge Base", "Sources", "Tools & Integration", "Settings"):
+        assert f'"{label}"' in src
