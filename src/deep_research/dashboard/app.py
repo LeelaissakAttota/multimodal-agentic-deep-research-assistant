@@ -22,7 +22,8 @@ from deep_research.core.config import Settings
 from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, merge_runs,
-    needs_detail, preview_text, provider_health, report_of, run_stats, run_tags, shorten, source_kind,
+    needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
+    strip_section, verification_rows,
     source_rows, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
 )
 
@@ -528,6 +529,10 @@ def cits(report: dict[str, Any], limit: int | None = None) -> None:
     st.markdown("".join(out) or "<div class='muted'>No numbered citations in this report.</div>", unsafe_allow_html=True)
 
 
+def _chart_frame(chart: dict[str, Any]) -> dict[str, list[Any]]:
+    return {"label": chart["labels"], "value": chart["values"]}
+
+
 def report_view(run_id: str) -> None:
     run = fetch(run_id)
     st.markdown(f"<a class='btn g' target='_self' href='{link('researches')}'>← My Researches</a>", unsafe_allow_html=True)
@@ -548,7 +553,19 @@ def report_view(run_id: str) -> None:
            ("⏱️", "c4", "Elapsed", fmt_duration(duration_seconds(run)), f"{s['calls']} calls", False)])
     left, right = st.columns([2, 1], gap="medium")
     with left, st.container(border=True, key="report"):
-        st.markdown(md_safe(str(report.get("content", ""))))
+        charts = report_charts(report)
+        body = str(report.get("content", ""))
+        st.markdown(md_safe(strip_section(body, "Charts") if charts else body))
+        for chart in charts:
+            st.markdown(f"#### {e(chart['title'])}")
+            st.bar_chart(_chart_frame(chart), x="label", y="value", horizontal=True, height=60 + 28 * len(chart["values"]))
+        ver = verification_rows(report)
+        if ver["rows"]:
+            st.markdown(f"#### Fact check · support {e(ver['score'])} · {e(', '.join(ver['methods']))}")
+            st.markdown("".join(f"<div class='st-row'><div style='min-width:0;flex:1'>{e(r['claim'])} "
+                                f"<span class='muted'>[{e(r['cites'])}]</span></div>"
+                                f"<span class='badge {r['css']}' title='{e(r['method'])}'>{e(r['label'])}</span></div>"
+                                for r in ver["rows"][:25]), unsafe_allow_html=True)
         cl = claims(report)
         if cl:
             st.markdown("#### Claims")

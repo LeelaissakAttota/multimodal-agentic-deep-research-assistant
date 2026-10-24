@@ -595,3 +595,47 @@ def live_feed(logs: list[dict[str, Any]], *, max_cards: int = 8, max_lines: int 
         lines.append({"seq": seq, "time": when, "tag": tag, "text": shorten(str(item.get("message", "")), 220)})
     queries = sum(line["tag"] == "SEARCH" for line in lines)
     return {"cards": cards[-max_cards:][::-1], "lines": lines[-max_lines:], "sources": len(cards), "queries": queries}
+
+
+def report_charts(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Chart specs saved with a report -> ``{"title", "unit", "labels", "values"}`` rows for native charts."""
+    out = []
+    for chart in report.get("charts") or []:
+        if not isinstance(chart, dict):
+            continue
+        data = [d for d in chart.get("data") or [] if isinstance(d, dict) and isinstance(d.get("value"), (int, float))]
+        if data:
+            out.append({"id": str(chart.get("id") or ""), "title": str(chart.get("title") or "Chart"),
+                        "unit": str(chart.get("unit") or ""), "labels": [str(d.get("label")) for d in data],
+                        "values": [float(d["value"]) for d in data]})
+    return out
+
+
+_VERDICT_BADGE = {"supported": ("Supported", "b-ok"), "partially_supported": ("Partial", "b-wait"),
+                  "unsupported": ("Unsupported", "b-off"), "contradicted": ("Contradicted", "b-bad"),
+                  "no_evidence": ("No evidence", "b-off")}
+
+
+def verification_rows(report: dict[str, Any]) -> dict[str, Any]:
+    """Per-claim verdicts for the report viewer: score, method and rows with a badge label/class."""
+    result = report.get("verification")
+    if not isinstance(result, dict):
+        return {"score": None, "methods": [], "rows": [], "contradictions": []}
+    rows = []
+    for r in result.get("claims") or []:
+        if isinstance(r, dict):
+            label, css = _VERDICT_BADGE.get(str(r.get("verdict")), (str(r.get("verdict")), "b-off"))
+            rows.append({"claim": shorten(str(r.get("claim", "")), 220), "label": label, "css": css,
+                         "cites": ", ".join(str(n) for n in r.get("citations") or []),
+                         "method": "LLM judge" if str(r.get("method", "")).startswith("llm") else "offline heuristic"})
+    conflicts = [c for c in report.get("contradictions") or [] if isinstance(c, dict)]
+    score = result.get("support_score")
+    return {"score": f"{float(score):.0%}" if isinstance(score, (int, float)) else None,
+            "methods": list(result.get("methods") or []), "rows": rows, "contradictions": conflicts}
+
+
+def strip_section(markdown: str, title: str) -> str:
+    """Drop one ``## title`` section (used to show native charts instead of the text charts)."""
+    import re
+
+    return re.sub(rf"(?ms)^## {re.escape(title)}\s*\n.*?(?=^## |\Z)", "", markdown).rstrip() + "\n"
