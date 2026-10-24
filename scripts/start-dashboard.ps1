@@ -15,7 +15,8 @@ if (-not $env:DEEP_RESEARCH_CONTROL_TOKEN -or $env:DEEP_RESEARCH_CONTROL_TOKEN.L
     $env:DEEP_RESEARCH_CONTROL_TOKEN = (& $Py -c "import secrets;print(secrets.token_urlsafe(32))").Trim()
     New-Item -ItemType Directory -Force $TokenDir | Out-Null
     Set-Content -Path $TokenFile -Value $env:DEEP_RESEARCH_CONTROL_TOKEN -NoNewline -Encoding ascii
-    icacls $TokenFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    icacls $TokenFile /inheritance:r /grant:r "*$($sid):F" | Out-Null
   }
 }
 $env:DEEP_RESEARCH_CONTROL_URL = "http://127.0.0.1:$ApiPort"
