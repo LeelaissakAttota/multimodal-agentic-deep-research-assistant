@@ -473,6 +473,9 @@ def source_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                         "first_seen": r.get("created_at")})
             if r.get("run_id") not in row["runs"]:
                 row["runs"].append(r.get("run_id"))
+            verdicts = row.setdefault("verdicts", {})
+            for v in _verdicts_for_citation(report, c.get("number")):
+                verdicts[v] = verdicts.get(v, 0) + 1
     return sorted(seen.values(), key=lambda x: (-len(x["runs"]), str(x["title"])))
 
 
@@ -481,6 +484,34 @@ SOURCE_KIND_LABELS = {"academic": "Academic", "video": "Video", "social": "Discu
 SOURCE_FILTERS = ["All Sources", "Web", "Academic", "Video", "Discussions", "Images", "Documents"]
 KIND_ICONS = {"Web": ("🌐", "c1"), "Academic": ("🎓", "c2"), "Video": ("🎬", "c6"), "Discussions": ("💬", "c5"),
               "Images": ("🖼️", "c4"), "Documents": ("📄", "c3"), "Other": ("📎", "c3")}
+
+
+def _verdicts_for_citation(report: dict[str, Any], number: Any) -> list[str]:
+    result = report.get("verification")
+    if not isinstance(result, dict) or number is None:
+        return []
+    return [str(r.get("verdict")) for r in result.get("claims") or []
+            if isinstance(r, dict) and number in (r.get("citations") or [])]
+
+
+_SHORT = (("supported", "✓"), ("partially_supported", "~"), ("unsupported", "?"), ("contradicted", "✗"))
+
+
+def verdict_label(counts: dict[str, Any] | None) -> str:
+    """Compact verdict counts, e.g. '3✓ 1~ 1✗'; '' when nothing was checked."""
+    counts = counts or {}
+    return " ".join(f"{int(counts[k])}{sym}" for k, sym in _SHORT if counts.get(k))
+
+
+def verification_summary(report: dict[str, Any]) -> dict[str, Any] | None:
+    """Support score and verdict counts of one report, or None when it was not fact-checked."""
+    result = report.get("verification")
+    if not isinstance(result, dict) or not result.get("total"):
+        return None
+    counts = {k: int(v) for k, v in (result.get("counts") or {}).items() if isinstance(v, (int, float))}
+    score = result.get("support_score")
+    return {"score": float(score) if isinstance(score, (int, float)) else None, "counts": counts,
+            "label": verdict_label(counts), "contradictions": len(report.get("contradictions") or [])}
 
 
 def source_kind(row: dict[str, Any]) -> str:
@@ -534,6 +565,7 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Knowledge-base counts and items: reports, claims, sources and uploaded files."""
 
     reports, claim_rows, files = [], [], []
+    verified: list[dict[str, Any]] = []
     for r in runs:
         params = r.get("params") or {}
         for a in params.get("attachments") or []:
@@ -542,14 +574,38 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
                               "run_id": r.get("run_id"), "when": r.get("created_at")})
         report = report_of(r)
         if report:
+            ver = verification_summary(report)
             reports.append({"title": title_of(r), "run_id": r.get("run_id"), "when": r.get("created_at"),
-                            "claims": len(claims(report)), "citations": len(citations(report))})
+                            "claims": len(claims(report)), "citations": len(citations(report)), "verification": ver})
+            if ver:
+                verified.append(ver)
             claim_rows += [{**c, "run_id": r.get("run_id")} for c in claims(report)]
     sources = source_rows(runs)
     return {"reports": reports, "claims": claim_rows, "sources": sources, "files": files,
             "web": sum(source_kind(s) == "Web" for s in sources),
             "documents": sum(f["kind"] in ("pdf", "document") for f in files),
-            "images": sum(f["kind"] == "image" for f in files)}
+            "images": sum(f["kind"] == "image" for f in files), "verification": _aggregate(verified)}
+
+
+
+def _aggregate(verified: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for v in verified:
+        for k, n in v["counts"].items():
+            counts[k] = counts.get(k, 0) + n
+    scores = [v["score"] for v in verified if v["score"] is not None]
+    return {"reports": len(verified), "counts": counts, "label": verdict_label(counts),
+            "score": sum(scores) / len(scores) if scores else None,
+            "contradictions": sum(v["contradictions"] for v in verified)}
+
+
+def verification_line(agg: dict[str, Any]) -> str:
+    """One-line fact-check status for the Sources / Knowledge Base pages."""
+    if not agg.get("reports"):
+        return "No fact-checked reports yet. Live runs verify every cited claim."
+    score = f"{agg['score']:.0%}" if agg.get("score") is not None else "–"
+    return (f"{agg['reports']} fact-checked report(s) · mean support {score} · {agg['label'] or 'no verdicts'}"
+            f" · {agg['contradictions']} contradiction(s)")
 
 
 def _ocr_ready() -> bool:
@@ -806,3 +862,47 @@ def live_feed(logs: list[dict[str, Any]], *, max_cards: int = 8, max_lines: int 
         lines.append({"seq": seq, "time": when, "tag": tag, "text": shorten(str(item.get("message", "")), 220)})
     queries = sum(line["tag"] == "SEARCH" for line in lines)
     return {"cards": cards[-max_cards:][::-1], "lines": lines[-max_lines:], "sources": len(cards), "queries": queries}
+
+
+def report_charts(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Chart specs saved with a report -> ``{"title", "unit", "labels", "values"}`` rows for native charts."""
+    out = []
+    for chart in report.get("charts") or []:
+        if not isinstance(chart, dict):
+            continue
+        data = [d for d in chart.get("data") or [] if isinstance(d, dict) and isinstance(d.get("value"), (int, float))]
+        if data:
+            out.append({"id": str(chart.get("id") or ""), "title": str(chart.get("title") or "Chart"),
+                        "unit": str(chart.get("unit") or ""), "labels": [str(d.get("label")) for d in data],
+                        "values": [float(d["value"]) for d in data]})
+    return out
+
+
+_VERDICT_BADGE = {"supported": ("Supported", "b-ok"), "partially_supported": ("Partial", "b-wait"),
+                  "unsupported": ("Unsupported", "b-off"), "contradicted": ("Contradicted", "b-bad"),
+                  "no_evidence": ("No evidence", "b-off")}
+
+
+def verification_rows(report: dict[str, Any]) -> dict[str, Any]:
+    """Per-claim verdicts for the report viewer: score, method and rows with a badge label/class."""
+    result = report.get("verification")
+    if not isinstance(result, dict):
+        return {"score": None, "methods": [], "rows": [], "contradictions": []}
+    rows = []
+    for r in result.get("claims") or []:
+        if isinstance(r, dict):
+            label, css = _VERDICT_BADGE.get(str(r.get("verdict")), (str(r.get("verdict")), "b-off"))
+            rows.append({"claim": shorten(str(r.get("claim", "")), 220), "label": label, "css": css,
+                         "cites": ", ".join(str(n) for n in r.get("citations") or []),
+                         "method": "LLM judge" if str(r.get("method", "")).startswith("llm") else "offline heuristic"})
+    conflicts = [c for c in report.get("contradictions") or [] if isinstance(c, dict)]
+    score = result.get("support_score")
+    return {"score": f"{float(score):.0%}" if isinstance(score, (int, float)) else None,
+            "methods": list(result.get("methods") or []), "rows": rows, "contradictions": conflicts}
+
+
+def strip_section(markdown: str, title: str) -> str:
+    """Drop one ``## title`` section (used to show native charts instead of the text charts)."""
+    import re
+
+    return re.sub(rf"(?ms)^## {re.escape(title)}\s*\n.*?(?=^## |\Z)", "", markdown).rstrip() + "\n"

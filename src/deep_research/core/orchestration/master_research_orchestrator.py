@@ -313,6 +313,10 @@ class MasterResearchOrchestrator:
         sources = [row for row in (_source_row(source) for source in source_objects) if row is not None]
         if not sources:
             return
+        excerpts = _evidence_excerpts(output.get("evidence_objects"))
+        for row in sources:
+            if row["source_id"] in excerpts:
+                row["excerpt"] = excerpts[row["source_id"]]
         findings = self.research_state.metadata.setdefault("live_findings", [])
         if isinstance(findings, list):
             findings.append(
@@ -712,6 +716,24 @@ def _source_row(source: Any) -> Optional[Dict[str, Any]]:
             if metadata.get(key):
                 row["tool" if key == "tool_identifier" else key] = str(metadata[key])
     return row
+
+
+_EXCERPT_CHARS = 2000
+
+
+def _evidence_excerpts(evidence_objects: Any) -> Dict[str, str]:
+    """Source id -> concatenated evidence text (capped), so claims can be checked against what was read."""
+    out: Dict[str, str] = {}
+    if not isinstance(evidence_objects, list):
+        return out
+    for item in evidence_objects:
+        source_id, content = getattr(item, "source_id", None), getattr(item, "content", None)
+        if source_id is None or not isinstance(content, str) or not content.strip():
+            continue
+        key = str(source_id)
+        joined = (out.get(key, "") + "\n" + content.strip()).strip()
+        out[key] = joined[:_EXCERPT_CHARS]
+    return out
 
 
 def _decision_summary(decisions: List[Any]) -> Dict[str, Dict[str, int]]:

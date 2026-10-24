@@ -62,6 +62,7 @@ test = [
 [project.scripts]
 deep-research = "deep_research.cli:main"
 deep-research-control = "deep_research.control.server:main"
+deep-research-eval = "deep_research.evaluation.__main__:main"
 deep-research-demo = "deep_research.demo:main"
 
 [project.urls]
