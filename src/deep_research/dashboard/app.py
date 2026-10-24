@@ -23,7 +23,7 @@ from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, merge_runs,
     needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
-    strip_section, verification_rows,
+    strip_section, verdict_label, verification_line, verification_rows,
     source_rows, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
 )
 
@@ -604,11 +604,16 @@ def page_knowledge() -> None:
                     f"<div class='ct'>{e(t)}</div><div class='cs'>{'coming soon' if n is None else f'{n} items'}</div></div>"
                     for i, c, t, n in cats)
     st.markdown(f"<div class='panel'><div class='ph'>Categories</div><div class='grid g6'>{cells}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='panel'><div class='ph'>Fact check</div><div class='muted'>{e(verification_line(kb['verification']))}"
+                "</div></div>", unsafe_allow_html=True)
     t1, t2, t3 = st.tabs(["Reports", "Claims", "Files"])
     with t1:
         st.markdown("<div class='panel'>" + ("".join(
             f"<a class='row' target='_self' href='{link('researches', run=str(r['run_id']), view='report')}'><div class='sq c1'>📝</div>"
-            f"<div class='tx'><div class='tt'>{e(r['title'])}</div><div class='ts'>{r['claims']} claims · {r['citations']} citations</div></div>"
+            f"<div class='tx'><div class='tt'>{e(r['title'])}</div><div class='ts'>{r['claims']} claims · {r['citations']} citations"
+            + (f" · fact check {r['verification']['score']:.0%} {e(r['verification']['label'])}"
+               if r.get('verification') and r['verification']['score'] is not None else "")
+            + "</div></div>"
             f"<div class='rt'>{e(local_time(r['when']))}</div></a>" for r in kb["reports"])
             or "<div class='muted'>No reports yet.</div>") + "</div>", unsafe_allow_html=True)
     with t2:
@@ -646,8 +651,13 @@ def page_sources() -> None:
         body = "".join(f"<div class='row'><div class='sq {'c1' if source_kind(r) == 'Web' else 'c3'}'>{'🌐' if source_kind(r) == 'Web' else '📄'}</div>"
                        f"<div class='tx'><div class='tt' title='{e(str(r['title']))}'>"
                        + (f"<a href='{e(str(r['url']))}' target='_blank' style='color:#e6ecff'>{e(str(r['title']))}</a>" if r.get('url') else e(str(r['title'])))
-                       + f"</div><div class='ts'>{e(r['domain'])}</div></div><div class='rt'>used in {len(r['runs'])} run(s)</div></div>"
+                       + f"</div><div class='ts'>{e(r['domain'])}</div></div><div class='rt'>used in {len(r['runs'])} run(s)"
+                       + (f"<br><span title='claims citing this source: supported / partial / unsupported / contradicted'>"
+                          f"{e(verdict_label(r.get('verdicts')))}</span>" if verdict_label(r.get('verdicts')) else "")
+                       + "</div></div>"
                        for r in show[:80])
+        st.markdown(f"<div class='panel'><div class='ph'>Fact check</div><div class='muted'>"
+                    f"{e(verification_line(knowledge(runs_cache)['verification']))}</div></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='panel'><div class='ph'>Cited sources ({len(show)})</div>"
                     f"{body or '<div class=muted>No cited sources yet. Live runs cite real web pages.</div>'}</div>", unsafe_allow_html=True)
     with right:

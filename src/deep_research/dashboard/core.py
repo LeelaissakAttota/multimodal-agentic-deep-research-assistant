@@ -451,7 +451,38 @@ def source_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                         "first_seen": r.get("created_at")})
             if r.get("run_id") not in row["runs"]:
                 row["runs"].append(r.get("run_id"))
+            verdicts = row.setdefault("verdicts", {})
+            for v in _verdicts_for_citation(report, c.get("number")):
+                verdicts[v] = verdicts.get(v, 0) + 1
     return sorted(seen.values(), key=lambda x: (-len(x["runs"]), str(x["title"])))
+
+
+def _verdicts_for_citation(report: dict[str, Any], number: Any) -> list[str]:
+    result = report.get("verification")
+    if not isinstance(result, dict) or number is None:
+        return []
+    return [str(r.get("verdict")) for r in result.get("claims") or []
+            if isinstance(r, dict) and number in (r.get("citations") or [])]
+
+
+_SHORT = (("supported", "✓"), ("partially_supported", "~"), ("unsupported", "?"), ("contradicted", "✗"))
+
+
+def verdict_label(counts: dict[str, Any] | None) -> str:
+    """Compact verdict counts, e.g. '3✓ 1~ 1✗'; '' when nothing was checked."""
+    counts = counts or {}
+    return " ".join(f"{int(counts[k])}{sym}" for k, sym in _SHORT if counts.get(k))
+
+
+def verification_summary(report: dict[str, Any]) -> dict[str, Any] | None:
+    """Support score and verdict counts of one report, or None when it was not fact-checked."""
+    result = report.get("verification")
+    if not isinstance(result, dict) or not result.get("total"):
+        return None
+    counts = {k: int(v) for k, v in (result.get("counts") or {}).items() if isinstance(v, (int, float))}
+    score = result.get("support_score")
+    return {"score": float(score) if isinstance(score, (int, float)) else None, "counts": counts,
+            "label": verdict_label(counts), "contradictions": len(report.get("contradictions") or [])}
 
 
 def source_kind(row: dict[str, Any]) -> str:
@@ -467,6 +498,7 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Knowledge-base counts and items: reports, claims, sources and uploaded files."""
 
     reports, claim_rows, files = [], [], []
+    verified: list[dict[str, Any]] = []
     for r in runs:
         params = r.get("params") or {}
         for a in params.get("attachments") or []:
@@ -475,14 +507,37 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
                               "run_id": r.get("run_id"), "when": r.get("created_at")})
         report = report_of(r)
         if report:
+            ver = verification_summary(report)
             reports.append({"title": title_of(r), "run_id": r.get("run_id"), "when": r.get("created_at"),
-                            "claims": len(claims(report)), "citations": len(citations(report))})
+                            "claims": len(claims(report)), "citations": len(citations(report)), "verification": ver})
+            if ver:
+                verified.append(ver)
             claim_rows += [{**c, "run_id": r.get("run_id")} for c in claims(report)]
     sources = source_rows(runs)
     return {"reports": reports, "claims": claim_rows, "sources": sources, "files": files,
             "web": sum(source_kind(s) == "Web" for s in sources),
             "documents": sum(f["kind"] == "pdf" for f in files),
-            "images": sum(f["kind"] == "image" for f in files)}
+            "images": sum(f["kind"] == "image" for f in files), "verification": _aggregate(verified)}
+
+
+def _aggregate(verified: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for v in verified:
+        for k, n in v["counts"].items():
+            counts[k] = counts.get(k, 0) + n
+    scores = [v["score"] for v in verified if v["score"] is not None]
+    return {"reports": len(verified), "counts": counts, "label": verdict_label(counts),
+            "score": sum(scores) / len(scores) if scores else None,
+            "contradictions": sum(v["contradictions"] for v in verified)}
+
+
+def verification_line(agg: dict[str, Any]) -> str:
+    """One-line fact-check status for the Sources / Knowledge Base pages."""
+    if not agg.get("reports"):
+        return "No fact-checked reports yet. Live runs verify every cited claim."
+    score = f"{agg['score']:.0%}" if agg.get("score") is not None else "–"
+    return (f"{agg['reports']} fact-checked report(s) · mean support {score} · {agg['label'] or 'no verdicts'}"
+            f" · {agg['contradictions']} contradiction(s)")
 
 
 def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -> list[dict[str, str]]:
