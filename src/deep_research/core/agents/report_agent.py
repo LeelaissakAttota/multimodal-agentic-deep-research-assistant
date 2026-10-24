@@ -116,6 +116,11 @@ class DeterministicReportAgent(ReportAgent):
         report["contradictions"] = conflicts
         insert_section(report, verification_markdown(result))
         insert_section(report, contradictions_markdown(conflicts, claim_count=len(claims)))
+        from deep_research.verification.charts import build_charts, charts_markdown
+
+        report["charts"] = build_charts(report)
+        if report["charts"]:
+            insert_section(report, charts_markdown(report["charts"]))
 
 
 _CITE = r"\[(\d+(?:\s*[,\u2013-]\s*\d+)*)\]"
