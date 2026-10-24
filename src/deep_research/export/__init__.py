@@ -123,8 +123,12 @@ def source_line(src: dict[str, Any]) -> str:
 
 
 def claim_line(claim: dict[str, Any]) -> str:
+    from deep_research.evidence.scoring import clean_claim_text
+
     label = f" {claim['label']}" if claim.get("label") else ""
-    return f"{int(round(float(claim.get('confidence', 0)) * 100))}%{label} - {_plain(str(claim.get('text', '')))}"
+    cites = "".join(f"[{n}]" for n in claim.get("citations") or [])
+    text = clean_claim_text(str(claim.get("text", ""))) if cites else str(claim.get("text", ""))
+    return f"{int(round(float(claim.get('confidence', 0)) * 100))}%{label} - {_plain(text)}{' ' + cites if cites else ''}"
 
 
 def export_report(report: dict[str, Any], fmt: str) -> bytes:

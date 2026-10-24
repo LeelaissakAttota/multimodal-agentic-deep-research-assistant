@@ -47,3 +47,13 @@ def test_report_agent_and_viewer_and_export() -> None:
     assert claims(saved)[0]["confidence"] == rows[0]["confidence"]
     md = export_report(saved, "md").decode()
     assert "Reefs bleach" in md and "%" in md
+
+
+def test_clean_claim_text_and_meta_statements() -> None:
+    from deep_research.evidence.scoring import clean_claim_text
+
+    assert clean_claim_text("Waste | Less waste per kWh | [9]") == "Waste | Less waste per kWh"
+    assert clean_claim_text("Shown by [6], [7], and [10] studies.") == "Shown by studies."
+    assert clean_claim_text("**Bold** claim ([2]).") == "Bold claim."
+    score_citations(CITES)
+    assert claim_scores("Sources [1] and [2] directly address cost. Real claim [1].", CITES)[0]["text"] == "Real claim [1]."

@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from deep_research.evidence.scoring import claim_scores, credibility
+from deep_research.evidence.scoring import claim_scores, clean_claim_text, credibility
 
 DEFAULT_API_URL = "http://127.0.0.1:8711"
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -330,7 +330,7 @@ def claims(report: dict[str, Any]) -> list[dict[str, Any]]:
         scored = claim_scores(str(report.get("content") or ""),
                               [{**c, "credibility": c["credibility"]} for c in citations(report)])
     if scored:
-        return [{"text": shorten(re.sub(r"\s*\[\d[\d,\s\u2013-]*\]", "", str(c.get("text", ""))).strip(), 240),
+        return [{"text": shorten(clean_claim_text(str(c.get("text", ""))), 240),
                  "evidence": len(c.get("citations") or []), "citations": list(c.get("citations") or []),
                  "confidence": f"{float(c.get('confidence', 0)):.0%}", "score": float(c.get("confidence", 0)),
                  "label": str(c.get("label") or ""), "reason": str(c.get("reason") or ""),

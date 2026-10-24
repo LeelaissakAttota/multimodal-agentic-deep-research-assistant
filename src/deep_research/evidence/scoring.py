@@ -143,6 +143,20 @@ def _statements(content: str) -> list[tuple[str, str]]:
     return out
 
 
+_META = re.compile(r"^\W*(sources?|the sources?|citations?|search results?)\b", re.I)
+
+
+def clean_claim_text(text: str) -> str:
+    """Claim text for display: citation markers and the empty separators they leave behind removed."""
+
+    t = _CITE.sub("\x00", re.sub(r"\*\*|__", "", str(text)))
+    t = re.sub(r"\s*\x00(?:(?:\s*(?:,|and\b|&))*\s*\x00)*", "", t)
+    t = re.sub(r"\(\s*[,;]?\s*\)", "", t)
+    t = re.sub(r"\s+([,.;:!?])", r"\1", t)
+    t = re.sub(r"[\s|,;]+$", "", t).strip()
+    return re.sub(r"\s{2,}", " ", t)
+
+
 def claim_scores(content: str, citations: list[dict[str, Any]], *, limit: int = 60) -> list[dict[str, Any]]:
     """Per-claim confidence for every cited statement in the report content."""
 
@@ -151,7 +165,7 @@ def claim_scores(content: str, citations: list[dict[str, Any]], *, limit: int = 
     for section, statement in _statements(content):
         nums = [n for g in _CITE.findall(statement) for n in _numbers(g) if n in by_number]
         nums = list(dict.fromkeys(nums))
-        if not nums:
+        if not nums or _META.match(statement):
             continue
         creds = [float((by_number[n].get("credibility") or credibility(by_number[n].get("url"),
                                                                        kind=by_number[n].get("kind")))["score"])
