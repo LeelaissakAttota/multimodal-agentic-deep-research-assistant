@@ -93,3 +93,22 @@ def test_readme_test_count_matches_suite() -> None:
         for p in (ROOT / "tests").rglob("test_*.py")
     )
     assert int(m.group(1)) >= count
+
+
+def test_suite_ignores_local_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from deep_research.core.config import Settings, settings
+
+    assert settings.research_mode == "offline"
+    env = tmp_path / ".env"
+    env.write_text("DEEP_RESEARCH_RESEARCH_MODE=live\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert Settings().research_mode == "offline"
+
+
+def test_env_file_override_is_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from deep_research.core.config import Settings
+
+    env = tmp_path / "custom.env"
+    env.write_text("DEEP_RESEARCH_RESEARCH_MODE=live\n", encoding="utf-8")
+    monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(env))
+    assert Settings(_env_file=str(env)).research_mode == "live"

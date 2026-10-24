@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -82,7 +83,8 @@ class Settings(BaseSettings):
     agent_decision_budget_seconds: float = Field(default=40.0, gt=0, le=120)
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # DEEP_RESEARCH_ENV_FILE lets tests (and ops) point at another file, or a missing one to skip .env.
+        env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         env_prefix="DEEP_RESEARCH_",
