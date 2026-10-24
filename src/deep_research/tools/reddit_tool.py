@@ -223,7 +223,7 @@ class RedditSearchTool(Tool):
 def _blocked_or_failed(start: float, status: int) -> ToolResult:
     """Typed failure for Reddit HTTP errors; 403/429 are expected blocks, not crashes."""
     if status == 403:
-        message = "Reddit blocked request (HTTP 403), likely datacenter IP; falling back to web search"
+        message = "Reddit blocked anonymous request (HTTP 403); set REDDIT_CLIENT_ID/SECRET (official API); falling back to web search"
         kind = "blocked"
     elif status == 429:
         message = "Reddit rate-limited request (HTTP 429); falling back to web search"

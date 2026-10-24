@@ -85,7 +85,7 @@ def test_blocked_requests_log_clear_warning_and_return_typed_error(caplog: Any) 
         result = _run(RedditSearchTool(http_client=_client([], status=403)), query="x")
     assert not result.success and result.metadata["failure_kind"] == "blocked"
     assert result.metadata["http_status"] == 403
-    assert "Reddit blocked request (HTTP 403), likely datacenter IP; falling back to web search" in caplog.text
+    assert "Reddit blocked anonymous request (HTTP 403)" in caplog.text
     assert result.error and "datacenter IP" in result.error
     other = _run(RedditSearchTool(http_client=_client([], status=500)), query="x")
     assert other.metadata["failure_kind"] == "http_500"
