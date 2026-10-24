@@ -47,11 +47,13 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **LLM agents with deterministic fallback:** `LlmPlanningAgent` and `LlmEvaluationAgent` strictly validate the model's JSON. If a call hits a rate limit, a timeout, invalid JSON or a schema error, the deterministic agent makes that one decision instead, and the decision log records it.
 - **Live research on free sources:** search with automatic fallback (optional Tavily, then DuckDuckGo HTML and Lite, Wikipedia, and the DuckDuckGo Instant Answer API). Pages are fetched with SSRF and size protection. Synthesis uses `[n]` citations and a `## Sources` list.
 - **Automatic free-model selection:** reads the OpenRouter catalog, keeps only `:free` models, probes the top candidates, and saves the fastest one to a cache. A model that fails is demoted and the next one is tried. `FreeModelGuard` rejects any model that is not free.
-- **Multimodal inputs:** PDF text extraction with pypdf (scanned PDFs are handled without failing the run), image validation and description with a free vision model, and an audio transcription tool with a free speech-to-text router. Attachments are cited first, as primary sources.
+- **Multimodal inputs:** PDF text extraction with pypdf; DOCX, PPTX, TXT and Markdown parsing (stdlib, zip-bomb and XML-entity safe, page/slide citations); local OCR for images and scanned PDFs with RapidOCR (tesseract fallback, skipped cleanly when neither is installed); image description with a free vision model; web page URLs read through the SSRF-guarded fetcher (live mode); and an audio transcription tool with a free speech-to-text router. Attachments are cited first, as primary sources. Video and audio uploads in the dashboard are still coming soon.
+- **Trust signals:** every cited source gets a heuristic credibility score (government, academic and journal domains high; major news high; Wikipedia medium; blogs and user-generated platforms low; unknown domains "unverified"), and every cited statement in a report gets a confidence score from how many distinct sources back it, how credible they are, and whether the wording is hedged. Both are heuristics, not fact checks.
+- **Exports and CLI:** reports download as PDF, DOCX, PPTX, JSON or Markdown from the dashboard and `GET /control/runs/{id}/export`, and a `deep-research` CLI runs one question end to end.
 - **Supervised-control API:** a local, token-protected API to start, pause, resume and stop runs and to approve, reject or retry steps. Low-risk steps can be auto-approved, and every decision goes to an audit log. Keys are write-only and shown masked.
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 271 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 327 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -92,7 +94,7 @@ Research iterations, tool retries, model fallback and recovery are separate loop
 ```bash
 git clone https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant.git
 cd multimodal-agentic-deep-research-assistant
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test]"          # add ,export,ocr for report exports and local OCR
 cp .env.example .env          # optional; offline mode needs no keys
 
 deep-research-demo            # offline, deterministic demo (JSON output)
@@ -111,9 +113,24 @@ uvicorn deep_research.api.main:app --port 8000
 
 Without an OpenRouter key, live mode still returns real search evidence, with a snippet summary in place of the synthesis. Full details, including model selection, the search chain, PDF and image limits, and report sections, are in [docs/LIVE_MODE.md](docs/LIVE_MODE.md).
 
-### PDF and image attachments
+### Attachments
 
-`POST /research` accepts up to 5 attachments, each `{"kind": "pdf" | "image", "data": "data:<mime>;base64,...", "name": "optional"}`. Ready-made requests with a fictional PDF and chart are in [examples/demo-data](examples/demo-data/README.md).
+`POST /research` accepts up to 5 attachments, each `{"kind": "pdf" | "image" | "document" | "url", "data": "...", "name": "optional"}`. For files, `data` is `data:<mime>;base64,...` (`document` covers DOCX, PPTX, TXT and Markdown). For `url`, `data` is a public `http(s)` page link; it is read in live mode only, through the same SSRF guard as web fetches (private and loopback addresses and redirects to them are refused). Images and scanned PDFs are OCR'd locally when `pip install -e ".[ocr]"` is installed (`DEEP_RESEARCH_OCR=off` disables it). Ready-made requests with a fictional PDF and chart are in [examples/demo-data](examples/demo-data/README.md).
+
+### Command line
+
+```bash
+pip install -e ".[export]"                  # fpdf2, python-docx, python-pptx for --export pdf|docx|pptx
+deep-research run "How do SMRs compare on cost?" --mode live \
+    --file notes.docx --file https://www.energy.gov/ne/benefits-small-modular-reactors-smrs \
+    --export pdf --export json --out reports/
+```
+
+`--file` takes a PDF, image, DOCX, PPTX, TXT/MD path or a web page URL (repeatable, max 5). `--mode` is `offline` (no network) or `live`. The Markdown report goes to stdout (or the full result with `--json`); status goes to stderr; the exit code is 0 only for a completed run.
+
+### Exports
+
+Finished runs export as `pdf`, `docx`, `pptx`, `json` or `md`: from the report page in the dashboard, with `GET /control/runs/{id}/export?format=pdf` on the control API, or with `deep-research run ... --export pdf`. Exports include the report body and tables, numbered sources with credibility, and claim confidence. A missing optional library returns 501 with the pip command.
 
 ### Supervised control
 
@@ -158,7 +175,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 271 tests, offline, $0
+pytest          # 327 tests, offline, $0
 ruff check .
 mypy src
 ```
@@ -170,9 +187,10 @@ mypy src
 | `src/deep_research/api` | FastAPI app, research service, error handlers |
 | `src/deep_research/core` | agents, orchestrator, step gate, config, free-model guard |
 | `src/deep_research/control` | supervised-control API, run manager, risk rules, secret store |
-| `src/deep_research/tools` | web search and fetch, PDF, image, audio tools, registry and selector |
+| `src/deep_research/tools` | web search and fetch, web page reader, PDF, document, image, OCR, audio tools, registry and selector |
+| `src/deep_research/export`, `src/deep_research/cli.py` | PDF/DOCX/PPTX/JSON/Markdown report export, `deep-research` CLI |
 | `src/deep_research/models` | OpenRouter gateway, catalog, routing, speech-to-text router |
-| `src/deep_research/{evidence,domain,persistence,runtime,memory,context,observability,security}` | contracts, storage, budgets, logging and redaction |
+| `src/deep_research/{evidence (incl. credibility and claim scoring),domain,persistence,runtime,memory,context,observability,security}` | contracts, storage, budgets, logging and redaction |
 | `tests/unit`, `tests/integration` | offline tests |
 | `docs/` | architecture, decisions, policies, live mode, control API, setup, images |
 | `examples/` | sample request and response, demo output, ZetaCell demo data |
@@ -182,6 +200,8 @@ mypy src
 - Never commit `.env`, keys, runtime databases, logs or generated research. See [SECURITY.md](SECURITY.md) and [docs/SECURITY_GUIDELINES.md](docs/SECURITY_GUIDELINES.md).
 - Results are kept in memory by a single process. A durable or multi-worker deployment would need the existing `ResearchSessionRepository` boundary connected to the API.
 - Retrieval is lexical, not embedding-based, and token limits are counted in characters.
+- Credibility and claim confidence are domain and citation heuristics. They flag weak sourcing; they do not verify facts.
+- OCR quality depends on scan quality; RapidOCR's bundled models are tuned for English and Chinese text.
 - Free models can be slow or rate-limited. Live answers depend on whichever free model and search source respond at the time.
 
 ## License

@@ -507,6 +507,18 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
             "images": sum(f["kind"] == "image" for f in files)}
 
 
+def _ocr_ready() -> bool:
+    import importlib.util
+
+    return any(importlib.util.find_spec(m) is not None for m in ("rapidocr_onnxruntime", "pytesseract"))
+
+
+def _export_ready() -> bool:
+    import importlib.util
+
+    return all(importlib.util.find_spec(m) is not None for m in ("fpdf", "docx", "pptx"))
+
+
 def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -> list[dict[str, str]]:
     """Real engine tools with an honest state: on / needs key / offline only / coming soon."""
 
@@ -524,11 +536,21 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
          "state": "on" if live else "live mode", "icon": "🌐"},
         {"name": "Web Page Fetch", "detail": "reads up to the configured number of public pages per task",
          "state": "on" if live else "live mode", "icon": "🔗"},
+        {"name": "Web Page Reader", "detail": "reads a page you link in From URL as a cited source (SSRF-guarded)",
+         "state": "on" if live else "live mode", "icon": "🧭"},
         {"name": "Document Analysis", "detail": "PDF, DOCX, PPTX, TXT and Markdown with page/slide citations", "state": "on", "icon": "📄"},
         {"name": "Image Analysis", "detail": "free vision model (OpenRouter key) + local OCR (RapidOCR), metadata fallback",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🖼️"},
         {"name": "LLM Agents", "detail": "planning, analysis, evaluation and reporting on ':free' models",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🧠"},
+        {"name": "OCR", "detail": "local RapidOCR for images and scanned PDFs (free, no key)" if _ocr_ready()
+         else "pip install rapidocr-onnxruntime to read text in images and scans",
+         "state": "on" if _ocr_ready() else "not installed", "icon": "🔤"},
+        {"name": "Source Credibility", "detail": "domain heuristic on every cited source + per-claim confidence",
+         "state": "on", "icon": "🛡️"},
+        {"name": "Report Export", "detail": "PDF, DOCX, PPTX, JSON and Markdown downloads" if _export_ready()
+         else "JSON/Markdown; pip install fpdf2 python-docx python-pptx for PDF/DOCX/PPTX",
+         "state": "on", "icon": "📤"},
         {"name": "Audio Analysis", "detail": "NVIDIA speech-to-text (engine tool, not exposed in the dashboard yet)",
          "state": "coming soon", "icon": "🎙️"},
         {"name": "Video Analysis", "detail": "not supported by the engine yet", "state": "coming soon", "icon": "🎬"},
