@@ -245,7 +245,7 @@ def run_icon(run: dict[str, Any]) -> str:
     kinds = {str(a.get("kind")) for a in (run.get("params") or {}).get("attachments") or [] if isinstance(a, dict)}
     if "image" in kinds:
         return "<div class='sq c4'>🖼️</div>"
-    if "pdf" in kinds:
+    if kinds & {"pdf", "document"}:
         return "<div class='sq c3'>📄</div>"
     return "<div class='sq c5'>🌐</div>" if (run.get("params") or {}).get("mode") == "live" else "<div class='sq c1'>🔬</div>"
 
@@ -366,7 +366,7 @@ def page_new() -> None:
             q = st.text_area("What would you like to research?", key="q", height=120,
                              placeholder="What would you like to research? Be specific for better results…")
         with t2:
-            st.markdown("<div class='note'>Use the drop zone below to attach up to 5 PDF or image files (max 20 MB each). "
+            st.markdown("<div class='note'>Use the drop zone below to attach up to 5 PDF, Word (DOCX), PowerPoint (PPTX), TXT/Markdown or image files (max 20 MB each). "
                         "They are sent with the question from the first tab. Audio and video uploads are "
                         "<span class='badge b-soon'>coming soon</span>.</div>", unsafe_allow_html=True)
         with t3:
@@ -376,11 +376,12 @@ def page_new() -> None:
                         unsafe_allow_html=True)
         c = st.columns(2)
         web = c[0].toggle("Web Search", value=p["default_mode"] == "live", help="On = live mode (free web search + models). Off = offline demo.")
-        c[1].toggle("Document Analysis (PDF)", value=True, disabled=True, help="Always on: attached PDFs are read with page citations.")
+        c[1].toggle("Document Analysis", value=True, disabled=True, help="Always on: PDF, DOCX, PPTX, TXT and MD files are read with page/slide citations.")
         c[0].toggle("Image Analysis", value=True, disabled=True, help="Always on: attached images are analysed.")
         c[1].toggle("Video Analysis (coming soon)", value=False, disabled=True, help="Not supported by the engine yet.")
-        files = st.file_uploader("Upload files (optional): drag and drop PDF or image files here",
-                                 type=["pdf", "png", "jpg", "jpeg", "webp", "gif"], accept_multiple_files=True)
+        files = st.file_uploader("Upload files (optional): PDF, DOCX, PPTX, TXT, MD or images",
+                                 type=["pdf", "docx", "pptx", "txt", "md", "png", "jpg", "jpeg", "webp", "gif"],
+                                 accept_multiple_files=True)
         a, b = st.columns([1.4, 1], vertical_alignment="center")
         step = a.toggle("Step-by-step approval (approve each stage)", value=p["step_approval"])
         start = b.button("Start Research  →", type="primary", use_container_width=True)

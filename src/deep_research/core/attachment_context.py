@@ -16,7 +16,7 @@ from typing import Any
 from deep_research.evidence.evidence import Evidence
 from deep_research.evidence.source import Source
 
-ATTACHMENT_TOOL_KINDS = {"pdf_reader": "pdf", "image_analyzer": "image"}
+ATTACHMENT_TOOL_KINDS = {"pdf_reader": "pdf", "image_analyzer": "image", "document_parser": "document"}
 CHUNK_CHARS = 1_200
 MAX_ENTRY_CHARS = 40_000
 _WORD = re.compile(r"[a-z0-9]{3,}")

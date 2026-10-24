@@ -26,6 +26,9 @@ import httpx
 DEFAULT_API_URL = "http://127.0.0.1:8711"
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 PDF_TYPES = {"pdf": "application/pdf"}
+DOC_TYPES = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+             "txt": "text/plain", "md": "text/markdown", "markdown": "text/markdown"}
 IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}
 TERMINAL = ("completed", "failed", "stopped")
 
@@ -125,15 +128,17 @@ class ControlClient:
 # ----- attachments ---------------------------------------------------------------
 
 def build_attachment(name: str, data: bytes) -> dict[str, str]:
-    """Encode an uploaded PDF/image as the engine's ``data:`` URL attachment."""
+    """Encode an uploaded PDF/image/document as the engine's ``data:`` URL attachment."""
 
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext in PDF_TYPES:
         kind, mime = "pdf", PDF_TYPES[ext]
     elif ext in IMAGE_TYPES:
         kind, mime = "image", IMAGE_TYPES[ext]
+    elif ext in DOC_TYPES:
+        kind, mime = "document", DOC_TYPES[ext]
     else:
-        raise ValueError("only PDF, PNG, JPG, WEBP or GIF files are supported")
+        raise ValueError("only PDF, DOCX, PPTX, TXT, MD, PNG, JPG, WEBP or GIF files are supported")
     if not data:
         raise ValueError("the file is empty")
     if len(data) > MAX_ATTACHMENT_BYTES:
@@ -409,7 +414,7 @@ def run_tags(run: dict[str, Any]) -> list[str]:
     params = run.get("params") or {}
     tags = [str(params.get("mode") or "offline").title()]
     kinds = {str(a.get("kind")) for a in params.get("attachments") or [] if isinstance(a, dict)}
-    tags += [label for kind, label in (("pdf", "PDF"), ("image", "Image")) if kind in kinds]
+    tags += [label for kind, label in (("pdf", "PDF"), ("document", "Doc"), ("image", "Image")) if kind in kinds]
     if run.get("approval_mode"):
         tags.append("Step approval")
     report = report_of(run)
@@ -481,7 +486,7 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
     sources = source_rows(runs)
     return {"reports": reports, "claims": claim_rows, "sources": sources, "files": files,
             "web": sum(source_kind(s) == "Web" for s in sources),
-            "documents": sum(f["kind"] == "pdf" for f in files),
+            "documents": sum(f["kind"] in ("pdf", "document") for f in files),
             "images": sum(f["kind"] == "image" for f in files)}
 
 
@@ -502,7 +507,7 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
          "state": "on" if live else "live mode", "icon": "🌐"},
         {"name": "Web Page Fetch", "detail": "reads up to the configured number of public pages per task",
          "state": "on" if live else "live mode", "icon": "🔗"},
-        {"name": "Document Analysis", "detail": "PDF text extraction with page-level citations", "state": "on", "icon": "📄"},
+        {"name": "Document Analysis", "detail": "PDF, DOCX, PPTX, TXT and Markdown with page/slide citations", "state": "on", "icon": "📄"},
         {"name": "Image Analysis", "detail": "free vision model (needs OpenRouter key), metadata fallback",
          "state": "on" if has("OPENROUTER_API_KEY", "openrouter_api_key") else "needs key", "icon": "🖼️"},
         {"name": "LLM Agents", "detail": "planning, analysis, evaluation and reporting on ':free' models",

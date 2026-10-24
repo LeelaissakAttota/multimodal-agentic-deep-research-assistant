@@ -366,8 +366,9 @@ def _ms(start: float) -> float:
 
 
 def _default_media_tools() -> dict[str, Tool]:
+    from deep_research.tools.document_tool import DocumentReaderTool
     from deep_research.tools.image_tool import ImageAnalysisTool
     from deep_research.tools.pdf_tool import PdfReaderTool
 
-    tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False)]
+    tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False), DocumentReaderTool()]
     return {tool.name: tool for tool in tools}

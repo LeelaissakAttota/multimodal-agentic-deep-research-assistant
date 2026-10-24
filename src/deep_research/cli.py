@@ -24,6 +24,7 @@ from typing import Any
 from deep_research.api.research_service import ResearchApplication, ResearchSubmission
 from deep_research.core.config import Settings
 from deep_research.domain.research_request import ResearchAttachment
+from deep_research.tools.document_tool import DOCUMENT_SUFFIXES
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 _KIND_BY_SUFFIX = {".pdf": "pdf", ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image", ".gif": "image"}
@@ -35,7 +36,7 @@ def attachment_for(spec: str) -> ResearchAttachment:
     path = Path(spec).expanduser()
     if not path.is_file():
         raise SystemExit(f"--file not found: {spec}")
-    kind = _KIND_BY_SUFFIX.get(path.suffix.lower())
+    kind = _KIND_BY_SUFFIX.get(path.suffix.lower()) or ("document" if path.suffix.lower() in DOCUMENT_SUFFIXES else None)
     if kind is None:
         raise SystemExit(f"unsupported --file type {path.suffix or '(none)'}; supported: {', '.join(supported_suffixes())}")
     raw = path.read_bytes()
@@ -44,12 +45,14 @@ def attachment_for(spec: str) -> ResearchAttachment:
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     if kind == "pdf":
         mime = "application/pdf"
+    elif kind == "document":
+        mime = DOCUMENT_SUFFIXES[path.suffix.lower()]
     data = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
     return ResearchAttachment.model_validate({"kind": kind, "data": data, "name": path.name[:200]})
 
 
 def supported_suffixes() -> list[str]:
-    return list(_KIND_BY_SUFFIX)
+    return [*_KIND_BY_SUFFIX, *DOCUMENT_SUFFIXES]
 
 
 async def run_once(question: str, files: Sequence[str], *, mode: str | None, settings: Settings | None = None

@@ -198,10 +198,11 @@ class DeterministicResearchAgent(ResearchAgent):
 
         # Real offline multimodal tools (image description only when a free
         # vision gateway is configured; metadata-only otherwise).
+        from deep_research.tools.document_tool import DocumentReaderTool
         from deep_research.tools.image_tool import ImageAnalysisTool
         from deep_research.tools.pdf_tool import PdfReaderTool
 
-        for tool in (PdfReaderTool(), ImageAnalysisTool()):
+        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool()):
             self.registry.register(type(tool))
             self._tools[tool.name] = tool
 

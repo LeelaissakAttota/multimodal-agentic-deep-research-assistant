@@ -12,13 +12,14 @@ from pydantic import BaseModel, Field
 ATTACHMENT_TOOLS: dict[str, tuple[str, str]] = {
     "pdf": ("pdf_reader", "pdf_data"),
     "image": ("image_analyzer", "image_data"),
+    "document": ("document_parser", "document_data"),
 }
 
 
 class ResearchAttachment(BaseModel):
     """A multimodal input embedded as a base64 data URL."""
 
-    kind: Literal["pdf", "image"] = Field(..., description="Attachment type")
+    kind: Literal["pdf", "image", "document"] = Field(..., description="Attachment type")
     data: str = Field(..., min_length=1, max_length=28_000_000, description="data:<mime>;base64,<payload>")
     name: str | None = Field(default=None, max_length=200, description="Optional display name")
 
@@ -34,4 +35,4 @@ class ResearchRequest(BaseModel):
         description="Timestamp when the request was created",
     )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata for the request")
-    attachments: list[ResearchAttachment] = Field(default_factory=list, description="Optional PDF/image inputs")
+    attachments: list[ResearchAttachment] = Field(default_factory=list, description="Optional PDF/image/document inputs")

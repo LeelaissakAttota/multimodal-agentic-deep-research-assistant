@@ -191,6 +191,7 @@ class ResearchApplication:
         from deep_research.core.agents.live_research_agent import LiveResearchAgent
         from deep_research.core.free_model_guard import ModelCapability
         from deep_research.core.provider_wiring import build_provider_gateway
+        from deep_research.tools.document_tool import DocumentReaderTool
         from deep_research.tools.image_tool import ImageAnalysisTool
         from deep_research.tools.pdf_tool import PdfReaderTool
         from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
@@ -210,6 +211,7 @@ class ResearchApplication:
             media_tools={
                 "pdf_reader": PdfReaderTool(vision_gateway=vision),
                 "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
+                "document_parser": DocumentReaderTool(),
             },
             tool_gateway=self._run_gateway if self.settings.agent_tool_steps > 0 else None,
             tool_steps=self.settings.agent_tool_steps,
