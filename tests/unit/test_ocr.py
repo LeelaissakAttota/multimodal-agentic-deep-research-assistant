@@ -77,3 +77,17 @@ def test_scanned_pdf_gets_ocr_pages() -> None:
     assert res.output["pages"][0]["page"] == 1
     assert "bleaching" in res.output["pages"][0]["text"].lower()
     assert res.output["ocr_engine"] == ocr.engine_name()
+
+
+@pytest.mark.skipif(not HAVE_OCR, reason="no OCR engine installed")
+def test_offline_report_lists_ocr_image_attachment() -> None:
+    from deep_research.api.research_service import ResearchApplication, ResearchSubmission
+    from deep_research.core.config import Settings
+    from deep_research.domain.research_request import ResearchAttachment
+
+    att = ResearchAttachment(kind="image", data="data:image/png;base64," + base64.b64encode(text_png()).decode(),
+                             name="chart.png")
+    resp = asyncio.run(ResearchApplication(Settings(research_mode="offline")).submit(
+        ResearchSubmission(objective="When do coral reefs bleach?", attachments=[att])))
+    content = resp.report["content"]
+    assert "Attached image: chart.png" in content and "local OCR" in content and "bleaching" in content.lower()

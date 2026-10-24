@@ -110,7 +110,7 @@ class ImageAnalysisTool(Tool):
         ocr = await asyncio.to_thread(ocr_image, raw)
         title = params.get("source_title") or None
         source = Source(title=title, description="Embedded image",
-                        metadata={"tool_identifier": IMAGE_TOOL_ID, **info})
+                        metadata={"tool_identifier": IMAGE_TOOL_ID, "attachment": True, **info})
         content = description or (
             f"Image ({info['format']}, {info['width']}x{info['height']}, mode {info['mode']}); no description available."
         )

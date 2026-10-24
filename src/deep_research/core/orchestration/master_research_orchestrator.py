@@ -323,7 +323,7 @@ class MasterResearchOrchestrator:
                     "kind": "attachment" if task.assigned_tool in ATTACHMENT_TOOL_KINDS else "web",
                     "query": metadata.get("query"),
                     "summary": output.get("summary") if isinstance(output.get("summary"), str) else "",
-                    "attachment": {k: output.get(k) for k in ("page_count", "has_text", "note", "image_count")}
+                    "attachment": {k: output.get(k) for k in ("page_count", "has_text", "note", "image_count", "ocr_engine")}
                     if task.assigned_tool in ATTACHMENT_TOOL_KINDS else None,
                     "model_id": metadata.get("model_id"),
                     "synthesis": metadata.get("synthesis"),

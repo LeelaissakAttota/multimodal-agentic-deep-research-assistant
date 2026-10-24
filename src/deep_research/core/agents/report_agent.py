@@ -229,12 +229,15 @@ def _attachment_line(finding: Dict[str, Any]) -> str:
     bits: List[str] = []
     if info.get("page_count"):
         bits.append(f"{info['page_count']} page(s)")
+    if info.get("ocr_engine"):
+        bits.append(f"text read with local OCR, {info['ocr_engine']}")
     if info.get("has_text") is False:
         bits.append(str(info.get("note") or "no extractable text"))
         bits.append(f"{info.get('image_count') or 0} embedded image(s)")
     detail = f" ({'; '.join(bits)})" if bits else ""
     summary = str(finding.get("summary") or "").strip()
-    extra = f"\n\n{_flatten_markdown(summary)}" if info.get("has_text") is False and summary else ""
+    show = info.get("has_text") is False or (info.get("ocr_engine") and info.get("page_count") is None)
+    extra = f"\n\n{_flatten_markdown(summary)}" if show and summary else ""
     return f"- {label}{detail}{extra}"
 
 
