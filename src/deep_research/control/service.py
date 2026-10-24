@@ -44,6 +44,25 @@ class ControlGate:
             self._run.step_finished(outcome.handle, ok=ok, output=output, error=error)
 
 
+    def trace(self, events: list[dict[str, Any]]) -> None:
+        """Real progress events from the orchestrator -> run log (redacted), for the live research view."""
+
+        for ev in events[:40]:
+            kind = str(ev.get("event", "info"))
+            if kind == "plan":
+                text = f"plan task: {ev.get('task')}" + (f" [{ev.get('tool')}]" if ev.get("tool") else "")
+            elif kind == "search":
+                text = f"search: {ev.get('query')}"
+            elif kind == "source":
+                text = f"source: {ev.get('title') or ev.get('url')}" + (f" <{ev.get('url')}>" if ev.get("url") else "")
+            elif kind == "verdict":
+                gaps = "; ".join(ev.get("gaps") or [])
+                text = f"evaluator: {ev.get('decision')}" + (f" (gaps: {gaps})" if gaps else "")
+            else:
+                text = kind
+            self._run.log(text[:600], **{k: v for k, v in ev.items() if k != "gaps"})
+
+
 class DeepResearchControl:
     def __init__(self, base_settings: Settings, config_dir: Path | None = None) -> None:
         self.config_dir = config_dir or default_config_dir("deep-research")

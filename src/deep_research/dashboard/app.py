@@ -20,7 +20,7 @@ import streamlit as st
 
 from deep_research.core.config import Settings
 from deep_research.dashboard.core import (
-    APP_TITLE, display_zone, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
+    APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, merge_runs,
     needs_detail, preview_text, provider_health, report_of, run_stats, run_tags, shorten, source_kind,
     source_rows, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
@@ -137,6 +137,25 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display:none; }
 [data-testid="stFileUploaderDropzone"] { background:#0d1a40; border:1.5px dashed #2a4aa0; }
 .st-key-report h1, .st-key-report h2 { font-size:1.2rem !important; } .st-key-report h3 { font-size:1.02rem !important; }
+.lucy { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:14px; height:360px; margin-bottom:16px; }
+.stack { position:relative; border:1px solid var(--line); background:radial-gradient(circle at 30% 20%,#13244f,#08101f 70%); border-radius:12px; overflow:hidden; min-width:0; }
+.stack .hd, .term .hd { position:absolute; top:0; left:0; right:0; padding:8px 12px; font-size:.72rem; color:var(--mut); background:rgba(8,16,31,.85); z-index:50; display:flex; justify-content:space-between; }
+.wcard { position:absolute; left:6%; width:80%; background:#f4f7ff; color:#111827; border-radius:8px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55); min-width:0; overflow:hidden; }
+.wcard .bar2 { display:flex; gap:4px; margin-bottom:6px; } .wcard .bar2 i { width:7px; height:7px; border-radius:50%; background:#cbd5e1; display:block; }
+.wcard .d { font-size:.66rem; color:#2563eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcard .t { font-size:.8rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcard .s { font-size:.68rem; color:#475569; line-height:1.3; max-height:2.6em; overflow:hidden; }
+.wcard.new { animation:slidein .45s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes slidein { from { transform:translate(120%,-30px) rotate(8deg); opacity:0; } to { opacity:1; } }
+.term { position:relative; border:1px solid #14532d; background:#020a05; border-radius:12px; overflow:hidden; min-width:0; }
+.term .hd { background:rgba(2,10,5,.9); color:#4ade80; border-bottom:1px solid #14532d; }
+.term .body { position:absolute; top:32px; bottom:0; left:0; right:0; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; padding:8px 12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.7rem; line-height:1.45; color:#4ade80; }
+.term .ln { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .term .ln b { color:#86efac; font-weight:600; display:inline-block; width:56px; }
+.term .ln.new { animation:typein .35s ease-out both; } @keyframes typein { from { opacity:0; transform:translateY(6px); } to { opacity:1; } }
+.term .cur { display:inline-block; width:7px; height:12px; background:#4ade80; animation:blink 1s steps(1) infinite; vertical-align:middle; }
+@keyframes blink { 50% { opacity:0; } }
+.lucy .empty { position:absolute; top:46%; left:0; right:0; text-align:center; color:var(--mut); font-size:.8rem; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -407,6 +426,7 @@ def live_view(run_id: str) -> None:  # noqa: C901 - one screen of layout
            ("🧩", "c5", "Steps", s["steps"], f"{pending} awaiting approval", False),
            ("⚡", "c3", "Calls used", s["calls"], "tool + model calls", False),
            ("⏱️", "c4", "Elapsed", fmt_duration(duration_seconds(run)), "wall-clock time", False)])
+    research_view(run_id, status)
     left, right = st.columns([1.15, 1], gap="medium")
     with left, st.container(border=True):
         st.markdown("<div class='ph'>Pipeline stages</div>", unsafe_allow_html=True)
@@ -454,6 +474,43 @@ def live_view(run_id: str) -> None:  # noqa: C901 - one screen of layout
         else:
             st.markdown("<div class='muted'>The report appears here when the Report stage finishes.</div>", unsafe_allow_html=True)
             st.write("")
+
+
+def research_view(run_id: str, status: str) -> None:
+    """Live Research View: real sources sliding in as stacked windows + a green terminal of real run events."""
+
+    try:
+        logs = client().logs(run_id)
+    except ControlError:
+        logs = []
+    feed = live_feed(logs)
+    seen_key = f"seen_{run_id}"
+    seen = int(st.session_state.get(seen_key, -1))
+    st.session_state[seen_key] = max([seen, *[x["seq"] for x in feed["lines"]]])
+    live = status not in TERMINAL
+    cards = []
+    n = len(feed["cards"])
+    for i, c in enumerate(reversed(feed["cards"])):  # oldest first, newest painted on top
+        depth = n - 1 - i
+        top = 44 + depth * 34
+        rot = (-1.6, 1.2, -0.6, 1.8, -1.1, 0.7, -1.9, 1.4)[c["seq"] % 8]
+        style = f"top:{top}px;transform:translateX({depth * 2.2}%) rotate({rot}deg);z-index:{40 - depth};opacity:{max(0.35, 1 - depth * 0.09):.2f}"
+        title = (f"<a href='{e(c['url'])}' target='_blank' style='color:#111827'>{e(c['title'])}</a>" if c["url"].startswith("http")
+                 else e(c["title"]))
+        cards.append(f"<div class='wcard{' new' if c['seq'] > seen else ''}' style='{style}'><div class='bar2'><i></i><i></i><i></i></div>"
+                     f"<div class='d'>{e(c['domain'])}</div><div class='t' title='{e(c['title'])}'>{title}</div>"
+                     f"<div class='s'>{e(c['snippet'])}</div></div>")
+    lines = "".join(f"<div class='ln{' new' if x['seq'] > seen else ''}' title='{e(x['text'])}'>[{e(x['time'])}] <b>{e(x['tag']):<6}</b> {e(x['text'])}</div>"
+                    for x in feed["lines"])
+    state = "LIVE" if live else "FINISHED"
+    empty = "" if cards else (f"<div class='empty'>{'Waiting for the first source…' if live else 'No web sources were logged for this run.'}</div>")
+    st.markdown(
+        f"<div class='ph'>Live Research View <span class='muted'>{feed['sources']} sources · {feed['queries']} searches · real run events only</span></div>"
+        f"<div class='lucy'><div class='stack'><div class='hd'><span>SOURCES BEING READ</span><span>{state}</span></div>{''.join(cards)}{empty}</div>"
+        f"<div class='term'><div class='hd'><span>agent@deep-research:~$ tail -f run/{e(run_id[:8])}.log</span><span>{state}</span></div>"
+        f"<div class='body'>{lines or '<div class=ln>waiting for events…</div>'}"
+        f"<div class='ln'>{'<span class=cur></span>' if live else '— run ' + e(status) + ' —'}</div></div></div></div>",
+        unsafe_allow_html=True)
 
 
 def cits(report: dict[str, Any], limit: int | None = None) -> None:

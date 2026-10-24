@@ -112,6 +112,9 @@ class ControlClient:
             raise ValueError(action)
         return dict(self._call("POST", f"/control/runs/{run_id}/steps/{step_id}/{action}", json={"note": note}))
 
+    def logs(self, run_id: str, after: int = 0) -> list[dict[str, Any]]:
+        return list(self._call("GET", f"/control/runs/{run_id}/logs", params={"after": after}).get("logs") or [])
+
     def keys(self) -> dict[str, Any]:
         return dict(self._call("GET", "/control/keys"))
 
@@ -569,3 +572,26 @@ def md_safe(markdown: str) -> str:
     """Escape ``$`` so Streamlit does not render prices like "$4,000–7,000" as LaTeX."""
 
     return re.sub(r"(?<!\\)\$", r"\\$", str(markdown))
+
+
+def live_feed(logs: list[dict[str, Any]], *, max_cards: int = 8, max_lines: int = 60) -> dict[str, Any]:
+    """Split the run log into source cards (real URLs/files the agents read) and terminal lines."""
+
+    cards: list[dict[str, Any]] = []
+    lines: list[dict[str, Any]] = []
+    for item in logs:
+        seq = int(item.get("seq", len(lines)))
+        kind = str(item.get("event") or "")
+        if kind == "source":
+            cards.append({"seq": seq, "title": shorten(str(item.get("title") or item.get("url") or "source"), 90),
+                          "url": str(item.get("url") or ""), "domain": _domain(item.get("url")) or "attached file",
+                          "snippet": shorten(str(item.get("snippet") or ""), 160)})
+        tag = {"plan": "PLAN", "search": "SEARCH", "source": "FETCH", "verdict": "EVAL"}.get(kind)
+        if not tag:
+            msg = str(item.get("message", ""))
+            tag = "ERROR" if item.get("level") == "error" else "WAIT" if "awaiting approval" in msg else "STEP"
+        dt = _parse(item.get("at"))
+        when = dt.astimezone(display_zone()).strftime("%H:%M:%S") if dt else ""
+        lines.append({"seq": seq, "time": when, "tag": tag, "text": shorten(str(item.get("message", "")), 220)})
+    queries = sum(line["tag"] == "SEARCH" for line in lines)
+    return {"cards": cards[-max_cards:][::-1], "lines": lines[-max_lines:], "sources": len(cards), "queries": queries}

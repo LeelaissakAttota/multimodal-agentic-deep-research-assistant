@@ -302,3 +302,58 @@ def test_app_title_everywhere_and_no_short_name() -> None:
     assert "page_title=APP_TITLE" in src and "MDRA" not in src
     for label in ("Dashboard", "New Research", "My Researches", "Knowledge Base", "Sources", "Tools & Integration", "Settings"):
         assert f'"{label}"' in src
+
+
+def test_live_feed_splits_sources_and_terminal_lines() -> None:
+    from deep_research.dashboard.core import live_feed
+
+    logs = [
+        {"seq": 0, "at": "2026-10-24T06:00:00+00:00", "level": "info", "message": "run started"},
+        {"seq": 1, "at": "2026-10-24T06:00:01+00:00", "level": "info", "message": "search: ocean co2",
+         "event": "search", "query": "ocean co2"},
+        {"seq": 2, "at": "2026-10-24T06:00:02+00:00", "level": "info", "message": "source: A <https://www.noaa.gov/a>",
+         "event": "source", "url": "https://www.noaa.gov/a", "title": "A", "snippet": "s"},
+        {"seq": 3, "at": "2026-10-24T06:00:03+00:00", "level": "info", "message": "source: B", "event": "source", "url": "", "title": "B"},
+        {"seq": 4, "at": "2026-10-24T06:00:04+00:00", "level": "info", "message": "evaluator: COMPLETE", "event": "verdict"},
+    ]
+    feed = live_feed(logs)
+    assert feed["sources"] == 2 and feed["queries"] == 1
+    assert [c["title"] for c in feed["cards"]] == ["B", "A"]  # newest first
+    assert feed["cards"][1]["domain"] == "noaa.gov" and feed["cards"][0]["domain"] == "attached file"
+    assert [x["tag"] for x in feed["lines"]] == ["STEP", "SEARCH", "FETCH", "FETCH", "EVAL"]
+    assert feed["lines"][0]["time"] == "11:30:00"  # IST
+    assert len(live_feed(logs * 30, max_lines=10, max_cards=3)["cards"]) == 3
+
+
+def test_control_gate_trace_logs_real_events() -> None:
+    from deep_research.control.service import ControlGate
+
+    got: list[tuple[str, dict]] = []
+
+    class FakeRun:
+        def log(self, message: str, **extra: object) -> None:
+            got.append((message, dict(extra)))
+
+    ControlGate(FakeRun()).trace([  # type: ignore[arg-type]
+        {"event": "plan", "task": "Find data", "tool": "web_search"},
+        {"event": "search", "query": "q1"},
+        {"event": "source", "url": "https://x.org/p", "title": "Paper", "snippet": ""},
+        {"event": "verdict", "decision": "CONTINUE", "gaps": ["more data"]},
+    ])
+    msgs = [m for m, _ in got]
+    assert msgs == ["plan task: Find data [web_search]", "search: q1", "source: Paper <https://x.org/p>",
+                    "evaluator: CONTINUE (gaps: more data)"]
+    assert got[2][1]["url"] == "https://x.org/p" and "gaps" not in got[3][1]
+
+
+def test_orchestrator_source_events_from_tool_result() -> None:
+    from types import SimpleNamespace
+
+    from deep_research.core.orchestration.master_research_orchestrator import MasterResearchOrchestrator
+
+    result = SimpleNamespace(metadata={"queries": ["a", "b"]},
+                             output={"results": [{"url": "https://e.org", "title": "E"}, {"title": "no url"}],
+                                     "source_objects": [SimpleNamespace(url=None, title="report.pdf")]})
+    ev = MasterResearchOrchestrator._source_events(result)
+    assert [x["event"] for x in ev] == ["search", "search", "source", "source", "source"]
+    assert ev[2]["title"] == "report.pdf" and ev[2]["snippet"] == "attached file" and ev[3]["url"] == "https://e.org"

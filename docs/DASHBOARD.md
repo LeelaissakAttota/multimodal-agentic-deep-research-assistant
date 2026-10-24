@@ -20,3 +20,6 @@ The script creates a control token for the session if `DEEP_RESEARCH_CONTROL_TOK
 | Settings | General (saved to `dashboard_runs/prefs.json`), Research (approval policy, engine limits), Notifications (coming soon), Account (masked API keys) |
 
 All counts come from the control API and the runs saved under `dashboard_runs/`. Features the engine does not support yet (video, audio, notifications, reading web pages by URL) are shown as "coming soon". Times are shown in IST (`DEEP_RESEARCH_DISPLAY_TZ` to change).
+## Live Research View
+
+On a run's live screen, the left panel stacks the real sources the agents read (web pages from search hits and fetched pages, plus attached files) as overlapping cards that slide in as they arrive; the right panel is a green terminal tailing the run log: plan tasks, search queries, fetched sources, evaluator verdicts and step approvals. Everything comes from `/control/runs/{id}/logs`; the orchestrator emits these events through an optional `trace()` hook on the step gate. Offline mode has no web sources, so the card stack stays empty there.

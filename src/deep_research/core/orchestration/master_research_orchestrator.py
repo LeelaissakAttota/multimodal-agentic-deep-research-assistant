@@ -193,6 +193,8 @@ class MasterResearchOrchestrator:
             await self._gate_after(outcome, ok=False, error=str(exc))
             raise
         await self._gate_after(outcome, ok=True)
+        self._trace([{"event": "plan", "task": str(t.description)[:300], "tool": str(t.assigned_tool or "")}
+                     for t in self._plan.tasks])
         self._plans.append(self._plan)
         self.research_state.current_plan_id = self._plan.id
         self.research_state.plan_history.append(self._plan.id)
@@ -249,6 +251,7 @@ class MasterResearchOrchestrator:
                 output=self._normalize_tool_output(tool_result.output).get("summary") if tool_result.success else None,
                 error=None if tool_result.success else (tool_result.error or "Unknown error"),
             )
+            self._trace(self._source_events(tool_result))
             if tool_result.success:
                 task.status = "completed"
                 output = self._normalize_tool_output(tool_result.output)
@@ -357,6 +360,8 @@ class MasterResearchOrchestrator:
             await self._gate_after(outcome, ok=False, error=str(exc))
             raise
         await self._gate_after(outcome, ok=True, output={"decision": evaluation.decision})
+        self._trace([{"event": "verdict", "decision": str(evaluation.decision),
+                      "gaps": [str(g)[:200] for g in (evaluation.gaps or [])[:5]]}])
         return evaluation
 
     async def _handle_evaluation_result(self, evaluation_result: EvaluationResult) -> None:
@@ -451,6 +456,38 @@ class MasterResearchOrchestrator:
     ) -> None:
         if self.step_gate is not None and outcome is not None:
             await self.step_gate.after(outcome, ok=ok, output=output, error=error)
+
+    def _trace(self, events: List[Dict[str, Any]]) -> None:
+        """Hand real progress events (plan tasks, queries, sources, verdicts) to an optional gate ``trace``."""
+
+        trace = getattr(self.step_gate, "trace", None)
+        if callable(trace) and events:
+            try:
+                trace(events)
+            except Exception:  # noqa: BLE001 - tracing must never break research
+                pass
+
+    @staticmethod
+    def _source_events(tool_result: Any) -> List[Dict[str, Any]]:
+        meta = tool_result.metadata if isinstance(getattr(tool_result, "metadata", None), dict) else {}
+        out = tool_result.output if isinstance(getattr(tool_result, "output", None), dict) else {}
+        queries = meta.get("queries") or ([meta["query"]] if meta.get("query") else [])
+        events: List[Dict[str, Any]] = [{"event": "search", "query": str(q)[:300]} for q in queries if q]
+        seen: set[str] = set()
+
+        def _val(obj: Any, key: str) -> str:
+            raw = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+            return "" if raw is None else str(raw)
+
+        for item in [*(out.get("source_objects") or []), *(out.get("results") or [])][:20]:
+            url, title = _val(item, "url"), _val(item, "title")
+            key = url or title
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            snippet = _val(item, "snippet") or _val(item, "description") or ("" if url else "attached file")
+            events.append({"event": "source", "url": url[:500], "title": title[:200], "snippet": snippet[:240]})
+        return events
 
     def _is_terminal_state(self) -> bool:
         return self.research_state.status in ("completed", "failed", "blocked")
