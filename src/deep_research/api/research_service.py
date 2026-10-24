@@ -16,6 +16,7 @@ from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent, EvaluationAgent
 from deep_research.core.agents.planning_agent import DeterministicPlanningAgent, PlanningAgent
 from deep_research.core.agents.report_agent import DeterministicReportAgent
+from deep_research.verification.fact_check import ClaimVerifier
 from deep_research.core.config import Settings
 from deep_research.core.orchestration.master_research_orchestrator import (
     MasterResearchOrchestrator,
@@ -154,7 +155,10 @@ class ResearchApplication:
             research_agent=self._build_research_agent(),
             analysis_agent=DeterministicAnalysisAgent(),
             evaluation_agent=evaluation_agent,
-            report_agent=DeterministicReportAgent(),
+            report_agent=DeterministicReportAgent(
+                verifier=ClaimVerifier(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
+                                       budget_hook=charge_model_call if gateway is not None else None)
+            ),
             max_iterations=limits.max_research_iterations,
             execution_harness=harness,
         )

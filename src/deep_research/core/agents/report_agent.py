@@ -54,7 +54,14 @@ class DeterministicReportAgent(ReportAgent):
     """
     Deterministic implementation of ReportAgent for Phase 2.
     Creates a simple report based on the analysis results.
+
+    With a ``verifier`` (``deep_research.verification.ClaimVerifier``) every
+    cited claim of a live report is fact-checked against the excerpts of the
+    sources it cites and a "Claim verification" section is added.
     """
+
+    def __init__(self, verifier: Any | None = None) -> None:
+        self.verifier = verifier
 
     async def generate_report(
         self,
@@ -91,9 +98,20 @@ class DeterministicReportAgent(ReportAgent):
         report["citations"] = []
         findings = state.metadata.get("live_findings")
         if isinstance(findings, list) and findings:
-            _apply_live_findings(report, findings)
+            excerpts = _apply_live_findings(report, findings)
+            if report.get("citations"):
+                await self._verify(report, excerpts)
 
         return report
+
+    async def _verify(self, report: Dict[str, Any], excerpts: Dict[int, str]) -> None:
+        from deep_research.verification.fact_check import ClaimVerifier, extract_claims, verification_markdown
+
+        verifier = self.verifier or ClaimVerifier()
+        content = str(report.get("content") or "")
+        result = await verifier.verify(extract_claims(content), excerpts)
+        report["verification"] = result
+        insert_section(report, verification_markdown(result))
 
 
 _CITE = r"\[(\d+(?:\s*[,\u2013-]\s*\d+)*)\]"
@@ -132,7 +150,18 @@ def section_heading(finding: Dict[str, Any]) -> str:
     return " ".join(words[:6]) + ("..." if len(words) > 6 else "") if words else "Findings"
 
 
-def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> None:
+def insert_section(report: Dict[str, Any], section: str) -> None:
+    """Insert a Markdown section before the report's "## Sources" list (or append when there is none)."""
+    content = str(report.get("content") or "")
+    marker = "\n\n## Sources\n"
+    if marker in content:
+        head, tail = content.split(marker, 1)
+        report["content"] = f"{head}\n\n{section}{marker}{tail}"
+    else:
+        report["content"] = f"{content}\n\n{section}" if content else section
+
+
+def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> Dict[int, str]:
     """Render live-mode syntheses with globally numbered citations.
 
     Each task's ``[n]`` markers refer to its own source list; they are
@@ -157,7 +186,7 @@ def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> None:
         if isinstance(model_id, str) and model_id and model_id not in models:
             models.append(model_id)
     if not sections and not attachments:
-        return
+        return {}
     parts: List[str] = []
     if attachments:
         parts.append("## Attached files\n\n" + "\n".join(attachments))
@@ -175,12 +204,14 @@ def _apply_live_findings(report: Dict[str, Any], findings: List[Any]) -> None:
         for f in findings
         if isinstance(f, dict) and f.get("kind") == "attachment" and isinstance(f.get("attachment"), dict)
     ]
+    return builder.excerpts
 
 
 class _CitationBuilder:
     def __init__(self) -> None:
         self.citations: List[Dict[str, Any]] = []
         self._index: Dict[str, int] = {}
+        self.excerpts: Dict[int, str] = {}
 
     def map_sources(self, sources: List[Any]) -> Dict[int, int]:
         mapping: Dict[int, int] = {}
@@ -199,6 +230,10 @@ class _CitationBuilder:
                     entry["page"] = source.get("page")
                 self.citations.append(entry)
                 self._index[key] = len(self.citations)
+            excerpt = source.get("excerpt")
+            if isinstance(excerpt, str) and excerpt.strip():
+                number = self._index[key]
+                self.excerpts[number] = (self.excerpts.get(number, "") + "\n" + excerpt).strip()[:4000]
             mapping[local] = self._index[key]
         return mapping
 
