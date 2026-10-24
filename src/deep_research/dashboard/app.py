@@ -23,7 +23,7 @@ from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, merge_runs,
     needs_detail, preview_text, provider_health, report_of, run_stats, run_tags, shorten, source_kind,
-    source_rows, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
+    source_rows, source_catalog, KIND_ICONS, SOURCE_FILTERS, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
 )
 
 NAV = [("dashboard", "Dashboard", "▦"), ("new", "New Research", "＋"), ("researches", "My Researches", "☰"),
@@ -613,29 +613,29 @@ def page_sources() -> None:
     head("Sources", "Where your research evidence comes from, and every source cited in a report.")
     s = Settings()
     rows = source_rows(runs_cache)
-    providers = [("🌐", "c1", "Web Search", "Tavily / DuckDuckGo / Wikipedia", "Active" if s.research_mode == "live" else "Live mode"),
-                 ("📄", "c3", "Documents", "Local PDF upload", "Active"), ("🖼️", "c4", "Images", "Local image upload", "Active"),
-                 ("🔗", "c5", "Direct links", "PDF / image URL", "Active"), ("🎬", "c6", "Video", "YouTube etc.", "Coming soon"),
-                 ("🗄️", "c2", "Databases", "Academic DBs", "Coming soon")]
-    cells = "".join(f"<div class='cap{' dis' if st_ == 'Coming soon' else ''}'><div class='sq {c}' style='width:34px;height:34px'>{i}</div>"
-                    f"<div class='ct'>{e(n)}</div><div class='cs'>{e(d)}<br><span class='badge {'b-soon' if st_ == 'Coming soon' else 'b-ok' if st_ == 'Active' else 'b-off'}'>"
-                    f"{e(st_)}</span></div></div>" for i, c, n, d, st_ in providers)
+    mode = prefs.load()["default_mode"]
+    providers = source_catalog(s, mode)
+    badges = {"Active": "b-ok", "Disabled": "b-off", "Live mode": "b-off"}
+    cells = "".join(f"<div class='cap{' dis' if p['state'] == 'Disabled' else ''}'><div class='sq {p['cls']}' style='width:34px;height:34px'>"
+                    f"{p['icon']}</div><div class='ct'>{e(p['name'])}</div><div class='cs'>{e(p['detail'])}<br>"
+                    f"<span class='badge {badges.get(p['state'], 'b-off')}'>{e(p['state'])}</span></div></div>" for p in providers)
     st.markdown(f"<div class='panel'><div class='ph'>Source types</div><div class='grid g6'>{cells}</div></div>", unsafe_allow_html=True)
     left, right = st.columns([1.6, 1], gap="medium")
     with left:
-        kinds = ["All Sources", "Web", "Documents", "Images"]
-        k = st.radio("Type", kinds, horizontal=True, label_visibility="collapsed")
+        k = st.radio("Type", SOURCE_FILTERS, horizontal=True, label_visibility="collapsed")
         show = [r for r in rows if k == "All Sources" or source_kind(r) == k]
-        body = "".join(f"<div class='row'><div class='sq {'c1' if source_kind(r) == 'Web' else 'c3'}'>{'🌐' if source_kind(r) == 'Web' else '📄'}</div>"
+        body = "".join(f"<div class='row'><div class='sq {KIND_ICONS.get(source_kind(r), KIND_ICONS['Other'])[1]}'>"
+                       f"{KIND_ICONS.get(source_kind(r), KIND_ICONS['Other'])[0]}</div>"
                        f"<div class='tx'><div class='tt' title='{e(str(r['title']))}'>"
                        + (f"<a href='{e(str(r['url']))}' target='_blank' style='color:#e6ecff'>{e(str(r['title']))}</a>" if r.get('url') else e(str(r['title'])))
-                       + f"</div><div class='ts'>{e(r['domain'])}</div></div><div class='rt'>used in {len(r['runs'])} run(s)</div></div>"
+                       + f"</div><div class='ts'>{e(source_kind(r))} · {e(r['domain'])}</div></div><div class='rt'>used in {len(r['runs'])} run(s)</div></div>"
                        for r in show[:80])
         st.markdown(f"<div class='panel'><div class='ph'>Cited sources ({len(show)})</div>"
-                    f"{body or '<div class=muted>No cited sources yet. Live runs cite real web pages.</div>'}</div>", unsafe_allow_html=True)
+                    f"{body or '<div class=muted>No cited sources yet. Live runs cite real web pages, papers, videos, discussions and images.</div>'}</div>", unsafe_allow_html=True)
     with right:
         kv = [("Default search engine", {"auto": "Auto (Tavily → DuckDuckGo)", "duckduckgo": "DuckDuckGo", "tavily": "Tavily"}[s.search_provider]),
-              ("Search results per task", str(s.live_max_search_results)), ("Pages fetched per task", str(s.live_max_fetch_pages)),
+              ("Search results per task", str(s.live_max_search_results)),
+              ("Public source tools", ", ".join(s.enabled_source_tools()) or "none"), ("Pages fetched per task", str(s.live_max_fetch_pages)),
               ("File upload limit", "20 MB · up to 5 files"), ("Supported file types", "PDF, PNG, JPG, WEBP, GIF")]
         st.markdown("<div class='panel'><div class='ph'>Source Settings</div>" + "".join(
             f"<div class='kv'><span>{e(a)}</span><span title='{e(b)}'>{e(b)}</span></div>" for a, b in kv)
@@ -657,7 +657,8 @@ def page_tools() -> None:
                        f"{e(t['detail'])}</div></div>", unsafe_allow_html=True)
             c.toggle(t["state"].title(), value=t["state"] == "on", disabled=True, key=f"tool{t['name']}")
         st.markdown("<div class='muted'>Web tools switch on with live mode (Settings → Research). "
-                    "Coming-soon tools are not faked.</div>", unsafe_allow_html=True)
+                    "Academic, YouTube, Reddit and image search run in live mode when the planner routes a task to them "
+                    "(DEEP_RESEARCH_LIVE_SOURCE_TOOLS). Coming-soon tools are not faked.</div>", unsafe_allow_html=True)
     with right, st.container(border=True):
         st.markdown("<div class='ph'>Provider Health</div>", unsafe_allow_html=True)
         rows = provider_health(Settings(), keys, ok)

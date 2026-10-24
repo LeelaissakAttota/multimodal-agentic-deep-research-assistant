@@ -357,3 +357,47 @@ def test_orchestrator_source_events_from_tool_result() -> None:
     ev = MasterResearchOrchestrator._source_events(result)
     assert [x["event"] for x in ev] == ["search", "search", "source", "source", "source"]
     assert ev[2]["title"] == "report.pdf" and ev[2]["snippet"] == "attached file" and ev[3]["url"] == "https://e.org"
+
+
+def test_phase2_source_tools_show_as_real_on_tools_and_sources_pages() -> None:
+    live = {t["name"]: t["state"] for t in core.tool_catalog(Settings(), None, "live")}
+    for name in ("Academic Search", "YouTube Transcripts", "Reddit Discussions", "Image Search"):
+        assert live[name] == "on"
+    off = {t["name"]: t["state"] for t in core.tool_catalog(Settings(), None, "offline")}
+    assert off["Academic Search"] == "live mode"
+    only = {t["name"]: t["state"] for t in core.tool_catalog(Settings(live_source_tools="reddit_search"), None, "live")}
+    assert only["Reddit Discussions"] == "on" and only["Academic Search"] == "disabled"
+    catalog = {r["name"]: r["state"] for r in core.source_catalog(Settings(), "live")}
+    assert catalog["Academic Search"] == "Active" and catalog["YouTube Transcripts"] == "Active"
+    assert "Coming soon" not in catalog.values()
+    assert core.source_catalog(Settings(live_source_tools="none"), "live")[-1]["state"] == "Disabled"
+
+
+def test_source_kinds_for_public_source_citations() -> None:
+    assert core.source_kind({"kind": "academic", "url": "https://doi.org/x"}) == "Academic"
+    assert core.source_kind({"kind": "video", "url": "https://www.youtube.com/watch?v=x"}) == "Video"
+    assert core.source_kind({"kind": "social", "url": "https://www.reddit.com/r/x"}) == "Discussions"
+    assert core.source_kind({"kind": "image", "url": "https://commons.wikimedia.org/wiki/File:x"}) == "Images"
+    assert set(core.SOURCE_FILTERS[1:]) <= set(core.KIND_ICONS)
+    report = {"citations": [{"number": 1, "title": "Paper", "url": "https://doi.org/x", "kind": "academic"}]}
+    assert core.citations(report)[0]["kind"] == "academic"
+
+
+def test_sources_and_tools_pages_render_phase2_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    testing = pytest.importorskip("streamlit.testing.v1")
+    monkeypatch.setenv("DEEP_RESEARCH_DASHBOARD_DIR", str(tmp_path))
+    monkeypatch.setenv("DEEP_RESEARCH_CONTROL_URL", "http://127.0.0.1:9")
+    run = _run("p2run", cites=1)
+    run["result"]["report"]["citations"].append(
+        {"number": 2, "title": "Attention paper", "url": "https://arxiv.org/abs/1706.03762", "kind": "academic"})
+    RunStore(tmp_path).save(run)
+    for page, expected in (("sources", ["Academic Search", "YouTube Transcripts", "Attention paper", "Academic ·"]),
+                           ("tools", ["Reddit Discussions", "Image Search"])):
+        at = testing.AppTest.from_file(str(ROOT / "src/deep_research/dashboard/app.py"), default_timeout=30)
+        at.query_params["page"] = page
+        at.run()
+        assert not at.exception
+        text = " ".join(m.value for m in at.markdown)
+        for word in expected:
+            assert word in text, (page, word)
+        assert "Coming soon" not in text
