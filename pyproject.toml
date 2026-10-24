@@ -39,6 +39,10 @@ dependencies = [
 dashboard = [
     "streamlit>=1.40",
 ]
+memory = [
+    "chromadb>=0.5",
+    "sentence-transformers>=2.7",
+]
 test = [
     "httpx>=0.27.0",
     "mypy>=1.10.0",
