@@ -558,8 +558,24 @@ def report_view(run_id: str) -> None:
                                 for c in cl[:12]), unsafe_allow_html=True)
     with right, st.container(border=True):
         cits(report)
-        st.download_button("⬇ Download Markdown", str(report.get("content", "")), file_name=f"report-{run_id[:8]}.md",
-                           use_container_width=True)
+        export_buttons(report, run_id)
+
+
+def export_buttons(report: dict[str, Any], run_id: str) -> None:
+    """PDF / DOCX / PPTX / JSON / Markdown downloads, rendered locally from the report."""
+
+    from deep_research.export import FORMATS, ExportUnavailable, export_filename, export_report
+
+    st.markdown("<div class='ph' style='margin-top:10px'>Export report</div>", unsafe_allow_html=True)
+    cols = st.columns(5)
+    for col, (fmt, label) in zip(cols, (("pdf", "PDF"), ("docx", "DOCX"), ("pptx", "PPTX"), ("json", "JSON"), ("md", "MD"))):
+        try:
+            data = export_report(report, fmt)
+        except ExportUnavailable as exc:
+            col.button(label, disabled=True, help=str(exc), key=f"x_{fmt}", use_container_width=True)
+            continue
+        col.download_button(label, data, file_name=export_filename(report, fmt, run_id), mime=FORMATS[fmt][0],
+                            key=f"dl_{fmt}", use_container_width=True)
 
 
 # ----- My Researches ---------------------------------------------------------------------------------

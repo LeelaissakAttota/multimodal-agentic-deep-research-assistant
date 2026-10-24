@@ -210,3 +210,16 @@ def test_keys_masked_write_only_and_reloaded(ctl: tuple[TestClient, DeepResearch
     assert control.settings_with_keys().openrouter_api_key.get_secret_value() == secret  # type: ignore[union-attr]
     audit = client.get("/control/audit", headers=H).text
     assert secret not in audit and "key_changed" in audit
+
+
+def test_export_endpoint_returns_files(ctl: tuple[TestClient, DeepResearchControl]) -> None:
+    pytest.importorskip("fpdf")
+    client, _ = ctl
+    run = client.post("/control/runs", json={"params": {"objective": "solar panels"}}, headers=H).json()
+    _wait(client, run["run_id"], _done)
+    pdf = client.get(f"/control/runs/{run['run_id']}/export?format=pdf", headers=H)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF-")
+    assert pdf.headers["content-type"] == "application/pdf" and ".pdf" in pdf.headers["content-disposition"]
+    assert client.get(f"/control/runs/{run['run_id']}/export?format=json", headers=H).json()["title"]
+    assert client.get(f"/control/runs/{run['run_id']}/export?format=exe", headers=H).status_code == 422
+    assert client.get(f"/control/runs/{run['run_id']}/export", headers={}).status_code == 401

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from deep_research.api.error_handlers import install_error_handlers
@@ -98,6 +98,22 @@ def build_control_app(  # noqa: C901 - flat route table
     @app.get("/control/runs/{run_id}", dependencies=auth)
     def get_run(run_id: str) -> dict[str, Any]:
         return dict(run_or_404(run_id).to_dict())
+
+    @app.get("/control/runs/{run_id}/export", dependencies=auth)
+    def export(run_id: str, format: str = Query(default="pdf", pattern="^(pdf|docx|pptx|json|md)$")) -> Response:
+        from deep_research.export import FORMATS, ExportUnavailable, export_filename, export_report
+
+        run = run_or_404(run_id)
+        result = run.result if isinstance(run.result, dict) else {}
+        report = result.get("report")
+        if not isinstance(report, dict):
+            raise HTTPException(status_code=409, detail="run has no report yet")
+        try:
+            body = export_report(report, format)
+        except ExportUnavailable as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from None
+        name = export_filename(report, format, run_id)
+        return Response(body, media_type=FORMATS[format][0], headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/control/runs/{run_id}/steps", dependencies=auth)
     def get_steps(run_id: str) -> list[dict[str, Any]]:
