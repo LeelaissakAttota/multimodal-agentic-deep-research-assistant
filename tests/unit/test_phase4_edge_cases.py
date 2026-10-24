@@ -163,11 +163,10 @@ def test_run_suite_empty_list() -> None:
     assert run_suite([]) == []
 
 
-def test_score_report_inside_running_loop_known_gap() -> None:
-    """score_report uses asyncio.run, so calling it from a running loop fails (documented gap)."""
+def test_score_report_inside_running_loop_works() -> None:
+    """Former gap (asyncio.run inside a running loop) is fixed: score_report offloads to a worker thread."""
 
-    async def inner() -> None:
-        score_report("o", "Solar capacity grew 20% in 2023 [1].", {1: "Solar capacity grew 20%."})
+    async def inner() -> int:
+        return score_report("o", "Solar capacity grew 20% in 2023 [1].", {1: "Solar capacity grew 20%."}).claims
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(inner())
+    assert asyncio.run(inner()) == 1

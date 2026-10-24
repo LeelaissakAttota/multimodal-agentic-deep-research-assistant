@@ -66,3 +66,19 @@ def test_report_citations_keep_excerpt_for_later_eval() -> None:
     assert report["citations"][0]["excerpt"].startswith("Solar panels") and len(report["citations"][0]["excerpt"]) == 1200
     case = case_from_run({"params": {"objective": "solar panel degradation"}, "result": {"report": report}})
     assert case is not None and run_suite([case])[0].faithfulness == 1.0
+
+
+def test_score_report_is_safe_inside_running_loop() -> None:
+    import asyncio
+
+    from deep_research.evaluation import score_report_async
+
+    args = ("solar panel degradation", "## A\n\nSolar panels degrade slowly [1].", {1: "Solar panels degrade slowly."})
+
+    async def inside() -> tuple[float, float]:
+        sync_card = score_report(*args)  # would raise with a bare asyncio.run
+        async_card = await score_report_async(*args)
+        return sync_card.faithfulness, async_card.overall
+
+    faith, overall = asyncio.run(inside())
+    assert faith == 1.0 and overall == score_report(*args).overall

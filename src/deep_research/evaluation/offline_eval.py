@@ -53,15 +53,36 @@ class Scorecard:
         return {**asdict(self), "overall": self.overall}
 
 
-def score_report(objective: str, report: str, excerpts: Mapping[int, str], *, expected_points: Sequence[str] = (),
-                 name: str = "report") -> Scorecard:
+async def score_report_async(objective: str, report: str, excerpts: Mapping[int, str], *,
+                             expected_points: Sequence[str] = (), name: str = "report") -> Scorecard:
+    """Async scorer for callers already inside an event loop (API handlers, notebooks, agents)."""
     claims = extract_claims(report, max_claims=200)
-    verification = asyncio.run(ClaimVerifier().verify(claims, excerpts)) if claims else {"counts": {}, "claims": []}
+    verification: Mapping[str, Any] = (await ClaimVerifier().verify(claims, excerpts)) if claims \
+        else {"counts": {}, "claims": []}
     faithfulness = _faithfulness(verification)
     relevance, rel_detail = _relevance(objective, claims)
     coverage, cov_detail = _coverage(report, claims, expected_points)
     return Scorecard(name=name, faithfulness=faithfulness, relevance=relevance, coverage=coverage, claims=len(claims),
                      details={"verdicts": verification.get("counts", {}), **rel_detail, **cov_detail})
+
+
+def score_report(objective: str, report: str, excerpts: Mapping[int, str], *, expected_points: Sequence[str] = (),
+                 name: str = "report") -> Scorecard:
+    """Synchronous scorer; safe to call with or without a running event loop.
+
+    Inside a running loop the coroutine is executed on a short-lived worker thread
+    with its own loop (``asyncio.run`` would raise there).
+    """
+    coro_args = (objective, report, excerpts)
+    kwargs: dict[str, Any] = {"expected_points": expected_points, "name": name}
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(score_report_async(*coro_args, **kwargs))
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(score_report_async(*coro_args, **kwargs))).result()
 
 
 def _faithfulness(verification: Mapping[str, Any]) -> float:
