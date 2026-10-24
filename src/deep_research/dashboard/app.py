@@ -140,7 +140,7 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .lucy { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:14px; height:360px; margin-bottom:16px; }
 .stack { position:relative; border:1px solid var(--line); background:radial-gradient(circle at 30% 20%,#13244f,#08101f 70%); border-radius:12px; overflow:hidden; min-width:0; }
 .stack .hd, .term .hd { position:absolute; top:0; left:0; right:0; padding:8px 12px; font-size:.72rem; color:var(--mut); background:rgba(8,16,31,.85); z-index:50; display:flex; justify-content:space-between; }
-.wcard { position:absolute; left:6%; width:80%; background:#f4f7ff; color:#111827; border-radius:8px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55); min-width:0; overflow:hidden; }
+.wcard { position:absolute; left:6%; width:80%; background:#f4f7ff; color:#111827; border-radius:8px; padding:10px 12px; box-shadow:0 -6px 18px rgba(0,0,0,.45); min-width:0; overflow:hidden; height:96px; }
 .wcard .bar2 { display:flex; gap:4px; margin-bottom:6px; } .wcard .bar2 i { width:7px; height:7px; border-radius:50%; background:#cbd5e1; display:block; }
 .wcard .d { font-size:.66rem; color:#2563eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wcard .t { font-size:.8rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -151,7 +151,7 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .term .hd { background:rgba(2,10,5,.9); color:#4ade80; border-bottom:1px solid #14532d; }
 .term .body { position:absolute; top:32px; bottom:0; left:0; right:0; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; padding:8px 12px;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.7rem; line-height:1.45; color:#4ade80; }
-.term .ln { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .term .ln b { color:#86efac; font-weight:600; display:inline-block; width:56px; }
+.term .ln { flex-shrink:0; height:16px; line-height:16px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .term .ln b { color:#86efac; font-weight:600; display:inline-block; width:56px; }
 .term .ln.new { animation:typein .35s ease-out both; } @keyframes typein { from { opacity:0; transform:translateY(6px); } to { opacity:1; } }
 .term .cur { display:inline-block; width:7px; height:12px; background:#4ade80; animation:blink 1s steps(1) infinite; vertical-align:middle; }
 @keyframes blink { 50% { opacity:0; } }
@@ -483,8 +483,9 @@ def research_view(run_id: str, status: str) -> None:
         logs = client().logs(run_id)
     except ControlError:
         logs = []
-    feed = live_feed(logs)
+    feed = live_feed(logs, max_cards=7)
     seen_key = f"seen_{run_id}"
+    first = seen_key not in st.session_state
     seen = int(st.session_state.get(seen_key, -1))
     st.session_state[seen_key] = max([seen, *[x["seq"] for x in feed["lines"]]])
     live = status not in TERMINAL
@@ -492,15 +493,15 @@ def research_view(run_id: str, status: str) -> None:
     n = len(feed["cards"])
     for i, c in enumerate(reversed(feed["cards"])):  # oldest first, newest painted on top
         depth = n - 1 - i
-        top = 44 + depth * 34
+        top = 230 - depth * 30
         rot = (-1.6, 1.2, -0.6, 1.8, -1.1, 0.7, -1.9, 1.4)[c["seq"] % 8]
-        style = f"top:{top}px;transform:translateX({depth * 2.2}%) rotate({rot}deg);z-index:{40 - depth};opacity:{max(0.35, 1 - depth * 0.09):.2f}"
+        style = f"top:{top}px;transform:translateX({depth * 2.2}%) rotate({rot}deg);z-index:{40 - depth};filter:brightness({max(0.45, 1 - depth * 0.1):.2f})"
         title = (f"<a href='{e(c['url'])}' target='_blank' style='color:#111827'>{e(c['title'])}</a>" if c["url"].startswith("http")
                  else e(c["title"]))
         cards.append(f"<div class='wcard{' new' if c['seq'] > seen else ''}' style='{style}'><div class='bar2'><i></i><i></i><i></i></div>"
                      f"<div class='d'>{e(c['domain'])}</div><div class='t' title='{e(c['title'])}'>{title}</div>"
                      f"<div class='s'>{e(c['snippet'])}</div></div>")
-    lines = "".join(f"<div class='ln{' new' if x['seq'] > seen else ''}' title='{e(x['text'])}'>[{e(x['time'])}] <b>{e(x['tag']):<6}</b> {e(x['text'])}</div>"
+    lines = "".join(f"<div class='ln{' new' if x['seq'] > seen and not first else ''}' title='{e(x['text'])}'>[{e(x['time'])}] <b>{e(x['tag']):<6}</b> {e(x['text'])}</div>"
                     for x in feed["lines"])
     state = "LIVE" if live else "FINISHED"
     empty = "" if cards else (f"<div class='empty'>{'Waiting for the first source…' if live else 'No web sources were logged for this run.'}</div>")
