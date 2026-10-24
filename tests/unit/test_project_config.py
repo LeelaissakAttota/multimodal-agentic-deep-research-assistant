@@ -11,3 +11,13 @@ CONFIG = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 def test_pytest_pythonpath_includes_src_and_root() -> None:
     assert CONFIG["tool"]["pytest"]["ini_options"]["pythonpath"] == ["src", "."]
+
+
+def test_deep_research_eval_console_script_resolves() -> None:
+    import importlib
+
+    target = CONFIG["project"]["scripts"]["deep-research-eval"]
+    module, func = target.split(":")
+    assert target == "deep_research.evaluation.__main__:main"
+    assert callable(getattr(importlib.import_module(module), func))
+    assert getattr(importlib.import_module(module), func)(["--json"]) == 0
