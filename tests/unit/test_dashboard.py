@@ -1,0 +1,188 @@
+"""Dashboard helpers: control client, run store, attachments, display rows, start script."""
+
+from __future__ import annotations
+
+import base64
+import json
+import warnings
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from fastapi.testclient import TestClient
+
+from deep_research.control.api import build_control_app
+from deep_research.control.service import DeepResearchControl, _attachments
+from deep_research.core.config import Settings
+from deep_research.dashboard import core
+from deep_research.dashboard.core import (
+    ControlClient, ControlError, RunStore, build_attachment, citations, claims, local_time, merge_runs,
+    preview_text, provider_health, run_stats, shorten, stage_rows,
+)
+
+TOKEN = "d" * 32
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture()
+def api(tmp_path: Path) -> ControlClient:
+    control = DeepResearchControl(Settings(research_mode="offline"), config_dir=tmp_path)
+    app = build_control_app(control.manager, control.secrets, admin_token=TOKEN, title="deep-research")
+    test_client = TestClient(app)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        resp = test_client.request(request.method, request.url.path, params=request.url.params,
+                                   headers=dict(request.headers), content=request.content)
+        return httpx.Response(resp.status_code, content=resp.content, headers=resp.headers)
+
+    return ControlClient("http://test", TOKEN, transport=httpx.MockTransport(handler))
+
+
+def _wait(api: ControlClient, run_id: str, pred: Any, timeout: float = 15.0) -> dict[str, Any]:
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        run = api.get_run(run_id)
+        if pred(run):
+            return run
+        time.sleep(0.05)
+    raise AssertionError("timeout")
+
+
+def test_client_full_supervised_flow_with_pdf(api: ControlClient) -> None:
+    pdf = (ROOT / "examples/demo-data/data/field_note.pdf").read_bytes()
+    api.update_settings(approval_mode=True, auto_approve_low_risk=False)
+    run = api.create_run("What are SMR benefits?", mode="offline", attachments=[build_attachment("field_note.pdf", pdf)])
+    rid = run["run_id"]
+    for _ in range(30):
+        cur = _wait(api, rid, lambda r: r["pending_approvals"] or r["status"] in core.TERMINAL)
+        if cur["status"] in core.TERMINAL:
+            break
+        api.decide(rid, cur["pending_approvals"][0], "approve")
+    assert cur["status"] == "completed"
+    rows = stage_rows(cur["steps"])
+    assert rows[0].label == "Plan" and rows[-1].label == "Report"
+    assert all(r.state == "succeeded" for r in rows)
+    assert "field_note.pdf" in json.dumps(cur["result"]["report"].get("attachments"))
+
+
+def test_client_reject_stops_research(api: ControlClient) -> None:
+    api.update_settings(approval_mode=True)
+    rid = api.create_run("Reject me", mode="offline")["run_id"]
+    cur = _wait(api, rid, lambda r: r["pending_approvals"])
+    api.decide(rid, cur["pending_approvals"][0], "reject")
+    done = _wait(api, rid, lambda r: r["status"] in core.TERMINAL)
+    assert done["steps"][0]["state"] == "rejected"
+
+
+def test_client_errors_are_safe() -> None:
+    bad = ControlClient("http://127.0.0.1:9", TOKEN, timeout=0.5)
+    with pytest.raises(ControlError, match="not reachable"):
+        bad.health()
+
+
+def test_wrong_token_and_keys_masked(api: ControlClient, tmp_path: Path) -> None:
+    api.set_key("OPENROUTER_API_KEY", "sk-or-v1-abcdefghijklmnop1234")
+    shown = json.dumps(api.keys())
+    assert "abcdefghijklmnop" not in shown and "1234" in shown
+    wrong = ControlClient("http://test", "x" * 32, transport=api._client._transport)
+    with pytest.raises(ControlError, match="401"):
+        wrong.settings()
+    with pytest.raises(ValueError):
+        api.decide("r", "s", "delete")
+
+
+def test_build_attachment_kinds_and_limits() -> None:
+    a = build_attachment("../evil/report.PDF", b"%PDF-1.4")
+    assert a["kind"] == "pdf" and a["name"] == "report.PDF"
+    assert base64.b64decode(a["data"].split(",", 1)[1]) == b"%PDF-1.4"
+    assert build_attachment("chart.jpg", b"x")["data"].startswith("data:image/jpeg;base64,")
+    for name, data in (("a.exe", b"x"), ("a.png", b""), ("a.pdf", b"x" * (core.MAX_ATTACHMENT_BYTES + 1))):
+        with pytest.raises(ValueError):
+            build_attachment(name, data)
+
+
+def test_service_attachment_validation() -> None:
+    assert _attachments(None) == []
+    with pytest.raises(ValueError):
+        _attachments("nope")
+    with pytest.raises(ValueError):
+        _attachments([{"kind": "exe", "data": "x"}])
+
+
+def test_run_store_persists_and_drops_attachment_bytes(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run = {"run_id": "abc123", "status": "completed", "created_at": "2026-10-24T10:00:00+00:00",
+           "params": {"objective": "q", "attachments": [{"kind": "pdf", "name": "f.pdf", "data": "data:xx"}]}}
+    store.save(run)
+    store.save({"run_id": "zzz", "created_at": "2026-10-24T11:00:00+00:00"})
+    again = RunStore(tmp_path / "runs")
+    assert [r["run_id"] for r in again.list()] == ["zzz", "abc123"]
+    assert "data" not in json.dumps(again.get("abc123")["params"]["attachments"])
+    assert again.get("../etc") is None
+    with pytest.raises(ValueError):
+        store.save({"run_id": "../x"})
+
+
+def test_merge_runs_prefers_live() -> None:
+    stored = [{"run_id": "a", "status": "running", "created_at": "1", "result": {"x": 1}},
+              {"run_id": "b", "status": "completed", "created_at": "0"}]
+    live = [{"run_id": "a", "status": "completed", "created_at": "1"}]
+    merged = merge_runs(live, stored)
+    assert merged[0]["status"] == "completed" and merged[0]["result"] == {"x": 1}
+    assert {r["run_id"] for r in merged} == {"a", "b"}
+
+
+def test_display_helpers() -> None:
+    assert shorten("a " * 200, 20).endswith("…") and len(shorten("a " * 200, 20)) <= 20
+    rows = stage_rows([{"index": 0, "step_id": "s", "kind": "planning", "name": "planning (iteration 0)",
+                        "state": "pending_approval", "risk": "low"},
+                       {"index": 1, "kind": "mystery", "state": "failed", "error": "boom"}])
+    assert rows[0].awaiting and rows[0].icon == "!" and rows[0].agent == "planning_agent"
+    assert rows[1].label == "Mystery" and "boom" in rows[1].detail
+    report = {"content": "## Head\n- Attached pdf: x\nBody **bold** [1]", "citations": [
+        {"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2}, "junk"],
+        "claims": [{"text": "C", "evidence_ids": ["e"], "confidence": 0.8}], "evidence_gathered": ["e"]}
+    assert preview_text(report["content"]) == "Body bold [1]"
+    assert citations(report) == [{"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2}]
+    assert claims(report) == [{"text": "C", "evidence": 1, "confidence": "80%"}]
+    run = {"status": "waiting_approval", "step_count": 3,
+           "result": {"report": report, "runtime": {"usage": {"tool_calls": 2, "model_calls": 1, "elapsed_seconds": 4.25}}}}
+    assert run_stats(run) == {"status": "Waiting Approval", "steps": "3", "calls": "3", "evidence": "1", "elapsed": "4.2 s"}
+    assert run_stats({})["calls"] == "–"
+    assert local_time("bad")[:3] == "bad"
+    assert local_time("2026-10-24T10:00:00+00:00").startswith("2026-10-24")
+
+
+def test_provider_health_never_shows_raw_keys() -> None:
+    masked = {"keys": {"OPENROUTER_API_KEY": {"configured": True, "masked": "****wxyz"}}}
+    rows = provider_health(Settings(research_mode="offline"), masked, api_ok=False)
+    by = {r["name"]: r for r in rows}
+    assert by["Control API"]["state"] == "down"
+    assert by["OpenRouter (free LLMs)"]["state"] == "ok" and "****wxyz" in by["OpenRouter (free LLMs)"]["detail"]
+    assert by["Tavily search"]["state"] == "off"
+
+
+def test_start_script_and_app_present() -> None:
+    script = (ROOT / "scripts/start-dashboard.ps1").read_text(encoding="utf-8")
+    assert "8502" in script and "8711" in script and "127.0.0.1" in script
+    assert "Write-Host $env:DEEP_RESEARCH_CONTROL_TOKEN" not in script
+    app = (ROOT / "src/deep_research/dashboard/app.py").read_text(encoding="utf-8")
+    for page in ("New Research", "Live Run", "Report Viewer", "All Runs", "Provider Health", "Settings"):
+        assert page in app
+    assert "dashboard_runs/" in (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_app_smoke_renders_every_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    testing = pytest.importorskip("streamlit.testing.v1")
+    monkeypatch.setenv("DEEP_RESEARCH_DASHBOARD_DIR", str(tmp_path))
+    monkeypatch.setenv("DEEP_RESEARCH_CONTROL_URL", "http://127.0.0.1:9")
+    for page in ("New Research", "Live Run", "Report Viewer", "All Runs", "Provider Health", "Settings"):
+        at = testing.AppTest.from_file(str(ROOT / "src/deep_research/dashboard/app.py"), default_timeout=30)
+        at.session_state["nav"] = page
+        at.run()
+        assert not at.exception, page

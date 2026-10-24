@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import SecretStr
 
 from deep_research.api.research_service import ResearchApplication, ResearchSubmission
+from deep_research.domain.research_request import ResearchAttachment
 from deep_research.control.runtime import AuditLog, ControlRun, ControlSettings, RunManager, Step
 from deep_research.control.secrets_store import SecretStore, default_config_dir
 from deep_research.core.config import Settings
@@ -74,7 +75,10 @@ class DeepResearchControl:
         application = ResearchApplication(self.settings_with_keys(mode if isinstance(mode, str) else None))
         run.log(f"objective: {objective[:200]} (mode={application.settings.research_mode})")
         response = asyncio.run(
-            application.submit(ResearchSubmission(objective=objective), step_gate=ControlGate(run))
+            application.submit(
+                ResearchSubmission(objective=objective, attachments=_attachments(run.params.get("attachments"))),
+                step_gate=ControlGate(run),
+            )
         )
         if run.stopped:
             return response.model_dump(mode="json")
@@ -98,6 +102,16 @@ class DeepResearchControl:
         result = asyncio.run(agent.execute_task(task))
         output = result.output if isinstance(result.output, dict) else {}
         return bool(result.success), output.get("summary"), result.error
+
+
+def _attachments(raw: Any) -> list[ResearchAttachment]:
+    """Validate optional ``params.attachments`` ([{kind, data, name}]) from the dashboard."""
+
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("params.attachments must be a list")
+    return [ResearchAttachment.model_validate(item) for item in raw[:5]]
 
 
 def admin_token_from_env() -> str:

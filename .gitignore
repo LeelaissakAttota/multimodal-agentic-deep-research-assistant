@@ -125,3 +125,6 @@ openrouter_free_models.json
 
 # Stray process files
 *.pid
+
+# dashboard run history (local only)
+dashboard_runs/

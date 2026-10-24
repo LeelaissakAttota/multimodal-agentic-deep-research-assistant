@@ -36,6 +36,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dashboard = [
+    "streamlit>=1.40",
+]
 test = [
     "httpx>=0.27.0",
     "mypy>=1.10.0",
@@ -72,3 +75,7 @@ hide_error_codes = false
 show_error_codes = true
 strict = true
 exclude = ["tests", ".git", "__pycache__", "build", "dist"]
+
+[[tool.mypy.overrides]]
+module = ["streamlit", "streamlit.*"]
+ignore_missing_imports = true
