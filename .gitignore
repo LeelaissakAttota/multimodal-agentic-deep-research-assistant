@@ -122,3 +122,6 @@ openrouter_free_models.json
 
 # demo data folder is not user data
 !examples/demo-data/data/
+
+# Stray process files
+*.pid

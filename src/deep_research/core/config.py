@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     app_name: str = Field(default="Multimodal Agentic Deep Research Assistant")
     environment: str = Field(default="development")
     debug: bool = Field(default=False)
-    version: str = Field(default="0.1.0")
+    version: str = Field(default="1.0.0")
 
     # API
     api_host: str = Field(default="0.0.0.0")

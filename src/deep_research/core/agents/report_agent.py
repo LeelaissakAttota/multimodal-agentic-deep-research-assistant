@@ -39,6 +39,17 @@ class ReportAgent(ABC):
         pass
 
 
+def report_title(state: ResearchState, max_len: int = 120) -> str:
+    """Human-readable title: the research objective when known, else the request id."""
+    objective = state.metadata.get("objective") if isinstance(state.metadata, dict) else None
+    if isinstance(objective, str) and objective.strip():
+        text = " ".join(objective.split())
+        if len(text) > max_len:
+            text = text[: max_len - 1].rstrip() + "…"
+        return f"Research Report: {text}"
+    return f"Research Report for Request {state.request_id}"
+
+
 class DeterministicReportAgent(ReportAgent):
     """
     Deterministic implementation of ReportAgent for Phase 2.
@@ -60,7 +71,7 @@ class DeterministicReportAgent(ReportAgent):
 
         # Create a simple report
         report = {
-            "title": f"Research Report for Request {state.request_id}",
+            "title": report_title(state),
             "content": summary,
             "claims": [
                 {

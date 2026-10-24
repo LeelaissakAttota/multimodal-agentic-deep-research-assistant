@@ -14,7 +14,7 @@ def test_settings_loaded():
         del sys.modules["deep_research.core.config"]
     from deep_research.core.config import settings
     assert settings.app_name == "Multimodal Agentic Deep Research Assistant"
-    assert settings.version == "0.1.0"
+    assert settings.version == "1.0.0"
     assert settings.environment == "development"
     assert settings.debug is False
     assert settings.api_host == "0.0.0.0"

@@ -168,6 +168,7 @@ class MasterResearchOrchestrator:
             request_id=request.id,
             status="initialized",
             status_history=["initialized"],
+            metadata={"objective": request.objective},
         )
         self._plan = None
         self._plans = []
