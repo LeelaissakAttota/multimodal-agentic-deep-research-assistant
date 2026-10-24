@@ -564,6 +564,96 @@ def _export_ready() -> bool:
     return all(importlib.util.find_spec(m) is not None for m in ("fpdf", "docx", "pptx"))
 
 
+def memory_status(vector_dir: Path | None = None) -> dict[str, Any]:
+    """Which long-term memory components are active (no model is loaded to answer this)."""
+
+    import importlib.util
+
+    from deep_research.memory.vector_store import DEFAULT_VECTOR_DIR
+
+    vdir = vector_dir or DEFAULT_VECTOR_DIR
+    has_st = importlib.util.find_spec("sentence_transformers") is not None
+    has_chroma = importlib.util.find_spec("chromadb") is not None
+    on_disk = sum(f.stat().st_size for f in vdir.rglob("*") if f.is_file()) if vdir.exists() else 0
+    return {"embedder": "all-MiniLM-L6-v2 (local)" if has_st else "hashing (deterministic fallback)",
+            "reranker": "ms-marco-MiniLM-L-6-v2 (local)" if has_st else "lexical overlap (fallback)",
+            "vector_store": "Chroma (local)" if has_chroma else "local JSON (fallback)",
+            "path": str(vdir), "bytes_on_disk": on_disk}
+
+
+def memory_items(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Claims and cited sources from saved reports, as indexable memory items."""
+
+    items: dict[str, dict[str, Any]] = {}
+    for r in runs:
+        report = report_of(r)
+        if not report:
+            continue
+        rid = str(r.get("run_id"))
+        for i, c in enumerate(claims(report)):
+            items[f"{rid}:claim:{i}"] = {"kind": "claim", "text": c["text"], "run_id": rid, "title": title_of(r)}
+        for c in citations(report):
+            key = f"source:{c.get('url') or c['title']}"
+            items.setdefault(key, {"kind": "source", "text": str(c["title"]), "run_id": rid, "title": title_of(r),
+                                   "url": c.get("url")})
+    return [{"id": k, **v} for k, v in items.items()]
+
+
+def persistent_memory_search(runs: list[dict[str, Any]], query: str, k: int, vector_dir: Path) -> list[dict[str, Any]]:
+    """Search the on-disk long-term vector store written by research runs; [] when absent/unusable."""
+
+    if not vector_dir.is_dir() or not any(vector_dir.iterdir()):
+        return []
+    try:
+        from deep_research.memory.embeddings import get_embedder
+        from deep_research.memory.reranker import LexicalReranker
+        from deep_research.memory.vector_store import get_vector_store
+
+        store = get_vector_store(vector_dir)
+        if store.count() == 0:
+            return []
+        hits = [h for h in store.search(get_embedder().embed([query])[0], k * 3) if h.score > 0]
+    except Exception:  # noqa: BLE001 - corrupt store / dimension mismatch -> fall back
+        return []
+    by_session = {str((r.get("result") or {}).get("session_id")): r for r in runs if isinstance(r.get("result"), dict)}
+    rr = LexicalReranker().score(query, [h.text for h in hits])
+    ranked = sorted(zip(hits, rr), key=lambda p: (-(0.5 * p[0].score + 0.5 * p[1]), p[0].id))
+    out = []
+    for h, r in ranked[:k]:
+        run = by_session.get(str(h.metadata.get("session_id")))
+        out.append({"id": h.id, "kind": "memory", "text": shorten(h.text, 240), "score": round(0.5 * h.score + 0.5 * r, 3),
+                    "run_id": run.get("run_id") if run else None,
+                    "title": title_of(run) if run else f"session {str(h.metadata.get('session_id'))[:8]}",
+                    "backend": "persistent"})
+    return out
+
+
+def memory_search(runs: list[dict[str, Any]], query: str, k: int = 10,
+                  vector_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Semantic search: the persistent vector store when present, else an in-memory index of saved runs."""
+
+    if vector_dir is not None and query.strip():
+        persistent = persistent_memory_search(runs, query, k, vector_dir)
+        if persistent:
+            return persistent
+
+    from deep_research.memory.embeddings import HashingEmbedder
+    from deep_research.memory.reranker import LexicalReranker
+    from deep_research.memory.vector_store import LocalVectorStore
+
+    items = memory_items(runs)
+    if not query.strip() or not items:
+        return []
+    emb, store = HashingEmbedder(), LocalVectorStore()
+    store.upsert([i["id"] for i in items], emb.embed([i["text"] for i in items]), [i["text"] for i in items],
+                 [{"n": n} for n in range(len(items))])
+    hits = [h for h in store.search(emb.embed([query])[0], k * 3) if h.score > 0]
+    rr = LexicalReranker().score(query, [h.text for h in hits])
+    ranked = sorted(zip(hits, rr), key=lambda p: (-(0.5 * p[0].score + 0.5 * p[1]), p[0].id))
+    by_id = {i["id"]: i for i in items}
+    return [{**by_id[h.id], "score": round(0.5 * h.score + 0.5 * r, 3), "backend": "in-memory"} for h, r in ranked[:k]]
+
+
 def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -> list[dict[str, str]]:
     """Real engine tools with an honest state: on / needs key / offline only / coming soon."""
 

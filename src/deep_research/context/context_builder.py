@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from typing import TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -9,6 +11,57 @@ from pydantic import BaseModel, Field
 from deep_research.domain.research.research_state import EvaluationRecord, ResearchState
 from deep_research.domain.research_request import ResearchRequest
 from deep_research.memory.research_memory import MemoryQuery, MemoryRecord, ResearchMemory
+
+
+T = TypeVar("T")
+CHARS_PER_TOKEN = 4
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_WORD = re.compile(r"[\w]+", re.UNICODE)
+
+
+def estimate_tokens(text: str) -> int:
+    """Cheap, model-agnostic token estimate (~4 characters per token)."""
+
+    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+def sliding_window(items: list[T], size: int, stride_from_end: int = 0) -> list[T]:
+    """The ``size`` most recent items, optionally skipping ``stride_from_end`` newest ones."""
+
+    if size <= 0:
+        return []
+    end = len(items) - max(stride_from_end, 0)
+    return items[max(0, end - size) : max(end, 0)]
+
+
+def compress_text(text: str, query: str, budget: int) -> str:
+    """Extractive compression: keep the sentences most relevant to ``query`` (in original order).
+
+    Returns ``text`` unchanged when it already fits; never exceeds ``budget`` characters.
+    """
+
+    if budget <= 0:
+        return ""
+    if len(text) <= budget:
+        return text
+    terms = {w.casefold() for w in _WORD.findall(query) if len(w) > 2}
+    sentences = [x for x in _SENTENCE.split(text.strip()) if x]
+    if not sentences:
+        return ""
+    ranked = sorted(
+        range(len(sentences)),
+        key=lambda i: (-len(terms & {w.casefold() for w in _WORD.findall(sentences[i])}), i),
+    )
+    keep: list[int] = []
+    used = 0
+    for i in ranked:
+        cost = len(sentences[i]) + (1 if keep else 0)
+        if used + cost <= budget:
+            keep.append(i)
+            used += cost
+    if not keep:
+        return sentences[ranked[0]][:budget]
+    return " ".join(sentences[i] for i in sorted(keep))
 
 
 class ContextPolicy(BaseModel):
@@ -21,6 +74,18 @@ class ContextPolicy(BaseModel):
     max_task_ids: int = Field(default=25, ge=0, le=250)
     max_candidate_sessions: int = Field(default=25, ge=1, le=100)
     candidate_multiplier: int = Field(default=3, ge=1, le=10)
+    max_tokens: int | None = Field(default=None, ge=25, le=25_000)
+    compress_evidence: bool = False
+    max_evidence_characters: int = Field(default=1_200, ge=50, le=20_000)
+    reflection_window_iterations: int | None = Field(default=None, ge=1, le=100)
+
+    @property
+    def character_budget(self) -> int:
+        """Effective text budget: ``max_characters`` capped by the token budget, if any."""
+
+        if self.max_tokens is None:
+            return self.max_characters
+        return min(self.max_characters, self.max_tokens * CHARS_PER_TOKEN)
 
 
 class ContextEvidence(BaseModel):
@@ -59,6 +124,9 @@ class AgentContext(BaseModel):
     omitted_evidence_count: int = Field(default=0, ge=0)
     text_character_count: int = Field(default=0, ge=0)
     selection_trace: list[str] = Field(default_factory=list)
+    estimated_tokens: int = Field(default=0, ge=0)
+    token_budget: int | None = None
+    compressed_evidence_count: int = Field(default=0, ge=0)
 
 
 class ResearchContextBuilder:
@@ -74,10 +142,11 @@ class ResearchContextBuilder:
         state: ResearchState,
         current_task: str | None = None,
     ) -> AgentContext:
+        budget = self.policy.character_budget
         character_count = 0
-        objective, used = self._take(request.objective, self.policy.max_characters)
+        objective, used = self._take(request.objective, budget)
         character_count += used
-        remaining = self.policy.max_characters - character_count
+        remaining = budget - character_count
 
         bounded_task: str | None = None
         if current_task and remaining > 0:
@@ -94,29 +163,25 @@ class ResearchContextBuilder:
             character_count += used
             remaining -= used
 
-        reflections: list[EvaluationRecord] = []
-        reflection_candidates = state.evaluation_history[-self.policy.max_reflections :]
-        if self.policy.max_reflections == 0:
-            reflection_candidates = []
-        for record in reflection_candidates:
-            if remaining <= 0:
-                break
-            bounded_record, used = self._bound_reflection(record, remaining)
-            reflections.append(bounded_record)
-            character_count += used
-            remaining -= used
+        reflections, used = self._select_reflections(state, remaining)
+        character_count += used
+        remaining -= used
 
         records = self._query_memory(request.objective, current_task)
 
         selected: list[ContextEvidence] = []
         trace: list[str] = []
+        compressed = 0
+        query_text = " ".join(x for x in (request.objective, current_task or "") if x)
         for mem in records:
             if len(selected) >= self.policy.max_evidence or remaining <= 0:
                 break
-            excerpt, used = self._take(mem.evidence.content, remaining)
+            content = mem.evidence.content
+            excerpt, used = self._excerpt(content, query_text, remaining)
+            compressed += int(self.policy.compress_evidence and excerpt != content)
             if not excerpt:
                 break
-            truncated = len(excerpt) < len(mem.evidence.content)
+            truncated = len(excerpt) < len(content)
             selected.append(
                 ContextEvidence(
                     session_id=mem.session_id,
@@ -156,7 +221,32 @@ class ResearchContextBuilder:
             omitted_evidence_count=max(0, len(records) - len(selected)),
             text_character_count=character_count,
             selection_trace=trace,
+            estimated_tokens=(character_count + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN,
+            token_budget=self.policy.max_tokens,
+            compressed_evidence_count=compressed,
         )
+
+    def _select_reflections(self, state: ResearchState, remaining: int) -> tuple[list[EvaluationRecord], int]:
+        history = state.evaluation_history
+        if self.policy.reflection_window_iterations is not None:
+            floor = state.iteration_number - self.policy.reflection_window_iterations + 1
+            history = [r for r in history if r.iteration_number >= floor]
+        reflections: list[EvaluationRecord] = []
+        total = 0
+        for record in sliding_window(history, self.policy.max_reflections):
+            if remaining <= 0:
+                break
+            bounded_record, used = self._bound_reflection(record, remaining)
+            reflections.append(bounded_record)
+            total += used
+            remaining -= used
+        return reflections, total
+
+    def _excerpt(self, content: str, query_text: str, remaining: int) -> tuple[str, int]:
+        if not self.policy.compress_evidence:
+            return self._take(content, remaining)
+        squeezed = compress_text(content, query_text, min(remaining, self.policy.max_evidence_characters))
+        return squeezed, len(squeezed)
 
     def _query_memory(
         self, objective: str, current_task: str | None

@@ -1,7 +1,7 @@
 import os
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import field_validator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from deep_research.runtime.contracts import RuntimeLimits
@@ -85,6 +85,16 @@ class Settings(BaseSettings):
     agent_max_plan_tasks: int = Field(default=4, ge=1, le=8)
     agent_tool_steps: int = Field(default=3, ge=0, le=6)
     agent_decision_budget_seconds: float = Field(default=40.0, gt=0, le=120)
+
+    # Long-term memory: "auto" = semantic (embeddings + vector store + rerank) when chromadb or
+    # sentence-transformers is installed, lexical BoundedResearchMemory otherwise; "off" disables it.
+    long_term_memory: Literal["auto", "semantic", "lexical", "off"] = Field(default="auto")
+    memory_dir: str = Field(default="data")
+
+    @field_validator("long_term_memory", mode="before")
+    @classmethod
+    def _normalize_memory_mode(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
 
     model_config = SettingsConfigDict(
         # DEEP_RESEARCH_ENV_FILE lets tests (and ops) point at another file, or a missing one to skip .env.

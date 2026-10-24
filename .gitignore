@@ -128,3 +128,6 @@ openrouter_free_models.json
 
 # dashboard run history (local only)
 dashboard_runs/
+
+# Phase 3 local vector store (Chroma / JSON fallback)
+data/vector_store/
