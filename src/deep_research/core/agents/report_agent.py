@@ -105,13 +105,17 @@ class DeterministicReportAgent(ReportAgent):
         return report
 
     async def _verify(self, report: Dict[str, Any], excerpts: Dict[int, str]) -> None:
+        from deep_research.verification.contradictions import contradictions_markdown, find_contradictions
         from deep_research.verification.fact_check import ClaimVerifier, extract_claims, verification_markdown
 
         verifier = self.verifier or ClaimVerifier()
-        content = str(report.get("content") or "")
-        result = await verifier.verify(extract_claims(content), excerpts)
+        claims = extract_claims(str(report.get("content") or ""))
+        result = await verifier.verify(claims, excerpts)
         report["verification"] = result
+        conflicts = find_contradictions(claims, result)
+        report["contradictions"] = conflicts
         insert_section(report, verification_markdown(result))
+        insert_section(report, contradictions_markdown(conflicts, claim_count=len(claims)))
 
 
 _CITE = r"\[(\d+(?:\s*[,\u2013-]\s*\d+)*)\]"
