@@ -8,7 +8,7 @@ report and as native charts in the dashboard viewer. No plotting dependency.
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
 from deep_research.verification.text import citation_numbers
@@ -62,7 +62,7 @@ def _citations_per_section(content: str) -> list[tuple[str, float]]:
     return list(out.items())
 
 
-def charts_markdown(charts: list[Mapping[str, Any]], *, width: int = 24) -> str:
+def charts_markdown(charts: Sequence[Mapping[str, Any]], *, width: int = 24) -> str:
     """Text bar charts in fenced blocks so they render the same in any Markdown viewer and in exports."""
     if not charts:
         return ""

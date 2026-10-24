@@ -37,3 +37,9 @@ def test_report_agent_embeds_charts() -> None:
     report = asyncio.run(DeterministicReportAgent().generate_report(state, {}))
     assert {c["id"] for c in report["charts"]} == {"verification", "section_citations", "source_domains"}
     assert report["content"].index("## Charts") < report["content"].index("## Sources")
+
+
+def test_charts_markdown_accepts_build_charts_output_and_tuples() -> None:
+    report = {"content": "## A\n\nX [1].", "citations": [{"url": "https://a.org"}]}
+    assert charts_markdown(build_charts(report)).startswith("## Charts")
+    assert charts_markdown(tuple(build_charts(report))).startswith("## Charts")
