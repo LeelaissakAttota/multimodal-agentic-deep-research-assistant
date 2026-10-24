@@ -23,6 +23,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
+from deep_research.evidence.scoring import credibility
+
 DEFAULT_API_URL = "http://127.0.0.1:8711"
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 PDF_TYPES = {"pdf": "application/pdf"}
@@ -267,7 +269,8 @@ def citations(report: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(c, dict):
             out.append({"number": c.get("number"), "title": shorten(str(c.get("title") or "Untitled source"), 120),
                         "url": c.get("url"), "kind": c.get("kind") or ("web" if c.get("url") else "source"),
-                        "page": c.get("page")})
+                        "page": c.get("page"),
+                        "credibility": c.get("credibility") or credibility(c.get("url"), kind=c.get("kind"))})
     return out
 
 

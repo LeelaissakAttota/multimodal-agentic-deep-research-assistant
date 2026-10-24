@@ -518,6 +518,21 @@ def research_view(run_id: str, status: str) -> None:
         unsafe_allow_html=True)
 
 
+_CRED_COLORS = {"High": ("#065f46", "#a7f3d0"), "Provided": ("#1e3a8a", "#bfdbfe"), "Medium": ("#78350f", "#fde68a"),
+                "Unverified": ("#374151", "#e5e7eb"), "Low": ("#7f1d1d", "#fecaca")}
+
+
+def cred_badge(cred: Any) -> str:
+    """Small coloured credibility pill with the heuristic reason as a tooltip."""
+
+    if not isinstance(cred, dict) or "label" not in cred:
+        return ""
+    bg, fg = _CRED_COLORS.get(str(cred["label"]), _CRED_COLORS["Unverified"])
+    return (f"<span class='cred' title='Credibility {float(cred.get('score', 0)):.2f}: {e(str(cred.get('reason', '')))}' "
+            f"style='background:{bg};color:{fg};border-radius:999px;padding:1px 8px;font-size:11px;white-space:nowrap'>"
+            f"{e(str(cred['label']))} {float(cred.get('score', 0)):.0%}</span>")
+
+
 def cits(report: dict[str, Any], limit: int | None = None) -> None:
     rows = citations(report)
     st.markdown(f"<div class='ph'>Citations ({len(rows)})</div>", unsafe_allow_html=True)
@@ -528,7 +543,8 @@ def cits(report: dict[str, Any], limit: int | None = None) -> None:
         name = f"<a href='{e(url)}' target='_blank' style='color:#c3cdea'>{title}</a>" if url.startswith("http") else title
         where = e(url.split('/')[2]) if url.startswith("http") else e(f"{c['kind']}{' p.' + str(c['page']) if c.get('page') else ''}")
         out.append(f"<div class='row'><span class='cit'>[{e(str(c['number']))}]</span><div class='tx'>"
-                   f"<div class='tt' style='font-weight:500' title='{title}'>{name}</div><div class='ts'>{where}</div></div></div>")
+                   f"<div class='tt' style='font-weight:500' title='{title}'>{name}</div><div class='ts'>{where} "
+                   f"{cred_badge(c.get('credibility'))}</div></div></div>")
     st.markdown("".join(out) or "<div class='muted'>No numbered citations in this report.</div>", unsafe_allow_html=True)
 
 
@@ -649,14 +665,15 @@ def page_sources() -> None:
         body = "".join(f"<div class='row'><div class='sq {'c1' if source_kind(r) == 'Web' else 'c3'}'>{'🌐' if source_kind(r) == 'Web' else '📄'}</div>"
                        f"<div class='tx'><div class='tt' title='{e(str(r['title']))}'>"
                        + (f"<a href='{e(str(r['url']))}' target='_blank' style='color:#e6ecff'>{e(str(r['title']))}</a>" if r.get('url') else e(str(r['title'])))
-                       + f"</div><div class='ts'>{e(r['domain'])}</div></div><div class='rt'>used in {len(r['runs'])} run(s)</div></div>"
+                       + f"</div><div class='ts'>{e(r['domain'])} {cred_badge(r.get('credibility'))}</div></div><div class='rt'>used in {len(r['runs'])} run(s)</div></div>"
                        for r in show[:80])
         st.markdown(f"<div class='panel'><div class='ph'>Cited sources ({len(show)})</div>"
                     f"{body or '<div class=muted>No cited sources yet. Live runs cite real web pages.</div>'}</div>", unsafe_allow_html=True)
     with right:
         kv = [("Default search engine", {"auto": "Auto (Tavily → DuckDuckGo)", "duckduckgo": "DuckDuckGo", "tavily": "Tavily"}[s.search_provider]),
               ("Search results per task", str(s.live_max_search_results)), ("Pages fetched per task", str(s.live_max_fetch_pages)),
-              ("File upload limit", "20 MB · up to 5 files"), ("Supported file types", "PDF, PNG, JPG, WEBP, GIF")]
+              ("File upload limit", "20 MB · up to 5 files"), ("Supported file types", "PDF, DOCX, PPTX, TXT, MD, PNG, JPG, WEBP, GIF"),
+              ("Credibility scoring", "domain heuristic (gov/edu/journals high, blogs low)")]
         st.markdown("<div class='panel'><div class='ph'>Source Settings</div>" + "".join(
             f"<div class='kv'><span>{e(a)}</span><span title='{e(b)}'>{e(b)}</span></div>" for a, b in kv)
             + "<div class='muted' style='margin-top:8px'>Change these in .env (DEEP_RESEARCH_*).</div></div>", unsafe_allow_html=True)

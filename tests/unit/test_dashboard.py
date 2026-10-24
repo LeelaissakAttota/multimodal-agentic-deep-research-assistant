@@ -148,7 +148,8 @@ def test_display_helpers() -> None:
         {"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2}, "junk"],
         "claims": [{"text": "C", "evidence_ids": ["e"], "confidence": 0.8}], "evidence_gathered": ["e"]}
     assert preview_text(report["content"]) == "Body bold [1]"
-    assert citations(report) == [{"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2}]
+    assert citations(report) == [{"number": 1, "title": "T", "url": None, "kind": "attachment", "page": 2,
+                                 "credibility": {"score": 0.85, "label": "Provided", "reason": "user-attached file (primary material)"}}]
     assert claims(report) == [{"text": "C", "evidence": 1, "confidence": "80%"}]
     run = {"status": "waiting_approval", "step_count": 3,
            "result": {"report": report, "runtime": {"usage": {"tool_calls": 2, "model_calls": 1, "elapsed_seconds": 4.25}}}}
