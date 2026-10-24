@@ -357,7 +357,7 @@ def keys_or_none() -> dict[str, Any] | None:
 
 # ----- New Research (+ live run / report views) ---------------------------------------------------
 def page_new() -> None:
-    head("New Research", "Start a new research project. Ask a question, upload files, or give a direct PDF/image link.")
+    head("New Research", "Start a new research project. Ask a question, upload files, or link a web page or file.")
     p = prefs.load()
     left, right = st.columns([1.6, 1], gap="medium")
     with left, st.container(border=True):
@@ -600,8 +600,9 @@ def export_buttons(report: dict[str, Any], run_id: str) -> None:
     from deep_research.export import FORMATS, ExportUnavailable, export_filename, export_report
 
     st.markdown("<div class='ph' style='margin-top:10px'>Export report</div>", unsafe_allow_html=True)
-    cols = st.columns(5)
-    for col, (fmt, label) in zip(cols, (("pdf", "PDF"), ("docx", "DOCX"), ("pptx", "PPTX"), ("json", "JSON"), ("md", "MD"))):
+    cols = [*st.columns(3), *st.columns(2)]  # two rows so labels never truncate in the side panel
+    for col, (fmt, label) in zip(cols, (("pdf", "⤓ PDF"), ("docx", "⤓ Word"), ("pptx", "⤓ Slides"), ("json", "⤓ JSON"),
+                                        ("md", "⤓ Markdown"))):
         try:
             data = export_report(report, fmt)
         except ExportUnavailable as exc:
