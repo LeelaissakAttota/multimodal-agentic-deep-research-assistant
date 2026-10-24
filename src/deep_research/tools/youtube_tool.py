@@ -11,6 +11,7 @@ is downloaded and flattened to text. Videos without captions are reported in
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import xml.etree.ElementTree as ET  # noqa: S405 - YouTube timed-text XML, no entity expansion
@@ -33,6 +34,7 @@ from deep_research.tools.source_common import (
 from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
 YOUTUBE_TOOL_ID = "youtube_transcript"
+logger = logging.getLogger(__name__)
 WATCH_URL = "https://www.youtube.com/watch"
 RESULTS_URL = "https://www.youtube.com/results"
 _BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
@@ -113,25 +115,40 @@ class YouTubeTranscriptTool(Tool):
                 try:
                     ids = await self._search(client, query, limit)
                 except (httpx.HTTPError, ValueError) as exc:
+                    logger.warning("YouTube search failed (%s); falling back to web search", error_kind(exc))
                     return fail(YOUTUBE_TOOL_ID, start, "YouTube search failed.", error_kind(exc))
-            rows: list[dict[str, str]] = []
-            for vid in [i for i in ids if i][:limit]:
-                try:
-                    row = await self._transcript(client, vid)
-                except (httpx.HTTPError, ValueError, KeyError, TypeError, ET.ParseError) as exc:
-                    errors[vid] = error_kind(exc)
-                    continue
-                if row is None:
-                    errors[vid] = "no_captions"
-                else:
-                    rows.append(row)
+            rows = await self._transcripts(client, [i for i in ids if i][:limit], errors)
         finally:
             if self._client is None:
                 await client.aclose()
         if not rows:
-            return fail(YOUTUBE_TOOL_ID, start, "No transcript available for the requested video(s).",
+            logger.warning("YouTube: no transcript for %d video(s) %s; falling back to web search", len(errors), errors)
+            return fail(YOUTUBE_TOOL_ID, start, "No captions available for the requested video(s); falling back to web search.",
                         "no_transcript", provider_errors=errors)
         return ok(YOUTUBE_TOOL_ID, start, rows, "youtube_captions", errors)
+
+    async def _transcripts(self, client: httpx.AsyncClient, ids: list[str],
+                           errors: dict[str, str]) -> list[dict[str, str]]:
+        """Fetch each video's transcript; failures are logged and recorded in ``errors``."""
+        rows: list[dict[str, str]] = []
+        for vid in ids:
+            try:
+                row = await self._transcript(client, vid)
+            except _NoCaptions as exc:
+                logger.warning("YouTube %s: no captions available (%s)", vid, exc)
+                errors[vid] = "no_captions"
+                continue
+            except httpx.HTTPStatusError as exc:
+                logger.warning("YouTube %s: HTTP %s fetching %s", vid, exc.response.status_code,
+                               "caption track" if "timedtext" in str(exc.request.url) else "watch page")
+                errors[vid] = error_kind(exc)
+                continue
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, ET.ParseError) as exc:
+                logger.warning("YouTube %s: transcript failed (%s)", vid, error_kind(exc))
+                errors[vid] = error_kind(exc)
+                continue
+            rows.append(row)
+        return rows
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int) -> list[str | None]:
         response = await client.get(RESULTS_URL, params={"search_query": query},
@@ -146,29 +163,41 @@ class YouTubeTranscriptTool(Tool):
                 break
         return found
 
-    async def _transcript(self, client: httpx.AsyncClient, vid: str) -> dict[str, str] | None:
+    async def _transcript(self, client: httpx.AsyncClient, vid: str) -> dict[str, str]:
         page = await client.get(WATCH_URL, params={"v": vid}, timeout=self._timeout,
                                 headers={"User-Agent": _BROWSER_UA, "Accept-Language": "en"})
         page.raise_for_status()
         match = _TRACKS.search(page.text)
         if not match:
-            return None
-        tracks: list[dict[str, Any]] = json.loads(match.group(1))
+            raise _NoCaptions("watch page lists no caption tracks (or a consent/bot page was served)")
+        try:
+            tracks: list[dict[str, Any]] = json.loads(match.group(1))
+        except ValueError as exc:
+            raise _NoCaptions("caption track list unreadable") from exc
         track = _pick_track(tracks, self._lang)
         if track is None:
-            return None
+            raise _NoCaptions("no usable caption track")
         caption = await client.get(str(track["baseUrl"]).replace("\\u0026", "&"), timeout=self._timeout,
                                    headers={"User-Agent": _BROWSER_UA})
         caption.raise_for_status()
-        text = _caption_text(caption.text)
+        if not caption.text.strip():
+            raise _NoCaptions("caption download was empty")
+        try:
+            text = _caption_text(caption.text)
+        except ET.ParseError as exc:
+            raise _NoCaptions("caption download was not readable XML") from exc
         if not text:
-            return None
+            raise _NoCaptions("caption track has no text")
         title_match = _TITLE.search(page.text)
         title = clean(title_match.group(1)) if title_match else f"YouTube video {vid}"
         return hit(title=title, url=f"https://www.youtube.com/watch?v={vid}", snippet=text[:300],
                    content=text[: self._max_chars], source_type="video", provider="youtube",
                    video_id=vid, language=str(track.get("languageCode") or ""),
                    caption_kind="auto" if track.get("kind") == "asr" else "manual")
+
+
+class _NoCaptions(Exception):
+    """The video has no caption text we can read (not a transport error)."""
 
 
 def _ids_in_text(text: str) -> list[str | None]:

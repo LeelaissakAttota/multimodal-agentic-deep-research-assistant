@@ -93,3 +93,46 @@ def test_invalid_inputs() -> None:
     tool = YouTubeTranscriptTool(http_client=_client([]))
     assert _run(tool).metadata["failure_kind"] == "invalid_input"
     assert _run(tool, video="https://example.com/x").metadata["failure_kind"] == "invalid_input"
+
+
+def _custom(handler: Any) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_empty_caption_download_is_no_captions_not_malformed(caplog: Any) -> None:
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=WATCH if request.url.path == "/watch" else "")
+
+    with caplog.at_level(logging.WARNING, logger="deep_research.tools.youtube_tool"):
+        result = _run(YouTubeTranscriptTool(http_client=_custom(handler)), video=VID)
+    assert not result.success and result.metadata["provider_errors"] == {VID: "no_captions"}
+    assert "no captions available (caption download was empty)" in caplog.text
+    assert "falling back to web search" in caplog.text
+    assert "No captions available" in (result.error or "")
+
+
+def test_watch_page_and_caption_http_failures_are_logged(caplog: Any) -> None:
+    import logging
+
+    def watch_down(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429)
+
+    def caption_down(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=WATCH) if request.url.path == "/watch" else httpx.Response(403)
+
+    with caplog.at_level(logging.WARNING, logger="deep_research.tools.youtube_tool"):
+        a = _run(YouTubeTranscriptTool(http_client=_custom(watch_down)), video=VID)
+        b = _run(YouTubeTranscriptTool(http_client=_custom(caption_down)), video=VID)
+    assert a.metadata["provider_errors"] == {VID: "http_429"}
+    assert b.metadata["provider_errors"] == {VID: "http_403"}
+    assert "HTTP 429 fetching watch page" in caplog.text and "HTTP 403 fetching caption track" in caplog.text
+
+
+def test_unreadable_caption_xml_is_no_captions() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=WATCH if request.url.path == "/watch" else "<not xml")
+
+    result = _run(YouTubeTranscriptTool(http_client=_custom(handler)), video=VID)
+    assert result.metadata["provider_errors"] == {VID: "no_captions"}
