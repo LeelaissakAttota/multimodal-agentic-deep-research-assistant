@@ -126,3 +126,33 @@ def test_limit_is_capped() -> None:
 def test_inverted_abstract_handles_garbage() -> None:
     assert _inverted_abstract(None) == ""
     assert _inverted_abstract({"b": [1], "a": [0], "x": "bad"}) == "a b"
+
+
+def test_semantic_scholar_429_logs_and_skips_cleanly(caplog: Any) -> None:
+    import logging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "semanticscholar" in request.url.host:
+            return httpx.Response(429)
+        if "openalex" in request.url.host:
+            return httpx.Response(200, json={"results": [{"id": "https://openalex.org/W1", "display_name": "T"}]})
+        return httpx.Response(200, text='<feed xmlns="http://www.w3.org/2005/Atom"></feed>')
+
+    tool = AcademicSearchTool(http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with caplog.at_level(logging.WARNING, logger="deep_research.tools.academic_tool"):
+        result = asyncio.run(tool.execute(ToolRequest(tool_name=ACADEMIC_TOOL_ID, parameters={"query": "rag"})))
+    assert result.success
+    assert result.metadata["provider_errors"] == {"semantic_scholar": "http_429"}
+    assert "Semantic Scholar rate-limited (HTTP 429); skipping" in caplog.text
+
+
+def test_mixed_items_skip_non_dicts_with_log(caplog: Any) -> None:
+    import logging
+
+    body = {"data": ["oops", {"title": "Ok", "url": "https://s2.org/p/1"}]}
+    tool = AcademicSearchTool(provider="semantic_scholar", http_client=httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))))
+    with caplog.at_level(logging.WARNING, logger="deep_research.tools.academic_tool"):
+        result = asyncio.run(tool.execute(ToolRequest(tool_name=ACADEMIC_TOOL_ID, parameters={"query": "rag"})))
+    assert result.success and len(result.output.results) == 1
+    assert "skipped 1 malformed result item" in caplog.text

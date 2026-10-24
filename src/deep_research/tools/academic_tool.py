@@ -7,6 +7,7 @@ skipped (recorded in ``errors``); the tool only fails when every provider fails.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 import xml.etree.ElementTree as ET  # noqa: S405 - arXiv Atom feed, no DTD/entities expanded by ElementTree
@@ -37,6 +38,38 @@ PROVIDERS = ("arxiv", "semantic_scholar", "openalex")
 _ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
 Backend = Callable[[httpx.AsyncClient, str, int], Awaitable[list[dict[str, str]]]]
+
+
+
+logger = logging.getLogger(__name__)
+_LABELS = {"arxiv": "arXiv", "semantic_scholar": "Semantic Scholar", "openalex": "OpenAlex"}
+
+
+def _log_provider_error(name: str, exc: Exception) -> None:
+    label = _LABELS.get(name, name)
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        logger.warning("%s rate-limited (HTTP 429); skipping this provider", label)
+    elif isinstance(exc, httpx.HTTPStatusError):
+        logger.warning("%s returned HTTP %s; skipping this provider", label, exc.response.status_code)
+    else:
+        logger.warning("%s failed (%s); skipping this provider", label, error_kind(exc))
+
+
+def _items(response: httpx.Response, key: str, provider: str) -> list[dict[str, Any]]:
+    """Return the dict items under ``key``; wrong-shaped payloads raise ValueError, stray items are skipped."""
+    body = response.json()
+    if not isinstance(body, dict):
+        raise ValueError(f"{provider}: expected a JSON object, got {type(body).__name__}")
+    items = body.get(key) or []
+    if not isinstance(items, list):
+        raise ValueError(f"{provider}: '{key}' is not a list")
+    good = [i for i in items if isinstance(i, dict)]
+    if len(good) < len(items):
+        logger.warning("%s: skipped %d malformed result item(s)", _LABELS.get(provider, provider),
+                       len(items) - len(good))
+        if not good:
+            raise ValueError(f"{provider}: no well-formed result items")
+    return good
 
 
 class AcademicSearchTool(Tool):
@@ -83,8 +116,9 @@ class AcademicSearchTool(Tool):
             for name in names:
                 try:
                     merged.extend(await backends[name](client, query, limit))
-                except (httpx.HTTPError, ValueError, KeyError, TypeError, ET.ParseError) as exc:
+                except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError, ET.ParseError) as exc:
                     errors[name] = error_kind(exc)
+                    _log_provider_error(name, exc)
         finally:
             if self._client is None:
                 await client.aclose()
@@ -123,7 +157,7 @@ class AcademicSearchTool(Tool):
             "query": query, "limit": limit,
             "fields": "title,url,abstract,year,authors,venue,externalIds,citationCount"})
         rows = []
-        for paper in response.json().get("data") or []:
+        for paper in _items(response, "data", "semantic_scholar"):
             ext = paper.get("externalIds") or {}
             url = paper.get("url") or (f"https://doi.org/{ext['DOI']}" if ext.get("DOI") else "")
             if not url:
@@ -140,7 +174,7 @@ class AcademicSearchTool(Tool):
     async def _openalex(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict[str, str]]:
         response = await self._get(client, OPENALEX_URL, {"search": query, "per-page": limit})
         rows = []
-        for work in response.json().get("results") or []:
+        for work in _items(response, "results", "openalex"):
             doi = str(work.get("doi") or "")
             location = work.get("primary_location") or {}
             url = doi or location.get("landing_page_url") or str(work.get("id") or "")

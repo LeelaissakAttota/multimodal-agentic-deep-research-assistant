@@ -112,16 +112,12 @@ def test_academic_missing_fields_skipped() -> None:
     assert res.success and res.output.results == []
 
 
-@pytest.mark.xfail(strict=True, raises=AttributeError,
-                   reason="BUG: JSON list body -> .get AttributeError not caught (academic_tool.py:117/137)")
 def test_academic_json_list_body_should_not_crash() -> None:
     res = _run(AcademicSearchTool(provider="semantic_scholar", http_client=_client(
         lambda r: httpx.Response(200, json=["x"]))), query="x")
     assert not res.success
 
 
-@pytest.mark.xfail(strict=True, raises=AttributeError,
-                   reason="BUG: non-dict item in data -> paper.get AttributeError not caught (academic_tool.py:118)")
 def test_academic_non_dict_item_should_not_crash() -> None:
     res = _run(AcademicSearchTool(provider="semantic_scholar", http_client=_client(
         lambda r: httpx.Response(200, json={"data": ["oops"]}))), query="x")
