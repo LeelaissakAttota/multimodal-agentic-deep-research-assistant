@@ -14,20 +14,26 @@ ATTACHMENT_TOOLS: dict[str, tuple[str, str]] = {
     "image": ("image_analyzer", "image_data"),
     "document": ("document_parser", "document_data"),
     "url": ("web_page_reader", "page_url"),
+    "media": ("media_analyzer", "media_data"),
 }
 
 
 class ResearchAttachment(BaseModel):
     """A multimodal input embedded as a base64 data URL."""
 
-    kind: Literal["pdf", "image", "document", "url"] = Field(..., description="Attachment type")
+    kind: Literal["pdf", "image", "document", "url", "media"] = Field(..., description="Attachment type")
     data: str = Field(..., min_length=1, max_length=28_000_000,
-                      description="data:<mime>;base64,<payload>, or an http(s) page URL when kind is 'url'")
+                      description="data:<mime>;base64,<payload>, or an http(s) page URL when kind is 'url'; "
+                      "'media' (audio/video) takes either")
     name: str | None = Field(default=None, max_length=200, description="Optional display name")
 
     @model_validator(mode="after")
     def _check_data(self) -> "ResearchAttachment":
-        if self.kind == "url":
+        is_link = self.data.lower().startswith(("http://", "https://"))
+        if self.kind == "media" and is_link:
+            if len(self.data) > 2_000 or any(c.isspace() for c in self.data):
+                raise ValueError("a 'media' link must be one http(s) URL (max 2000 chars)")
+        elif self.kind == "url":
             if not self.data.lower().startswith(("http://", "https://")) or len(self.data) > 2_000 or any(
                     c.isspace() for c in self.data):
                 raise ValueError("a 'url' attachment needs one http(s) link (max 2000 chars)")

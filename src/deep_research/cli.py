@@ -16,6 +16,7 @@ import asyncio
 import base64
 import json
 import mimetypes
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -28,17 +29,24 @@ from deep_research.tools.document_tool import DOCUMENT_SUFFIXES
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 _KIND_BY_SUFFIX = {".pdf": "pdf", ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image", ".gif": "image"}
+_MEDIA_SUFFIXES = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
+                   ".flac": "audio/flac", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+                   ".mkv": "video/x-matroska"}
+_MEDIA_LINK = re.compile(r"^https?://([a-z0-9-]+\.)*(youtube\.com|youtu\.be|vimeo\.com)(/|$)", re.IGNORECASE)
 
 
 def attachment_for(spec: str) -> ResearchAttachment:
     """Turn a ``--file`` argument (local path or http(s) URL) into a validated attachment."""
 
     if spec.lower().startswith(("http://", "https://")):
-        return ResearchAttachment.model_validate({"kind": "url", "data": spec, "name": spec[:200]})
+        link_kind = "media" if _MEDIA_LINK.match(spec) else "url"
+        return ResearchAttachment.model_validate({"kind": link_kind, "data": spec, "name": spec[:200]})
     path = Path(spec).expanduser()
     if not path.is_file():
         raise SystemExit(f"--file not found: {spec}")
-    kind = _KIND_BY_SUFFIX.get(path.suffix.lower()) or ("document" if path.suffix.lower() in DOCUMENT_SUFFIXES else None)
+    suffix = path.suffix.lower()
+    kind = _KIND_BY_SUFFIX.get(suffix) or ("document" if suffix in DOCUMENT_SUFFIXES else None) or (
+        "media" if suffix in _MEDIA_SUFFIXES else None)
     if kind is None:
         raise SystemExit(f"unsupported --file type {path.suffix or '(none)'}; supported: {', '.join(supported_suffixes())}")
     raw = path.read_bytes()
@@ -49,12 +57,14 @@ def attachment_for(spec: str) -> ResearchAttachment:
         mime = "application/pdf"
     elif kind == "document":
         mime = DOCUMENT_SUFFIXES[path.suffix.lower()]
+    elif kind == "media":
+        mime = _MEDIA_SUFFIXES[suffix]
     data = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
     return ResearchAttachment.model_validate({"kind": kind, "data": data, "name": path.name[:200]})
 
 
 def supported_suffixes() -> list[str]:
-    return [*_KIND_BY_SUFFIX, *DOCUMENT_SUFFIXES]
+    return [*_KIND_BY_SUFFIX, *DOCUMENT_SUFFIXES, *_MEDIA_SUFFIXES]
 
 
 async def run_once(question: str, files: Sequence[str], *, mode: str | None, settings: Settings | None = None

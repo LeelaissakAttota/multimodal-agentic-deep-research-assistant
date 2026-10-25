@@ -15,6 +15,7 @@ import json
 import os
 import re
 import tempfile
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,9 @@ PDF_TYPES = {"pdf": "application/pdf"}
 DOC_TYPES = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
              "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
              "txt": "text/plain", "md": "text/markdown", "markdown": "text/markdown"}
+MEDIA_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4", "ogg": "audio/ogg", "flac": "audio/flac",
+               "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime", "mkv": "video/x-matroska"}
+_MEDIA_HOSTS = ("youtube.com", "youtu.be", "vimeo.com")
 IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}
 TERMINAL = ("completed", "failed", "stopped")
 
@@ -161,7 +165,7 @@ class ControlClient:
 # ----- attachments ---------------------------------------------------------------
 
 def build_attachment(name: str, data: bytes) -> dict[str, str]:
-    """Encode an uploaded PDF/image/document as the engine's ``data:`` URL attachment."""
+    """Encode an uploaded PDF/image/document/audio/video file as the engine's ``data:`` URL attachment."""
 
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext in PDF_TYPES:
@@ -170,8 +174,11 @@ def build_attachment(name: str, data: bytes) -> dict[str, str]:
         kind, mime = "image", IMAGE_TYPES[ext]
     elif ext in DOC_TYPES:
         kind, mime = "document", DOC_TYPES[ext]
+    elif ext in MEDIA_TYPES:
+        kind, mime = "media", MEDIA_TYPES[ext]
     else:
-        raise ValueError("only PDF, DOCX, PPTX, TXT, MD, PNG, JPG, WEBP or GIF files are supported")
+        raise ValueError("only PDF, DOCX, PPTX, TXT, MD, PNG, JPG, WEBP, GIF or audio/video "
+                         "(MP3, WAV, M4A, OGG, FLAC, MP4, WEBM, MOV, MKV) files are supported")
     if not data:
         raise ValueError("the file is empty")
     if len(data) > MAX_ATTACHMENT_BYTES:
@@ -618,7 +625,8 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
     return {"reports": reports, "claims": claim_rows, "sources": sources, "files": files,
             "web": sum(source_kind(s) == "Web" for s in sources),
             "documents": sum(f["kind"] in ("pdf", "document") for f in files),
-            "images": sum(f["kind"] == "image" for f in files), "verification": _aggregate(verified)}
+            "images": sum(f["kind"] == "image" for f in files),
+            "videos": sum(f["kind"] == "media" for f in files), "verification": _aggregate(verified)}
 
 
 
@@ -805,6 +813,7 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
     """Real engine tools with an honest state: on / needs key / offline only / coming soon."""
 
     keys = (masked_keys or {}).get("keys") or {}
+    media = media_status()
 
     def has(name: str, field: str) -> bool:
         info = keys.get(name) if isinstance(keys, dict) else None
@@ -835,10 +844,10 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
         {"name": "Report Export", "detail": "PDF, DOCX, PPTX, JSON and Markdown downloads" if _export_ready()
          else "JSON/Markdown; pip install fpdf2 python-docx python-pptx for PDF/DOCX/PPTX",
          "state": "on", "icon": "📤"},
-        {"name": "Audio Analysis", "detail": "NVIDIA speech-to-text (engine tool, not exposed in the dashboard yet)",
-         "state": "coming soon", "icon": "🎙️"},
-        {"name": "Video Analysis",
-         "detail": "video file analysis not supported yet (YouTube transcripts are)", "state": "coming soon", "icon": "🎬"},
+        {"name": "Audio Analysis", "detail": f"timestamped transcripts of audio uploads: {media['line']}",
+         "state": media["state"], "icon": "🎙️"},
+        {"name": "Video Analysis", "detail": f"video files and YouTube links (transcript + keyframes): {media['line']}",
+         "state": media["state"], "icon": "🎬"},
     ]
     return rows
 
@@ -892,7 +901,11 @@ def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = Non
     url = url.strip()
     if not re.match(r"https?://[^\s/]+\.[^\s]+$", url):
         raise ValueError("enter a full https:// link to a web page, PDF, document or image")
-    files = {v: k for k, v in {**PDF_TYPES, **IMAGE_TYPES, **DOC_TYPES}.items()}
+    if is_media_link(url):
+        if not check(url):
+            raise ValueError("that link points to a private or non-public address")
+        return {"kind": "media", "name": shorten(url, 200), "data": url}
+    files = {v: k for k, v in {**PDF_TYPES, **IMAGE_TYPES, **DOC_TYPES, **MEDIA_TYPES}.items()}
     try:
         with httpx.Client(timeout=20.0, follow_redirects=False, transport=transport) as http:
             for _ in range(6):
@@ -909,7 +922,8 @@ def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = Non
                         return {"kind": "url", "name": shorten(url, 200), "data": url}
                     ext = files.get(ctype)
                     if ext is None:
-                        raise ValueError(f"unsupported link type {ctype}; use a web page, PDF, DOCX, PPTX, TXT/MD or image")
+                        raise ValueError(f"unsupported link type {ctype}; use a web page, PDF, DOCX, PPTX, TXT/MD, "
+                                         "image, audio/video file or YouTube link")
                     body = b""
                     for chunk in resp.iter_bytes():
                         body += chunk
@@ -924,6 +938,50 @@ def attachment_from_url(url: str, *, transport: httpx.BaseTransport | None = Non
     if not name.lower().endswith(f".{ext}") and not (ext == "jpeg" and name.lower().endswith(".jpg")):
         name = f"{name}.{ext}"
     return build_attachment(name, body)
+
+
+def page_label(page: Any) -> str:
+    """`` p.3`` for documents, `` at 01:23`` for audio/video timestamps, empty when unknown."""
+
+    if not page:
+        return ""
+    return f" at {page}" if ":" in str(page) else f" p.{page}"
+
+
+def is_media_link(url: str) -> bool:
+    """YouTube/Vimeo pages are analysed as media (yt-dlp in the engine), not downloaded here."""
+
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in _MEDIA_HOSTS)
+
+
+def media_status() -> dict[str, Any]:
+    """Real state of the optional media stack (no import of heavy modules)."""
+
+    import importlib.util
+    import shutil
+
+    from deep_research.media.config import MediaSettings
+
+    try:
+        settings = MediaSettings()
+        enabled, transcriber = settings.enabled, settings.transcriber
+    except Exception:  # noqa: BLE001 - a bad env value must not break the dashboard
+        enabled, transcriber = False, "local"
+    found = {name: importlib.util.find_spec(mod) is not None
+             for name, mod in (("faster-whisper", "faster_whisper"), ("yt-dlp", "yt_dlp"), ("PyAV", "av"))}
+    found["ffmpeg"] = shutil.which("ffmpeg") is not None
+    missing = [n for n, ok in found.items() if not ok and not (n == "faster-whisper" and transcriber == "api")
+               and n != "ffmpeg" and not (n == "PyAV" and found["ffmpeg"])]
+    if not enabled:
+        state, line = "off", "off - set MDRA_MEDIA_ENABLED=true and pip install -e \".[media]\""
+    elif missing:
+        state, line = "not installed", f"missing {', '.join(missing)} - pip install -e \".[media]\""
+    else:
+        frames = "ffmpeg" if found["ffmpeg"] else "PyAV"
+        engine = "faster-whisper (local)" if transcriber == "local" else "local/free transcription API"
+        state, line = "on", f"{engine}; YouTube captions via yt-dlp; keyframes via {frames} + vision model"
+    return {"enabled": enabled, "state": state, "line": line, "found": found, "ready": state == "on"}
 
 
 def md_safe(markdown: str) -> str:

@@ -227,6 +227,53 @@ deep-research rag-backfill                      # or --runs-dir PATH, --force to
 
 New reports are indexed the first time you ask about them or search the Knowledge Base.
 
+## 9. Audio, video and YouTube analysis
+
+Off by default. `MDRA_MEDIA_ENABLED=true` plus `pip install -e ".[media]"` (faster-whisper, yt-dlp, PyAV)
+turns on the `media_analyzer` tool. The dashboard, CLI (`--file talk.mp3`, `--file https://youtu.be/...`) and
+API (`{"kind": "media", "data": "data:audio/...;base64,..." | "https://..."}`) accept audio/video files (up to
+20 MB inline) and YouTube/Vimeo or direct media links. When it is off or a dependency is missing, the attachment
+task fails with a message that names the missing piece and the install command; nothing is invented.
+
+Pipeline:
+1. **YouTube / links:** yt-dlp reads the metadata. With `MDRA_MEDIA_PREFER_CAPTIONS=true` (default) manual
+   subtitles are used first, then the original-language auto captions (never machine translations), parsed from
+   json3/VTT with rolling duplicates removed. With no captions, yt-dlp downloads the audio (size cap
+   `MDRA_MEDIA_MAX_DOWNLOAD_MB`) and it is transcribed.
+2. **Transcription:** `MDRA_MEDIA_TRANSCRIBER=local` (default) runs faster-whisper (`MDRA_MEDIA_WHISPER_MODEL`,
+   default `base`; it decodes audio and video containers itself, ffmpeg not needed). `api` posts to an
+   OpenAI-compatible `/audio/transcriptions` (`verbose_json`) at `MDRA_MEDIA_API_BASE`; only localhost/`.local`
+   servers (e.g. faster-whisper-server / speaches) or `:free` models are accepted. With ffmpeg on PATH the
+   audio is first reduced to 16 kHz mono MP3.
+3. **Keyframes (video):** `MDRA_MEDIA_KEYFRAMES` (default 6) evenly spaced frames are grabbed with
+   ffmpeg/ffprobe, or PyAV when ffmpeg is missing, and captioned by the configured free vision model. Without a
+   vision model the frames are skipped with a note. For YouTube this needs `MDRA_MEDIA_YOUTUBE_FRAMES=true`
+   (downloads a <=360p video).
+4. **Evidence:** speech is grouped into `MDRA_MEDIA_WINDOW_SECONDS` (default 60) windows, each frame caption
+   is its own entry; every entry is labelled `mm:ss` (`h:mm:ss` past an hour). Sources are cited as
+   `Title (attached video, at 01:15)`, YouTube citations deep-link with `&t=75s`, and the excerpts
+   (`[01:15-02:10] ...`) go into the report, so report RAG (section 8) indexes them with their timestamps.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MDRA_MEDIA_ENABLED` | `false` | master switch |
+| `MDRA_MEDIA_TRANSCRIBER` | `local` | `local` (faster-whisper) or `api` |
+| `MDRA_MEDIA_WHISPER_MODEL` / `_DEVICE` / `_COMPUTE_TYPE` | `base` / `auto` / `int8` | faster-whisper model |
+| `MDRA_MEDIA_LANGUAGE` | auto | ISO language for transcription and caption choice |
+| `MDRA_MEDIA_API_BASE` / `_API_MODEL` / `_API_KEY` | `http://127.0.0.1:8000/v1` / `whisper-1` / none | free/local transcription API |
+| `MDRA_MEDIA_PREFER_CAPTIONS` | `true` | YouTube captions before transcription |
+| `MDRA_MEDIA_KEYFRAMES` | `6` | frames per video (0 = none) |
+| `MDRA_MEDIA_YOUTUBE_FRAMES` | `false` | download low-res YouTube video for keyframes |
+| `MDRA_MEDIA_WINDOW_SECONDS` | `60` | transcript seconds per cited chunk |
+| `MDRA_MEDIA_MAX_DURATION_SECONDS` | `10800` | longer media is refused |
+| `MDRA_MEDIA_MAX_DOWNLOAD_MB` | `200` | yt-dlp download cap |
+| `MDRA_MEDIA_TIMEOUT_SECONDS` | `600` | transcription timeout |
+
+Notes: PyAV is pinned `<16` because faster-whisper 1.2 calls `av.open(metadata_errors=...)`, which PyAV 16
+removed. YouTube may answer "Sign in to confirm you're not a bot" from datacenter IPs; the error is shown as-is
+(captions-only requests are lighter and usually still work). Links go through the same public-address SSRF check
+as web pages.
+
 ## Testing
 
 All features are unit-tested with fakes (fakeredis, an in-memory S3 fake, SQLite through SQLAlchemy,

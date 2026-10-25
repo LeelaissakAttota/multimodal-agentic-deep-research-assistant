@@ -19,6 +19,17 @@
   and still refuse unsupported questions; without the `rag` extra it falls back to word overlap.
 - `deep-research rag-backfill [--runs-dir PATH] [--force]` indexes reports saved before RAG was enabled.
 - `rag` extra (`sentence-transformers`, `faiss-cpu`, `numpy`).
+- **Audio/video/YouTube analysis (optional, off by default):** `MDRA_MEDIA_ENABLED=true` + the `media` extra
+  (`faster-whisper`, `yt-dlp`, `av<16`) adds the `media_analyzer` tool and a new `media` attachment kind.
+  YouTube links use existing captions first (yt-dlp; manual, then original auto captions), else the audio is
+  downloaded and transcribed; uploads are transcribed locally with faster-whisper or a free/local
+  OpenAI-compatible `/audio/transcriptions` server. Video keyframes (ffmpeg, PyAV fallback) are captioned by the
+  configured free vision model. Transcript windows and frame captions become cited evidence labelled `mm:ss`
+  (`Title (attached video, at 01:15)`, YouTube deep links with `&t=`), and flow into report RAG with their
+  timestamps. Missing dependencies, ffmpeg or a vision model give a clear message instead of a result.
+- Dashboard: the "coming soon" Audio/Video rows, Videos counters and toggle now show the real media state;
+  New Research accepts MP3/WAV/M4A/OGG/FLAC/MP4/WEBM/MOV/MKV uploads and YouTube/Vimeo links (refused with the
+  reason when media analysis is off); citations show `at mm:ss`. The CLI `--file` accepts the same.
 
 ### Changed
 - Compose Postgres is now `pgvector/pgvector:0.8.7-pg16-bookworm` (PostgreSQL 16.15 + pgvector, pinned by

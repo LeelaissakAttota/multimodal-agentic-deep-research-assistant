@@ -226,6 +226,7 @@ class ResearchApplication:
         from deep_research.tools.image_tool import ImageAnalysisTool
         from deep_research.tools.pdf_tool import PdfReaderTool
         from deep_research.tools.web_page_tool import WebPageReaderTool
+        from deep_research.tools.media_tool import MediaAnalysisTool
         from deep_research.tools.registry import build_source_tools
         from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
 
@@ -246,6 +247,7 @@ class ResearchApplication:
                 "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
                 "document_parser": DocumentReaderTool(),
                 "web_page_reader": WebPageReaderTool(WebFetchTool(max_chars=60_000)),
+                "media_analyzer": MediaAnalysisTool(vision_gateway=vision),
             },
             tool_gateway=self._run_gateway if self.settings.agent_tool_steps > 0 else None,
             tool_steps=self.settings.agent_tool_steps,

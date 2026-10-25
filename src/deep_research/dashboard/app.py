@@ -26,7 +26,7 @@ from deep_research.assistant.store import AssistantStore, default_db_path
 from deep_research.core.config import Settings
 from deep_research.tools.registry import SOURCE_TOOLS
 from deep_research.dashboard.core import (
-    APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
+    APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url, MEDIA_TYPES, page_label, media_status,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, knowledge_graph, local_time, memory_items, memory_search, memory_status, rag_line, rag_search, merge_runs,
     needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
     strip_section, verdict_label, verification_line, verification_rows,
@@ -357,7 +357,7 @@ def page_dashboard() -> None:
                     f"View all →</a></div>{rows}</div>", unsafe_allow_html=True)
         kb = knowledge(runs)
         types = [("🌐", "c1", "Web", str(kb["web"]), "cited pages"), ("📄", "c3", "Documents", str(kb["documents"]), "PDFs read"),
-                 ("🖼️", "c4", "Images", str(kb["images"]), "images read"), ("🎬", "c6", "Videos", "–", "coming soon")]
+                 ("🖼️", "c4", "Images", str(kb["images"]), "images read"), ("🎬", "c6", "Videos", str(kb["videos"]), "audio/video read")]
         cells = "".join(f"<div class='cap{' dis' if v == '–' else ''}'><div class='sq {c}' style='width:32px;height:32px'>{i}</div>"
                         f"<div class='ct'>{e(n)}</div><div class='cs'>{e(v)} · {e(d)}</div></div>" for i, c, n, v, d in types)
         st.markdown(f"<div class='panel'><div class='ph'>Recent Sources <a target='_self' href='{link('sources')}'>View all →</a></div>"
@@ -412,6 +412,7 @@ def saved_step_approval() -> bool:
 def page_new() -> None:
     head("New Research", "Start a new research project. Ask a question, upload files, or link a web page or file.")
     p = prefs.load()
+    media = media_status()
     left, right = st.columns([1.6, 1], gap="medium")
     with left, st.container(border=True):
         t1, t2, t3 = st.tabs(["💬 Ask a Question", "⤒ Upload Files", "🔗 From URL"])
@@ -420,21 +421,24 @@ def page_new() -> None:
                              placeholder="What would you like to research? Be specific for better results…")
         with t2:
             st.markdown("<div class='note'>Use the drop zone below to attach up to 5 PDF, Word (DOCX), PowerPoint (PPTX), TXT/Markdown or image files (max 20 MB each). "
-                        "They are sent with the question from the first tab. Audio and video uploads are "
-                        "<span class='badge b-soon'>coming soon</span>.</div>", unsafe_allow_html=True)
+                        "They are sent with the question from the first tab. Audio/video (MP3, WAV, M4A, OGG, FLAC, MP4, WEBM, MOV, MKV) "
+                        f"is transcribed with mm:ss citations: {e(media['line'])}.</div>", unsafe_allow_html=True)
         with t3:
             url = st.text_input("Web page or file link", placeholder="https://example.org/article  or  …/report.pdf")
             st.markdown("<div class='muted'>Web pages are read as a cited primary source (needs Web Search on). "
                         "PDF, DOCX, PPTX, TXT/MD and image links are downloaded and attached. Only public addresses "
-                        "are allowed. YouTube/video links are <span class='badge b-soon'>coming soon</span>.</div>",
+                        "are allowed. YouTube links are analysed as video (captions first, then local "
+                        f"transcription): {e(media['line'])}.</div>",
                         unsafe_allow_html=True)
         c = st.columns(2)
         web = c[0].toggle("Web Search", value=p["default_mode"] == "live", help="On = live mode (free web search + models). Off = offline demo.")
         c[1].toggle("Document Analysis", value=True, disabled=True, help="Always on: PDF, DOCX, PPTX, TXT and MD files are read with page/slide citations.")
         c[0].toggle("Image Analysis", value=True, disabled=True, help="Always on: attached images and scanned PDFs are analysed, with local OCR when installed.")
-        c[1].toggle("Video Analysis (coming soon)", value=False, disabled=True, help="Not supported by the engine yet.")
-        files = st.file_uploader("Upload files (optional): PDF, DOCX, PPTX, TXT, MD or images",
-                                 type=["pdf", "docx", "pptx", "txt", "md", "png", "jpg", "jpeg", "webp", "gif"],
+        c[1].toggle("Audio & Video Analysis", value=media["ready"], disabled=True,
+                    help=f"Turned on in the server settings (needs the media extra): {media['line']}")
+        files = st.file_uploader("Upload files (optional): PDF, DOCX, PPTX, TXT, MD, images, audio or video",
+                                 type=["pdf", "docx", "pptx", "txt", "md", "png", "jpg", "jpeg", "webp", "gif",
+                                       *MEDIA_TYPES],
                                  accept_multiple_files=True)
         a, b = st.columns([1.4, 1], vertical_alignment="center")
         step = a.checkbox(STEP_LABEL, value=saved_step_approval(), help=STEP_HELP + " (this run only; default from Settings)",
@@ -446,8 +450,12 @@ def page_new() -> None:
                 return
             try:
                 atts = [build_attachment(f.name, f.getvalue()) for f in (files or [])][:5]
+                if any(a["kind"] == "media" for a in atts) and not media["ready"]:
+                    raise ValueError(f"Audio/video analysis is not available: {media['line']}.")
                 if url.strip():
                     atts.append(attachment_from_url(url))
+                    if atts[-1]["kind"] == "media" and not media["ready"]:
+                        raise ValueError(f"Audio/video analysis is not available: {media['line']}.")
                     if atts[-1]["kind"] == "url" and not web:
                         raise ValueError("Reading a web page needs Web Search on (live mode).")
                 run = client().create_run(str(q).strip(), mode="live" if web else "offline", attachments=atts,
@@ -599,7 +607,7 @@ def cits(report: dict[str, Any], limit: int | None = None) -> None:
         title = e(str(c["title"]))
         url = str(c.get("url") or "")
         name = f"<a href='{e(url)}' target='_blank' style='color:#c3cdea'>{title}</a>" if url.startswith("http") else title
-        where = e(url.split('/')[2]) if url.startswith("http") else e(f"{c['kind']}{' p.' + str(c['page']) if c.get('page') else ''}")
+        where = e(url.split('/')[2]) if url.startswith("http") else e(f"{c['kind']}{page_label(c.get('page'))}")
         out.append(f"<div class='row'><span class='cit'>[{e(str(c['number']))}]</span><div class='tx'>"
                    f"<div class='tt' style='font-weight:500' title='{title}'>{name}</div><div class='ts'>{where} "
                    f"{cred_badge(c.get('credibility'))}</div></div></div>")
@@ -818,7 +826,7 @@ def page_knowledge() -> None:
     kb = knowledge(runs_cache)
     cats = [("📝", "c1", "Research Reports", len(kb["reports"])), ("💡", "c2", "Claims", len(kb["claims"])),
             ("🌐", "c5", "Web Sources", kb["web"]), ("📄", "c3", "Documents", kb["documents"]),
-            ("🖼️", "c4", "Images", kb["images"]), ("🎬", "c6", "Videos", None)]
+            ("🖼️", "c4", "Images", kb["images"]), ("🎬", "c6", "Audio & Video", kb["videos"])]
     cells = "".join(f"<div class='cap{' dis' if n is None else ''}'><div class='sq {c}' style='width:34px;height:34px'>{i}</div>"
                     f"<div class='ct'>{e(t)}</div><div class='cs'>{'coming soon' if n is None else f'{n} items'}</div></div>"
                     for i, c, t, n in cats)

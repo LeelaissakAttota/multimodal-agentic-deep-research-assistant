@@ -201,11 +201,13 @@ class DeterministicResearchAgent(ResearchAgent):
         # vision gateway is configured; metadata-only otherwise).
         from deep_research.tools.document_tool import DocumentReaderTool
         from deep_research.tools.image_tool import ImageAnalysisTool
+        from deep_research.tools.media_tool import MediaAnalysisTool
         from deep_research.tools.pdf_tool import PdfReaderTool
 
         from deep_research.tools.web_page_tool import WebPageReaderTool
 
-        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool(), WebPageReaderTool(offline=True)):
+        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool(), WebPageReaderTool(offline=True),
+                     MediaAnalysisTool()):
             self.registry.register(type(tool))
             self._tools[tool.name] = tool
 

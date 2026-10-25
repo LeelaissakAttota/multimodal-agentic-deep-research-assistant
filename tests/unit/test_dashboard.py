@@ -251,7 +251,7 @@ def test_sources_deduplicate_across_runs_and_knowledge_counts() -> None:
 
 def test_tool_catalog_is_honest_about_mode_keys_and_unsupported() -> None:
     off = {t["name"]: t["state"] for t in core.tool_catalog(Settings(research_mode="offline"), None, "offline")}
-    assert off["Web Search"] == "live mode" and off["Video Analysis"] == "coming soon"
+    assert off["Web Search"] == "live mode" and off["Video Analysis"] == "off"
     assert off["Document Analysis"] == "on" and off["Image Analysis"] == "needs key"
     keys = {"keys": {"OPENROUTER_API_KEY": {"configured": True, "masked": "****abcd"}}}
     live = {t["name"]: t["state"] for t in core.tool_catalog(Settings(), keys, "live")}

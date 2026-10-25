@@ -19,7 +19,7 @@ The script creates a control token for the session if `DEEP_RESEARCH_CONTROL_TOK
 | Tools & Integration | The engine's real tools with their current state, plus Provider Health |
 | Settings | General (saved to `dashboard_runs/prefs.json`), Research (approval policy, engine limits), Profile & Preferences (saved topics, preferred/blocked sources and domains, default depth), Reminders (local only; the Dashboard's Reminders **Manage** link opens this tab via `?page=settings&tab=reminders`), Account (masked API keys) |
 
-All counts come from the control API and the runs saved under `dashboard_runs/`. Features the engine does not support yet (video, audio) are shown as "coming soon". Chat history, profile, notes, reminders and shares are stored in `data/assistant.db` (see [ASSISTANT.md](ASSISTANT.md)).
+All counts come from the control API and the runs saved under `dashboard_runs/`. Audio and video analysis shows its real state (off / not installed / on) from `MDRA_MEDIA_*` and the installed `media` extra; uploads of MP3/WAV/M4A/OGG/FLAC/MP4/WEBM/MOV/MKV and YouTube links are accepted only when it is on. Chat history, profile, notes, reminders and shares are stored in `data/assistant.db` (see [ASSISTANT.md](ASSISTANT.md)).
 
 Credibility badges (High / Medium / Unverified / Low, or Provided for your own files) come from a domain heuristic; hover for the reason. Claim confidence scores each cited statement by the number of distinct sources and their credibility, lowered for hedged wording. Times are shown in IST (`DEEP_RESEARCH_DISPLAY_TZ` to change).
 ## Live Research View

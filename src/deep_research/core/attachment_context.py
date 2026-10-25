@@ -1,4 +1,4 @@
-"""Turn processed attachments (PDF pages, image descriptions) into primary synthesis sources.
+"""Turn processed attachments (PDF pages, image descriptions, mm:ss media transcripts) into primary synthesis sources.
 
 Attachment tasks run before web tasks. Their output is condensed into small
 JSON-safe *entries* stored on the research state. Each later web task gets
@@ -17,7 +17,7 @@ from deep_research.evidence.evidence import Evidence
 from deep_research.evidence.source import Source
 
 ATTACHMENT_TOOL_KINDS = {"pdf_reader": "pdf", "image_analyzer": "image", "document_parser": "document",
-                         "web_page_reader": "web page"}
+                         "web_page_reader": "web page", "media_analyzer": "media"}
 CHUNK_CHARS = 1_200
 MAX_ENTRY_CHARS = 40_000
 _WORD = re.compile(r"[a-z0-9]{3,}")
@@ -35,6 +35,7 @@ def attachment_entry(tool_id: str | None, output: Mapping[str, Any]) -> dict[str
         return None
     sources = output.get("source_objects")
     first = sources[0] if isinstance(sources, list) and sources else None
+    kind = str(output.get("attachment_kind") or kind)  # media -> "audio" / "video"
     title = str(getattr(first, "title", None) or f"{kind} attachment")
     chunks: list[dict[str, Any]] = []
     budget = MAX_ENTRY_CHARS
@@ -46,7 +47,10 @@ def attachment_entry(tool_id: str | None, output: Mapping[str, Any]) -> dict[str
             for piece in _split(str(page.get("text") or ""), CHUNK_CHARS):
                 if budget <= 0:
                     break
-                chunks.append({"page": page.get("page"), "text": piece[:budget]})
+                chunk: dict[str, Any] = {"page": page.get("page"), "text": piece[:budget]}
+                if page.get("url"):
+                    chunk["url"] = str(page["url"])
+                chunks.append(chunk)
                 budget -= len(piece)
     else:
         summary = str(output.get("summary") or "").strip()
@@ -62,6 +66,7 @@ def attachment_entry(tool_id: str | None, output: Mapping[str, Any]) -> dict[str
         "note": output.get("note"),
         "image_count": output.get("image_count"),
         "url": str(getattr(first, "url", None) or "") or None,
+        "timestamps": bool(output.get("timestamps")),
         "chunks": chunks,
     }
 
@@ -95,9 +100,9 @@ def select_attachment_sources(
     evidence: list[Evidence] = []
     for _, _, entry, chunk in picked:
         page = chunk.get("page")
-        unit = "§" if entry.get("url") else "p."
+        unit = "at " if entry.get("timestamps") else "§" if entry.get("url") else "p."
         label = f"{entry['title']} (attached {entry['kind']}{f', {unit}{page}' if page else ''})"
-        source = Source(title=label, url=entry.get("url") or None, description=f"User-attached {entry['kind']}",
+        source = Source(title=label, url=chunk.get("url") or entry.get("url") or None, description=f"User-attached {entry['kind']}",
                         metadata={"attachment": True, "attachment_kind": entry["kind"], "page": page,
                                   "attachment_title": entry["title"]})
         sources.append(source)

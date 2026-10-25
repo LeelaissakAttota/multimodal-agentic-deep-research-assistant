@@ -465,10 +465,11 @@ def _ms(start: float) -> float:
 def _default_media_tools() -> dict[str, Tool]:
     from deep_research.tools.document_tool import DocumentReaderTool
     from deep_research.tools.image_tool import ImageAnalysisTool
+    from deep_research.tools.media_tool import MediaAnalysisTool
     from deep_research.tools.pdf_tool import PdfReaderTool
 
     from deep_research.tools.web_page_tool import WebPageReaderTool
 
     tools: list[Tool] = [PdfReaderTool(), ImageAnalysisTool(use_settings=False), DocumentReaderTool(),
-                         WebPageReaderTool()]
+                         WebPageReaderTool(), MediaAnalysisTool()]
     return {tool.name: tool for tool in tools}
