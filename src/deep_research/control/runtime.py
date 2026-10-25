@@ -135,6 +135,23 @@ def env_approval_default() -> bool:
         return False
 
 
+_TRUE = frozenset({"true", "1", "yes", "on"})
+_FALSE = frozenset({"false", "0", "no", "off"})
+
+
+def _strict_bool(value: Any) -> bool | None:
+    """JSON bool as-is; "true"/"false" (also 1/0, yes/no, on/off, any case) from hand edits; else None (= invalid)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _TRUE:
+            return True
+        if text in _FALSE:
+            return False
+    return None
+
+
 class ControlSettings:
     """Persisted per-project control toggles (default OFF), stored as JSON in the control config dir.
 
@@ -147,12 +164,16 @@ class ControlSettings:
         self._lock = threading.Lock()
 
     def load(self) -> dict[str, bool]:
-        data: dict[str, Any] = {}
+        data: Any = {}
         with contextlib.suppress(FileNotFoundError, ValueError):
             data = json.loads(self._path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):  # valid JSON but not an object (42, true, null, [], "x"): ignore it
+            data = {}
+        approval = _strict_bool(data.get("approval_mode"))
+        auto = _strict_bool(data.get("auto_approve_low_risk"))
         return {
-            "approval_mode": bool(data["approval_mode"]) if "approval_mode" in data else env_approval_default(),
-            "auto_approve_low_risk": bool(data.get("auto_approve_low_risk", False)),
+            "approval_mode": env_approval_default() if approval is None else approval,
+            "auto_approve_low_risk": False if auto is None else auto,
         }
 
     def update(self, **changes: bool | None) -> dict[str, bool]:

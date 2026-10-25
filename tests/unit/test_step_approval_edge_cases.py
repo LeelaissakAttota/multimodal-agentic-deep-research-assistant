@@ -185,8 +185,6 @@ def test_corrupt_settings_file_falls_back(tmp_path: Path, monkeypatch: pytest.Mo
     assert loaded["approval_mode"] is True
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: non-dict JSON (42/true/null/[]/string) in control_settings.json crashes "
-                                       "load() with TypeError/AttributeError -> 500 on GET /control/settings and run create")
 @pytest.mark.parametrize("content", ["42", "true", "null", "[]", '"approval_mode"'])
 def test_corrupt_settings_scalar_json(tmp_path: Path, content: str) -> None:
     path = tmp_path / "control_settings.json"
@@ -194,8 +192,6 @@ def test_corrupt_settings_scalar_json(tmp_path: Path, content: str) -> None:
     assert ControlSettings(path).load()["approval_mode"] is False
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: hand-edited string \"false\" in control_settings.json is bool()-coerced "
-                                       "to True (step approval silently ON)")
 def test_settings_file_string_false(tmp_path: Path) -> None:
     path = tmp_path / "control_settings.json"
     path.write_text(json.dumps({"approval_mode": "false"}), encoding="utf-8")
@@ -406,3 +402,23 @@ def test_dotenv_garbage_is_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 def test_missing_env_file_is_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(tmp_path / "nope" / "missing.env"))
     assert ControlSettings(tmp_path / "s.json").load()["approval_mode"] is False
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    (True, True), (False, False), ("true", True), (" FALSE ", False), ("on", True), ("0", False),
+])
+def test_settings_file_strict_bool_values(tmp_path: Path, raw: Any, expected: bool) -> None:
+    path = tmp_path / "control_settings.json"
+    path.write_text(json.dumps({"approval_mode": raw, "auto_approve_low_risk": raw}), encoding="utf-8")
+    assert ControlSettings(path).load() == {"approval_mode": expected, "auto_approve_low_risk": expected}
+
+
+@pytest.mark.parametrize("raw", [1, 0, None, "maybe", [], {}, 2.5])
+def test_settings_file_invalid_values_fall_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: Any) -> None:
+    env = tmp_path / "t.env"
+    env.write_text("DEEP_RESEARCH_APPROVAL_MODE=true\n", encoding="utf-8")
+    monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(env))
+    monkeypatch.delenv("DEEP_RESEARCH_APPROVAL_MODE", raising=False)
+    path = tmp_path / "control_settings.json"
+    path.write_text(json.dumps({"approval_mode": raw, "auto_approve_low_risk": raw}), encoding="utf-8")
+    assert ControlSettings(path).load() == {"approval_mode": True, "auto_approve_low_risk": False}

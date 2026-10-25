@@ -8,6 +8,9 @@
   restarts), New Research has a per-run checkbox that defaults to it, and the run page shows the state.
   Initial default: `DEEP_RESEARCH_APPROVAL_MODE` from the environment or `.env` (precedence: saved value, then env/.env, then off).
 
+### Fixed
+- `control_settings.json` holding valid non-object JSON (`42`, `true`, `null`, `[]`, a string) no longer causes a 500; it is treated as empty. `approval_mode` / `auto_approve_low_risk` are parsed strictly: JSON booleans, or the strings true/false (also 1/0, yes/no, on/off, any case); anything else falls back to env/.env (approval) or off.
+
 ### Removed
 - The General-tab toggle "Step-by-step approval on by default". It was a dashboard-only preference that defaulted
   to ON. Its `step_approval` key in the dashboard preferences file is now ignored (left in place, not migrated);
