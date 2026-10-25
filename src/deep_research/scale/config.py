@@ -34,6 +34,11 @@ class ScaleSettings(BaseSettings):
     s3_secret_key: SecretStr | None = Field(default=None)
     artifacts_dir: str = Field(default=str(Path("data") / "artifacts"))
 
+    # 4) OpenTelemetry tracing: off | console | otlp (OTLP/HTTP, e.g. the compose collector on :4318)
+    otel_exporter: Literal["off", "console", "otlp"] = Field(default="off")
+    otel_endpoint: str = Field(default="http://localhost:4318/v1/traces", max_length=300)
+    otel_service_name: str = Field(default="mdra", max_length=64)
+
     model_config = SettingsConfigDict(
         env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
         env_file_encoding="utf-8",
@@ -87,6 +92,9 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
                        "postgres", "SQLite file (data/research_memory.sqlite)", _db_label(db_url)))
     rows.append(_entry("Artifact storage (S3/MinIO)", bool(s.s3_bucket), ("boto3",), "s3",
                        f"local folder ({s.artifacts_dir})", f"bucket '{s.s3_bucket}'"))
+    otel_deps = ("opentelemetry.sdk",) + (("opentelemetry.exporter.otlp",) if s.otel_exporter == "otlp" else ())
+    rows.append(_entry("Tracing (OpenTelemetry)", s.otel_exporter != "off", otel_deps, "tracing", "no tracing",
+                       "console exporter" if s.otel_exporter == "console" else f"OTLP to {_host(s.otel_endpoint)}"))
     if probe:
         _probe(rows[0], lambda: queue.ping(s))
         _probe(rows[1], lambda: _db_ping(db_url))
@@ -122,3 +130,13 @@ def _s3_ping(scale: ScaleSettings) -> None:
     from deep_research.scale.storage import S3ArtifactStore
 
     S3ArtifactStore.from_settings(scale).ping()
+
+
+def _host(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+        return f"{parts.scheme}://{parts.hostname or ''}{':' + str(parts.port) if parts.port else ''}"
+    except ValueError:
+        return "<invalid endpoint>"

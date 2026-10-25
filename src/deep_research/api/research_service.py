@@ -107,7 +107,14 @@ class ResearchApplication:
             metadata=dict(submission.metadata),
             attachments=list(submission.attachments),
         )
-        state = await orchestrator.start_research(request)
+        from deep_research.scale.tracing import aspan
+
+        async with aspan("mdra.run", **{"mdra.mode": self.settings.research_mode, "mdra.agentic": self.agentic,
+                                        "mdra.objective_chars": len(request.objective),
+                                        "mdra.attachments": [a.kind for a in request.attachments]}) as run_span:
+            state = await orchestrator.start_research(request)
+            run_span.set("mdra.status", str(state.status))
+            run_span.set("mdra.iterations", int(getattr(state, "iteration", 0) or 0))
         report = state.metadata.get("report")
         if isinstance(report, dict):
             report["agent_mode"] = "llm_with_fallback" if self.agentic else "deterministic"

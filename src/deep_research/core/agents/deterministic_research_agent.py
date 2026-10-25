@@ -16,6 +16,7 @@ from deep_research.tools.registry import ToolRegistry
 from deep_research.tools.selector import ToolSelector
 from deep_research.tools.definition import ToolDefinition, ToolCapability, ToolInput, ToolOutput
 from deep_research.domain.modality import Modality
+from deep_research.scale.tracing import traced_tool
 
 
 class FakeWebSearchInput(ToolInput):
@@ -269,7 +270,7 @@ class DeterministicResearchAgent(ResearchAgent):
 
         # Execute the tool
         try:
-            result = await tool_instance.execute(tool_request)
+            result = await traced_tool(tool_instance, tool_request)
             return result
         except Exception as exc:
             failure_kind = (

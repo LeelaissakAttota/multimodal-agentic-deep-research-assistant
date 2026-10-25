@@ -26,6 +26,7 @@ from deep_research.models.model_gateway import ModelGateway, ModelRequest
 from deep_research.security.domains import normalize_domain
 from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 from deep_research.tools.web_tools import WEB_FETCH_TOOL_ID, WEB_SEARCH_TOOL_ID
+from deep_research.scale.tracing import traced_tool
 
 LIVE_RESEARCH_TOOL_ID = "live_research"
 logger = logging.getLogger(__name__)
@@ -110,7 +111,7 @@ class LiveResearchAgent(ResearchAgent):
         start = time.monotonic()
         params = task.tool_input or {}
         if task.assigned_tool and task.assigned_tool in self.media_tools:
-            return await self.media_tools[task.assigned_tool].execute(
+            return await traced_tool(self.media_tools[task.assigned_tool],
                 ToolRequest(tool_name=task.assigned_tool, parameters=params)
             )
         query = params.get("query") if isinstance(params.get("query"), str) else None
@@ -185,7 +186,7 @@ class LiveResearchAgent(ResearchAgent):
         """Run one public-source tool (academic/video/social/image) and synthesise from its hits."""
         tool_params = {k: v for k, v in params.items() if k != "query"}
         tool_params["query"] = query
-        result = await self.source_tools[tool_id].execute(ToolRequest(tool_name=tool_id, parameters=tool_params))
+        result = await traced_tool(self.source_tools[tool_id], ToolRequest(tool_name=tool_id, parameters=tool_params))
         hits = [h for h in (_get(result.output, "results") or []) if isinstance(h, dict)] if result.success else []
         hits = [h for h in hits if not self.is_blocked(h.get("url"))]
         sources, evidence = source_hits_to_evidence(hits[: self.max_results], tool_id, query,
@@ -226,7 +227,7 @@ class LiveResearchAgent(ResearchAgent):
         return any(d and (host == d or host.endswith("." + d)) for d in domains)
 
     async def _search(self, run: "_ToolRun", query: str) -> None:
-        result = await self.search_tool.execute(
+        result = await traced_tool(self.search_tool,
             ToolRequest(tool_name=WEB_SEARCH_TOOL_ID, parameters={"query": query, "limit": self.max_results})
         )
         run.searches.append(query)
@@ -240,7 +241,7 @@ class LiveResearchAgent(ResearchAgent):
     async def _fetch(self, run: "_ToolRun", hit: dict[str, str]) -> None:
         url = hit["url"]
         run.fetched.append(url)
-        page = await self.fetch_tool.execute(ToolRequest(tool_name=WEB_FETCH_TOOL_ID, parameters={"url": url}))
+        page = await traced_tool(self.fetch_tool, ToolRequest(tool_name=WEB_FETCH_TOOL_ID, parameters={"url": url}))
         if page.success and _get(page.output, "text"):
             run.pages[url] = (str(_get(page.output, "title") or hit.get("title", "")),
                               str(_get(page.output, "text"))[: self.max_source_chars])
@@ -352,7 +353,7 @@ class LiveResearchAgent(ResearchAgent):
                     title, content = prefetched[hit["url"]][0] or title, prefetched[hit["url"]][1]
                     fetched = True
             elif index < self.max_fetch:
-                page = await self.fetch_tool.execute(
+                page = await traced_tool(self.fetch_tool,
                     ToolRequest(tool_name=WEB_FETCH_TOOL_ID, parameters={"url": hit["url"]})
                 )
                 if page.success and _get(page.output, "text"):

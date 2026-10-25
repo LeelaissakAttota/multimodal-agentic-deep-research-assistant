@@ -28,6 +28,7 @@ from deep_research.runtime.contracts import FailureKind, RuntimeControlError
 from deep_research.core.orchestration.step_gate import GateOutcome, StepGate
 from deep_research.runtime.harness import ExecutionHarness
 from deep_research.tools.tool import ToolResult
+from deep_research.scale.tracing import aspan
 
 
 class MasterResearchOrchestrator:
@@ -541,9 +542,10 @@ class MasterResearchOrchestrator:
                 context=context,
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("planning", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "planning"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("planning", operation)
 
     async def _invoke_research_agent(
         self, task: ResearchTask, context: AgentContext | None
@@ -553,13 +555,15 @@ class MasterResearchOrchestrator:
                 return await self.research_agent.execute_task(task)
             return await self.research_agent.execute_task(task, context=context)
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_tool(
-            f"research_task:{task.id}",
-            operation,
-            external_api=bool(task.metadata.get("external_api", False)),
-        )
+        async with aspan("mdra.agent", **{"mdra.agent": "research", "mdra.task.tool": task.assigned_tool,
+                                          "mdra.task.section": task.metadata.get("section")}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_tool(
+                f"research_task:{task.id}",
+                operation,
+                external_api=bool(task.metadata.get("external_api", False)),
+            )
 
     async def _invoke_analysis_agent(
         self, plan: ResearchPlan, context: AgentContext | None
@@ -571,9 +575,10 @@ class MasterResearchOrchestrator:
                 self.research_state, plan, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("analysis", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "analysis"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("analysis", operation)
 
     async def _invoke_evaluation_agent(
         self,
@@ -590,9 +595,10 @@ class MasterResearchOrchestrator:
                 self.research_state, plan, analysis_result, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("evaluation", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "evaluation"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("evaluation", operation)
 
     async def _invoke_report_agent(
         self, analysis_result: Dict[str, Any], context: AgentContext | None
@@ -606,9 +612,10 @@ class MasterResearchOrchestrator:
                 self.research_state, analysis_result, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("reporting", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "reporting"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("reporting", operation)
 
     def _persist_checkpoint(self) -> None:
         if self.session_repository is None:
