@@ -136,6 +136,8 @@ SOURCE_TOOLS: Dict[str, tuple[str, str]] = {
     "youtube_transcript": ("video", "YouTube video transcripts (lectures, talks, explainers)"),
     "reddit_search": ("social", "Reddit community discussion (opinions, first-hand experience; not authoritative)"),
     "commons_image_search": ("image", "freely licensed images/diagrams from Wikimedia Commons"),
+    "hackernews_search": ("social", "Hacker News stories and comments (tech/startup discussion; not authoritative)"),
+    "bluesky_search": ("social", "public Bluesky posts (recent reactions and commentary; not authoritative)"),
 }
 SOURCE_TOOL_IDS: tuple[str, ...] = tuple(SOURCE_TOOLS)
 
@@ -153,13 +155,16 @@ def parse_source_tools(value: str | None) -> List[str]:
 def build_source_tools(enabled: List[str] | None = None) -> Dict[str, Tool]:
     """Instantiate the enabled keyless source tools (all by default)."""
     from deep_research.tools.academic_tool import AcademicSearchTool
+    from deep_research.tools.bluesky_tool import BlueskySearchTool
     from deep_research.tools.commons_image_tool import CommonsImageSearchTool
+    from deep_research.tools.hackernews_tool import HackerNewsSearchTool
     from deep_research.tools.reddit_tool import RedditSearchTool
     from deep_research.tools.youtube_tool import YouTubeTranscriptTool
 
     classes: Dict[str, Type[Tool]] = {
         "academic_search": AcademicSearchTool, "youtube_transcript": YouTubeTranscriptTool,
         "reddit_search": RedditSearchTool, "commons_image_search": CommonsImageSearchTool,
+        "hackernews_search": HackerNewsSearchTool, "bluesky_search": BlueskySearchTool,
     }
     wanted = list(SOURCE_TOOL_IDS) if enabled is None else enabled
     return {tool_id: classes[tool_id]() for tool_id in wanted if tool_id in classes}

@@ -203,6 +203,12 @@ SOURCE_ROUTES: dict[str, tuple[tuple[str, ...], str, str]] = {
     "commons_image_search": (("image", "picture", "photo", "photograph", "diagram", "illustration", "look like", "looks like",
                               "map of", "visual", "chart"),
                              "Images", "Find freely licensed images of"),
+    "hackernews_search": (("hacker news", "hackernews", "hn", "show hn", "ask hn", "y combinator", "startup*",
+                           "developer*", "programmer*", "engineers think"),
+                          "Hacker News discussion", "Survey Hacker News discussion on"),
+    "bluesky_search": (("bluesky", "bsky", "social media", "tweet*", "twitter", "trending", "reaction*",
+                        "public reaction*", "posts about"),
+                       "Bluesky posts", "Survey Bluesky posts on"),
 }
 
 
