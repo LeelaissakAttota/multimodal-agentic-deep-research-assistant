@@ -49,8 +49,9 @@ class DeterministicPlanningAgent(PlanningAgent):
     each relevant tool. Empty (default) keeps the web-only plan.
     """
 
-    def __init__(self, source_tools: Iterable[str] = ()) -> None:
+    def __init__(self, source_tools: Iterable[str] = (), preferred: Iterable[str] = ()) -> None:
         self.source_tools = [t for t in source_tools if t in SOURCE_ROUTES]
+        self.preferred = [t for t in preferred if t in self.source_tools]
 
     async def create_plan(
         self,
@@ -80,7 +81,7 @@ class DeterministicPlanningAgent(PlanningAgent):
         else:
             # Attachments first: their content becomes primary sources for later web tasks.
             tasks = [*_attachment_tasks(request), *_web_tasks(request.objective),
-                     *source_tasks(request.objective, self.source_tools)]
+                     *source_tasks(request.objective, self.source_tools, self.preferred)]
 
         plan = ResearchPlan(
             request_id=request.id,
@@ -246,10 +247,18 @@ def _key_pattern(key: str) -> str:
     return rf"\b{re.escape(key)}(?:s|es)?\b"
 
 
-def source_tasks(question: str, enabled: Iterable[str]) -> list[ResearchTask]:
-    """One task per routed public-source tool; each is cited like a web task."""
+def source_tasks(question: str, enabled: Iterable[str], preferred: Iterable[str] = ()) -> list[ResearchTask]:
+    """One task per routed public-source tool; each is cited like a web task.
+
+    ``preferred`` (user profile) adds the first preferred enabled tool that routing did not pick,
+    so a preferred source is consulted for every question (still at most three source tasks).
+    """
+    enabled = list(enabled)
+    tools = route_source_tools(question, enabled)
+    extra = [t for t in preferred if t in enabled and t in SOURCE_ROUTES and t not in tools]
+    tools += extra[:1]
     tasks: list[ResearchTask] = []
-    for tool in route_source_tools(question, enabled):
+    for tool in tools:
         _, heading, verb = SOURCE_ROUTES[tool]
         tasks.append(
             ResearchTask(

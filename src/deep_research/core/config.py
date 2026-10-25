@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # reddit_search, commons_image_search, hackernews_search, bluesky_search,
     # stackexchange_search.
     live_source_tools: str = Field(default="all", max_length=200)
+    # User preferences (set from the assistant profile per run): preferred source tools are always
+    # consulted once per plan (comma list); results from blocked domains are dropped.
+    preferred_source_tools: str = Field(default="", max_length=200)
+    blocked_domains: str = Field(default="", max_length=2000)
 
     # Agent mode: "auto" = LLM planner/evaluator/tool choice in live mode when an
     # OpenRouter key is set, deterministic otherwise (offline/fixture runs stay
@@ -110,6 +114,18 @@ class Settings(BaseSettings):
         from deep_research.tools.registry import parse_source_tools
 
         return parse_source_tools(self.live_source_tools)
+
+    def preferred_sources(self) -> list[str]:
+        """Preferred source tools that are also enabled (order kept)."""
+        from deep_research.tools.registry import parse_source_tools
+
+        enabled = set(self.enabled_source_tools())
+        return [t for t in parse_source_tools(self.preferred_source_tools or "none") if t in enabled]
+
+    def blocked_domain_list(self) -> list[str]:
+        """Lower-cased blocked hostnames (``www.`` stripped)."""
+        out = [d.strip().lower().removeprefix("www.") for d in self.blocked_domains.split(",")]
+        return [d for d in dict.fromkeys(out) if d]
 
     def runtime_limits(self) -> RuntimeLimits:
         """Build the validated provider-neutral runtime policy."""

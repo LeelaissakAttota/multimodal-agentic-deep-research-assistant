@@ -11,6 +11,7 @@ import logging
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 from deep_research.context.context_builder import AgentContext
 from deep_research.core.agents.llm_support import AgentDecisionError, ask_json, clean_text
@@ -85,8 +86,10 @@ class LiveResearchAgent(ResearchAgent):
         decision_timeout_seconds: float = 20.0,
         budget_hook: Callable[[str], None] | None = None,
         source_tools: dict[str, Tool] | None = None,
+        blocked_domains: list[str] | None = None,
     ) -> None:
         self.source_tools: dict[str, Tool] = dict(source_tools or {})
+        self.blocked_domains = [d.lower().removeprefix("www.") for d in blocked_domains or [] if d]
         self.tool_gateway = tool_gateway
         self.tool_steps = tool_steps
         self.max_searches = max_searches
@@ -183,6 +186,7 @@ class LiveResearchAgent(ResearchAgent):
         tool_params["query"] = query
         result = await self.source_tools[tool_id].execute(ToolRequest(tool_name=tool_id, parameters=tool_params))
         hits = [h for h in (_get(result.output, "results") or []) if isinstance(h, dict)] if result.success else []
+        hits = [h for h in hits if not self.is_blocked(h.get("url"))]
         sources, evidence = source_hits_to_evidence(hits[: self.max_results], tool_id, query,
                                                     max_chars=self.max_source_chars)
         if not evidence:
@@ -209,6 +213,13 @@ class LiveResearchAgent(ResearchAgent):
                       "provider_errors": result.metadata.get("provider_errors") or {}, "search_error": None},
         )
 
+    def is_blocked(self, url: Any) -> bool:
+        """True when the URL's host is a blocked domain or one of its subdomains (user preference)."""
+        if not self.blocked_domains or not isinstance(url, str):
+            return False
+        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        return any(host == d or host.endswith("." + d) for d in self.blocked_domains)
+
     async def _search(self, run: "_ToolRun", query: str) -> None:
         result = await self.search_tool.execute(
             ToolRequest(tool_name=WEB_SEARCH_TOOL_ID, parameters={"query": query, "limit": self.max_results})
@@ -217,7 +228,7 @@ class LiveResearchAgent(ResearchAgent):
         run.last_search = result
         known = {h.get("url") for h in run.hits}
         for hit in list(_get(result.output, "results") or []) if result.success else []:
-            if isinstance(hit, dict) and hit.get("url") and hit.get("url") not in known:
+            if isinstance(hit, dict) and hit.get("url") and hit.get("url") not in known and not self.is_blocked(hit["url"]):
                 run.hits.append(hit)
                 known.add(hit.get("url"))
 

@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 
+from deep_research.assistant.profile import apply_profile, read_profile
+from deep_research.assistant.store import default_db_path
 from deep_research.api.research_service import ResearchApplication, ResearchSubmission
 from deep_research.domain.research_request import ResearchAttachment
 from deep_research.control.runtime import AuditLog, ControlRun, ControlSettings, RunManager, Step
@@ -64,9 +66,10 @@ class ControlGate:
 
 
 class DeepResearchControl:
-    def __init__(self, base_settings: Settings, config_dir: Path | None = None) -> None:
+    def __init__(self, base_settings: Settings, config_dir: Path | None = None, assistant_db: Path | None = None) -> None:
         self.config_dir = config_dir or default_config_dir("deep-research")
         self.base_settings = base_settings
+        self.assistant_db = assistant_db or default_db_path(base_settings.memory_dir)
         self.secrets = SecretStore(self.config_dir / "secrets.json", tuple(KEY_FIELDS))
         self.manager = RunManager(
             self._worker,
@@ -84,7 +87,7 @@ class DeepResearchControl:
                 update[field_name] = SecretStr(value)
         if mode in ("offline", "live"):
             update["research_mode"] = mode
-        return self.base_settings.model_copy(update=update)
+        return apply_profile(self.base_settings.model_copy(update=update), read_profile(self.assistant_db))
 
     def _worker(self, run: ControlRun) -> dict[str, Any]:
         objective = str(run.params.get("objective") or "").strip()
