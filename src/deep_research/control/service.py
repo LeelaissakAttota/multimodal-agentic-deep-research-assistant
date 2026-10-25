@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -14,11 +15,13 @@ from deep_research.assistant.profile import apply_profile, read_profile
 from deep_research.assistant.store import default_db_path
 from deep_research.api.research_service import ResearchApplication, ResearchSubmission
 from deep_research.domain.research_request import ResearchAttachment
-from deep_research.control.runtime import AuditLog, ControlRun, ControlSettings, RunManager, Step
+from deep_research.control.runtime import AuditLog, ControlRun, ControlSettings, RunManager, RunStopped, Step
 from deep_research.control.secrets_store import SecretStore, default_config_dir
 from deep_research.core.config import Settings
 from deep_research.core.orchestration.step_gate import GateOutcome
 from deep_research.domain.research.research_task import ResearchTask
+from deep_research.scale.config import ScaleSettings
+from deep_research.scale.queue import JobQueue, build_queue
 
 #: Env-style key name -> Settings field.
 KEY_FIELDS: dict[str, str] = {
@@ -66,7 +69,8 @@ class ControlGate:
 
 
 class DeepResearchControl:
-    def __init__(self, base_settings: Settings, config_dir: Path | None = None, assistant_db: Path | None = None) -> None:
+    def __init__(self, base_settings: Settings, config_dir: Path | None = None, assistant_db: Path | None = None,
+                 *, with_queue: bool = True, queue: JobQueue | None = None) -> None:
         self.config_dir = config_dir or default_config_dir("deep-research")
         self.base_settings = base_settings
         self.assistant_db = assistant_db or default_db_path(base_settings.memory_dir)
@@ -77,6 +81,14 @@ class DeepResearchControl:
             ControlSettings(self.config_dir / "control_settings.json"),
             AuditLog(self.config_dir / "audit.jsonl"),
         )
+        # Optional background queue (MDRA_REDIS_URL); None = in-process runs exactly as before.
+        self.queue: JobQueue | None = queue
+        self.queue_error: str | None = None
+        if queue is None and with_queue:
+            try:
+                self.queue = build_queue()
+            except Exception as exc:  # missing extra or bad URL: keep working in-process, report it
+                self.queue_error = f"{type(exc).__name__}: {str(exc)[:200]}" if isinstance(exc, RuntimeError) else type(exc).__name__
 
     def settings_with_keys(self, mode: str | None = None) -> Settings:
         """Fresh settings per run: keys re-read from the secrets file (no restart)."""
@@ -94,6 +106,10 @@ class DeepResearchControl:
         if not objective:
             raise ValueError("params.objective is required")
         mode = run.params.get("mode")
+        if self.queue is not None:
+            if not run.approval_mode:
+                return self._run_queued(run, self.queue, objective)
+            run.log("approval mode needs the in-process runner; this run is not sent to the job queue")
         application = ResearchApplication(self.settings_with_keys(mode if isinstance(mode, str) else None))
         run.log(f"objective: {objective[:200]} (mode={application.settings.research_mode})")
         response = asyncio.run(
@@ -107,6 +123,31 @@ class DeepResearchControl:
         if response.status not in ("completed",):
             run.log(f"research ended with status {response.status}: {response.error}", level="warning")
         return response.model_dump(mode="json")
+
+    def _run_queued(self, run: ControlRun, queue: JobQueue, objective: str) -> dict[str, Any]:
+        """Enqueue the run for a worker and poll it; stop requests cancel the job."""
+        payload = {"objective": objective, "mode": run.params.get("mode"), "attachments": run.params.get("attachments") or []}
+        _attachments(payload["attachments"])  # validate before queueing
+        job_id = queue.submit(payload)
+        run.log(f"queued as job {job_id} on the {queue.name} queue", job_id=job_id)
+        last = ""
+        poll = ScaleSettings().job_poll_seconds
+        while True:
+            state = queue.status(job_id)
+            if state["status"] != last:
+                last = state["status"]
+                run.log(f"job {last}", job_id=job_id)
+            if state["status"] == "finished":
+                result = state["result"]
+                return result if isinstance(result, dict) else {"result": result}
+            if state["status"] in ("failed", "canceled"):
+                if run.stopped:
+                    raise RunStopped()
+                raise RuntimeError(state.get("error") or f"job {state['status']}")
+            if run.stopped:
+                queue.cancel(job_id)
+                raise RunStopped()
+            time.sleep(poll)
 
     def _rerun(self, run: ControlRun, step: Step, inputs: dict[str, Any]) -> tuple[bool, Any, str | None]:
         if step.kind != "research_task":
