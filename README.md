@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 582 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 600 passing | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -47,14 +47,14 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **LLM agents with deterministic fallback:** `LlmPlanningAgent` and `LlmEvaluationAgent` strictly validate the model's JSON. If a call hits a rate limit, a timeout, invalid JSON or a schema error, the deterministic agent makes that one decision instead, and the decision log records it.
 - **Live research on free sources:** search with automatic fallback (optional Tavily, then DuckDuckGo HTML and Lite, Wikipedia, and the DuckDuckGo Instant Answer API). Pages are fetched with SSRF and size protection. Synthesis uses `[n]` citations and a `## Sources` list.
 - **Automatic free-model selection:** reads the OpenRouter catalog, keeps only `:free` models, probes the top candidates, and saves the fastest one to a cache. A model that fails is demoted and the next one is tried. `FreeModelGuard` rejects any model that is not free.
-- **Public discussion and research sources (keyless, live mode):** arXiv / Semantic Scholar / OpenAlex papers, YouTube transcripts, Reddit, Hacker News (Algolia API), Bluesky posts (public AppView, optional app-password login) and Wikimedia Commons images, routed by the planner with web-search fallback. See [docs/LIVE_MODE.md](docs/LIVE_MODE.md).
+- **Public discussion and research sources (keyless, live mode):** arXiv / Semantic Scholar / OpenAlex papers, YouTube transcripts, Reddit, Hacker News (Algolia API), Stack Exchange Q&A (Stack Overflow, stats, math, physics, quant, money), Bluesky posts (public AppView, optional app-password login) and Wikimedia Commons images, routed by the planner with web-search fallback. See [docs/LIVE_MODE.md](docs/LIVE_MODE.md).
 - **Multimodal inputs:** PDF text extraction with pypdf; DOCX, PPTX, TXT and Markdown parsing (stdlib, zip-bomb and XML-entity safe, page/slide citations); local OCR for images and scanned PDFs with RapidOCR (tesseract fallback, skipped cleanly when neither is installed); image description with a free vision model; web page URLs read through the SSRF-guarded fetcher (live mode); and an audio transcription tool with a free speech-to-text router. Attachments are cited first, as primary sources. Video and audio uploads in the dashboard are still coming soon.
 - **Trust signals:** every cited source gets a heuristic credibility score (government, academic and journal domains high; major news high; Wikipedia medium; blogs and user-generated platforms low; unknown domains "unverified"), and every cited statement in a report gets a confidence score from how many distinct sources back it, how credible they are, and whether the wording is hedged. Both are heuristics, not fact checks.
 - **Exports and CLI:** reports download as PDF, DOCX, PPTX, JSON or Markdown from the dashboard and `GET /control/runs/{id}/export`, and a `deep-research` CLI runs one question end to end.
 - **Supervised-control API:** a local, token-protected API to start, pause, resume and stop runs and to approve, reject or retry steps. Low-risk steps can be auto-approved, and every decision goes to an audit log. Keys are write-only and shown masked.
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 582 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 600 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -176,7 +176,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 582 tests, offline, $0
+pytest          # 600 tests, offline, $0
 ruff check .
 mypy src
 ```

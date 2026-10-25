@@ -134,7 +134,7 @@ docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. DEEP_RESEARCH_
 
 ## Public-source tools (Phase 2)
 
-Besides web search, live mode has six keyless, free source tools. The planner routes a
+Besides web search, live mode has seven keyless, free source tools. The planner routes a
 task to one when the question calls for it (deterministic keyword routing, or the LLM
 planner's `"tool"` field, validated against the enabled set):
 
@@ -147,7 +147,9 @@ planner's `"tool"` field, validated against the enabled set):
 | `hackernews_search` | Hacker News stories via the keyless Algolia HN API (`/api/v1/search?tags=story`: title, points, comments, date; optional top comments via `tags=comment,story_<id>`); cites the HN item page, external link kept as `story_url` after the SSRF guard's static checks | community discussion |
 | `bluesky_search` | `app.bsky.feed.searchPosts`: `public.api.bsky.app` first, then `api.bsky.app` (both unauthenticated); only if both refuse (401/403) and `BSKY_HANDLE` + `BSKY_APP_PASSWORD` are set, it logs in (`createSession` on `bsky.social`). Without credentials a refusal is a typed `auth_required` failure and the task falls back to web search. Credentials and tokens are never logged | social post |
 
-Both social tools use the shared relevance filter (off-topic hits dropped) and retry with backoff on HTTP 429/503.
+| `stackexchange_search` | `api.stackexchange.com/2.3/search/advanced`: Stack Overflow by default, or topic sites picked from the question (`stats`, `math`, `physics`, `quant`, `money`; max 3) or passed as `site`/`sites`; optional `with_body` (`filter=withbody`). Returns title, link, score, answer_count, is_answered, creation_date, site. Honours the API's `backoff` (waits up to 10 s, longer stops the run) and stops querying sites when `quota_remaining` < 10 (keyless quota is about 300 requests/day per IP) | community Q&A |
+
+The Hacker News, Bluesky and Stack Exchange tools use the shared relevance filter (off-topic hits dropped) and retry with backoff on HTTP 429/503.
 Live smoke tests (`tests/integration/test_social_sources_live.py`) run only with `MDRA_LIVE_TESTS=1` (e.g. `MDRA_LIVE_TESTS=1 pytest tests/integration/test_social_sources_live.py`); they are skipped otherwise.
 
 `DEEP_RESEARCH_LIVE_SOURCE_TOOLS` = `all` (default), `none`, or a comma list of tool ids.
