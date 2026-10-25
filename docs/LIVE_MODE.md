@@ -134,7 +134,7 @@ docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. DEEP_RESEARCH_
 
 ## Public-source tools (Phase 2)
 
-Besides web search, live mode has four keyless, free source tools. The planner routes a
+Besides web search, live mode has six keyless, free source tools. The planner routes a
 task to one when the question calls for it (deterministic keyword routing, or the LLM
 planner's `"tool"` field, validated against the enabled set):
 
@@ -144,6 +144,11 @@ planner's `"tool"` field, validated against the enabled set):
 | `youtube_transcript` | public YouTube caption tracks (URL/id or search) | video transcript |
 | `reddit_search` | official app-only OAuth (`REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`, optional `REDDIT_USER_AGENT`) or public `.json` fallback (+ optional top comments; NSFW skipped) | community discussion |
 | `commons_image_search` | Wikimedia Commons file search (caption, licence, author, thumbnail) | image (licence) |
+| `hackernews_search` | Hacker News stories via the keyless Algolia HN API (`/api/v1/search?tags=story`: title, points, comments, date; optional top comments via `tags=comment,story_<id>`); cites the HN item page, external link kept as `story_url` after the SSRF guard's static checks | community discussion |
+| `bluesky_search` | `app.bsky.feed.searchPosts`: `public.api.bsky.app` first, then `api.bsky.app` (both unauthenticated); only if both refuse (401/403) and `BSKY_HANDLE` + `BSKY_APP_PASSWORD` are set, it logs in (`createSession` on `bsky.social`). Without credentials a refusal is a typed `auth_required` failure and the task falls back to web search. Credentials and tokens are never logged | social post |
+
+Both social tools use the shared relevance filter (off-topic hits dropped) and retry with backoff on HTTP 429/503.
+Live smoke tests (`tests/integration/test_social_sources_live.py`) run only with `MDRA_LIVE_TESTS=1` (e.g. `MDRA_LIVE_TESTS=1 pytest tests/integration/test_social_sources_live.py`); they are skipped otherwise.
 
 `DEEP_RESEARCH_LIVE_SOURCE_TOOLS` = `all` (default), `none`, or a comma list of tool ids.
 A source tool that fails or returns nothing falls back to web search for the same query
