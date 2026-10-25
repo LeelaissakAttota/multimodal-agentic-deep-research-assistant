@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import warnings
@@ -24,6 +25,7 @@ from deep_research.scale.experiments import Experiment, Variant, load_experiment
 from deep_research.scale.queue import build_queue
 from deep_research.scale.storage import LocalArtifactStore, build_artifact_store, safe_key
 from deep_research.scale.tracing import safe_attributes
+from tests.subprocess_env import minimal_env
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "q" * 32
@@ -77,7 +79,8 @@ def test_default_import_needs_no_optional_backends() -> None:
         "g = build_graph([])\n"
         "print('OK')\n"
     )
-    env = {"PYTHONPATH": f"{ROOT / 'src'}:{ROOT}", "PATH": "/usr/bin:/bin", "DEEP_RESEARCH_ENV_FILE": "/nonexistent"}
+    env = minimal_env({"PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT)]),
+                       "DEEP_RESEARCH_ENV_FILE": str(ROOT / "nonexistent.env")})
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     assert proc.returncode == 0 and "OK" in proc.stdout, proc.stderr[-2000:]
 
@@ -258,3 +261,12 @@ def test_scale_settings_url_fields_never_leak_in_status_or_str() -> None:
                s3_endpoint=f"http://k:{SECRET}@minio:9000")
     text = repr(s) + str(s) + str(backend_status(s)) + f"{s!r}"
     assert SECRET not in text and "[REDACTED]" in repr(s)
+
+
+def test_minimal_env_keeps_windows_essentials_and_drops_app_keys() -> None:
+    fake = {"SystemRoot": r"C:\\Windows", "SystemDrive": "C:", "windir": r"C:\\Windows", "Path": r"C:\\Python",
+            "PATHEXT": ".COM;.EXE", "ComSpec": "cmd.exe", "TEMP": "t", "TMP": "t", "USERPROFILE": "u",
+            "MDRA_REDIS_URL": f"redis://:{SECRET}@r", "DEEP_RESEARCH_OPENROUTER_API_KEY": SECRET}
+    env = minimal_env({"X": "1"}, source=fake)
+    assert {"SystemRoot", "SystemDrive", "windir", "Path", "PATHEXT", "ComSpec", "TEMP", "TMP", "USERPROFILE"} <= set(env)
+    assert env["X"] == "1" and SECRET not in str(env)
