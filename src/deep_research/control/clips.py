@@ -19,7 +19,8 @@ def clean_page_url(url: str) -> str:
     parts = urlsplit(url.strip())
     if parts.scheme not in ("http", "https") or not parts.hostname or any(c.isspace() for c in url.strip()):
         raise ValueError("only http(s) page URLs can be clipped")
-    host = parts.hostname + (f":{parts.port}" if parts.port else "")
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname  # IPv6 literal keeps its brackets
+    host += f":{parts.port}" if parts.port else ""
     return urlunsplit((parts.scheme, host, parts.path, parts.query, ""))
 
 

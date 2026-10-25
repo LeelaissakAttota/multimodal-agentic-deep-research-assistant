@@ -234,9 +234,10 @@ def test_clips_size_limits_and_credentials_stripped(tmp_path: Path) -> None:
     assert SECRET not in (tmp_path / "cfg" / "clips.jsonl").read_text()
 
 
-@pytest.mark.xfail(strict=True, reason="BUG(low): clean_page_url drops IPv6 brackets -> invalid URL")
 def test_clean_page_url_ipv6_host_keeps_brackets() -> None:
     assert clean_page_url("http://[::1]:8080/x") == "http://[::1]:8080/x"
+    assert clean_page_url("https://u:p@[2001:db8::1]/a?q=1#f") == "https://[2001:db8::1]/a?q=1"
+    assert clean_page_url("http://example.com:81/x") == "http://example.com:81/x"
 
 
 # ---- extension ---------------------------------------------------------------------------------
