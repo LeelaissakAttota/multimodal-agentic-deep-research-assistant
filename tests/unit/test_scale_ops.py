@@ -15,8 +15,8 @@ def test_compose_services_are_local_only() -> None:
     text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     for service in ("redis:", "postgres:", "minio:", "otel-collector:", "neo4j:"):
         assert f"\n  {service}" in text
-    ports = re.findall(r'"(\d[\d.:]*:\d+)"', text)
-    assert ports and all(p.startswith("127.0.0.1:") for p in ports)
+    ports = [p for line in re.findall(r"ports: \[(.*)\]", text) for p in re.findall(r'"([^"]+)"', line)]
+    assert len(ports) == 7 and all(p.startswith("127.0.0.1:${MDRA_") for p in ports)
     assert (ROOT / "deploy/otel/collector.yaml").is_file() and "4318" in (ROOT / "deploy/otel/collector.yaml").read_text(encoding="utf-8")
     yaml = pytest.importorskip("yaml")
     assert set(yaml.safe_load(text)["services"]) >= {"redis", "postgres", "minio", "otel-collector", "neo4j"}
@@ -66,3 +66,16 @@ def test_dashboard_shows_queue_fallback(tmp_path: Path, monkeypatch: pytest.Monk
     at = _run_tools(tmp_path, monkeypatch)
     info = " ".join(i.value for i in at.info)  # type: ignore[attr-defined]
     assert "fallback" in info and "in-process" in info and "hunter2pw" not in info
+
+
+def test_compose_host_ports_configurable_with_safe_defaults() -> None:
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    expected = {"MDRA_PG_PORT": ("5433", "5432"), "MDRA_REDIS_PORT": ("6379", "6379"), "MDRA_MINIO_PORT": ("9000", "9000"),
+                "MDRA_MINIO_CONSOLE_PORT": ("9001", "9001"), "MDRA_OTEL_PORT": ("4318", "4318"),
+                "MDRA_NEO4J_HTTP_PORT": ("7474", "7474"), "MDRA_NEO4J_BOLT_PORT": ("7687", "7687")}
+    for var, (default, container) in expected.items():
+        assert f'"127.0.0.1:${{{var}:-{default}}}:{container}"' in text
+    doc = (ROOT / "docs/SCALE.md").read_text(encoding="utf-8")
+    env = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert all(var in doc and var in env for var in expected)
+    assert "@localhost:5433/mdra" in doc and "@localhost:5433/mdra" in env and "localhost:5432" not in doc + env

@@ -27,16 +27,30 @@ Install extras as needed, e.g. `pip install -e ".[dashboard,queue,postgres,s3,tr
 `docker-compose.yml` starts free local services, all bound to `127.0.0.1`:
 
 ```bash
-docker compose up -d                   # redis :6379, postgres :5432, minio :9000 (console :9001), otel-collector :4318
+docker compose up -d                   # redis :6379, postgres :5433, minio :9000 (console :9001), otel-collector :4318
 docker compose --profile graph up -d   # + neo4j :7474/:7687
 ```
+
+Host ports are configurable (always bound to `127.0.0.1`). Postgres uses host port **5433** by default so it
+does not clash with a locally installed PostgreSQL on 5432 (common on Windows with Docker Desktop). Set any of
+these in your shell or in the `.env` next to `docker-compose.yml`, and change the matching `MDRA_*` URL below:
+
+| Variable | Default | Service |
+|---|---|---|
+| `MDRA_PG_PORT` | 5433 | Postgres |
+| `MDRA_REDIS_PORT` | 6379 | Redis |
+| `MDRA_MINIO_PORT` / `MDRA_MINIO_CONSOLE_PORT` | 9000 / 9001 | MinIO API / console |
+| `MDRA_OTEL_PORT` | 4318 | OTLP/HTTP collector |
+| `MDRA_NEO4J_HTTP_PORT` / `MDRA_NEO4J_BOLT_PORT` | 7474 / 7687 | Neo4j browser / Bolt |
+
+PowerShell example: `$env:MDRA_PG_PORT=5434; docker compose up -d`, then use `...@localhost:5434/mdra`.
 
 The compose file uses local development passwords (`mdra-local-dev`); override them with
 `MDRA_PG_PASSWORD`, `MDRA_MINIO_USER`, `MDRA_MINIO_PASSWORD`, `MDRA_NEO4J_PASSWORD`. Matching `.env` entries:
 
 ```dotenv
 MDRA_REDIS_URL=redis://localhost:6379/0
-MDRA_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5432/mdra
+MDRA_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5433/mdra
 MDRA_S3_BUCKET=mdra-artifacts
 MDRA_S3_ENDPOINT=http://localhost:9000
 MDRA_S3_ACCESS_KEY=mdra-local
@@ -143,7 +157,7 @@ skipped unless you point them at one:
 
 ```bash
 MDRA_TEST_REDIS_URL=redis://localhost:6379/15 \
-MDRA_TEST_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5432/mdra \
+MDRA_TEST_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5433/mdra \
 MDRA_TEST_S3_BUCKET=mdra-test MDRA_TEST_S3_ENDPOINT=http://localhost:9000 \
 MDRA_TEST_S3_ACCESS_KEY=mdra-local MDRA_TEST_S3_SECRET_KEY=mdra-local-dev \
 MDRA_TEST_NEO4J_URI=bolt://localhost:7687 MDRA_TEST_NEO4J_PASSWORD=mdra-local-dev \

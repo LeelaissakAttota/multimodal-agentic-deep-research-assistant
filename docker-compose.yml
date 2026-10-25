@@ -6,12 +6,17 @@
 #
 # Then set the matching MDRA_* variables in .env (see docs/SCALE.md). The passwords below are local
 # development defaults; override them with environment variables or a compose .env file.
+#
+# Host ports are configurable and always bound to 127.0.0.1 only. Postgres defaults to host port 5433 so it
+# does not clash with a locally installed PostgreSQL (5432), e.g. on Windows with Docker Desktop:
+#   MDRA_PG_PORT (5433)  MDRA_REDIS_PORT (6379)  MDRA_MINIO_PORT (9000)  MDRA_MINIO_CONSOLE_PORT (9001)
+#   MDRA_OTEL_PORT (4318)  MDRA_NEO4J_HTTP_PORT (7474)  MDRA_NEO4J_BOLT_PORT (7687)
 name: mdra-scale
 
 services:
   redis:
     image: redis:7-alpine
-    ports: ["127.0.0.1:6379:6379"]
+    ports: ["127.0.0.1:${MDRA_REDIS_PORT:-6379}:6379"]
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["redis-data:/data"]
     healthcheck:
@@ -21,7 +26,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    ports: ["127.0.0.1:5432:5432"]
+    ports: ["127.0.0.1:${MDRA_PG_PORT:-5433}:5432"]
     environment:
       POSTGRES_DB: mdra
       POSTGRES_USER: mdra
@@ -35,7 +40,7 @@ services:
   minio:
     image: minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
-    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    ports: ["127.0.0.1:${MDRA_MINIO_PORT:-9000}:9000", "127.0.0.1:${MDRA_MINIO_CONSOLE_PORT:-9001}:9001"]
     environment:
       MINIO_ROOT_USER: ${MDRA_MINIO_USER:-mdra-local}
       MINIO_ROOT_PASSWORD: ${MDRA_MINIO_PASSWORD:-mdra-local-dev}
@@ -58,13 +63,13 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otelcol/config.yaml"]
-    ports: ["127.0.0.1:4318:4318"]
+    ports: ["127.0.0.1:${MDRA_OTEL_PORT:-4318}:4318"]
     volumes: ["./deploy/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
 
   neo4j:
     image: neo4j:5-community
     profiles: ["graph"]
-    ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
+    ports: ["127.0.0.1:${MDRA_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${MDRA_NEO4J_BOLT_PORT:-7687}:7687"]
     environment:
       NEO4J_AUTH: neo4j/${MDRA_NEO4J_PASSWORD:-mdra-local-dev}
     volumes: ["neo4j-data:/data"]

@@ -1,6 +1,6 @@
 """``deep-research-migrate``: copy, export or import research sessions between SQLite and Postgres.
 
-    deep-research-migrate copy   --from data/research_memory.sqlite --to postgresql://mdra:mdra@localhost:5432/mdra
+    deep-research-migrate copy   --from data/research_memory.sqlite --to postgresql://mdra:mdra@localhost:5433/mdra
     deep-research-migrate export --from data/research_memory.sqlite --out sessions.jsonl
     deep-research-migrate import --to  postgresql://... --in sessions.jsonl
 
