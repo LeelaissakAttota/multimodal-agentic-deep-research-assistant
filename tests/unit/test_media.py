@@ -125,6 +125,7 @@ def test_free_endpoint_guard_refuses_paid_apis() -> None:
     assert is_free_endpoint("http://127.0.0.1:8000/v1", "whisper-1")
     assert is_free_endpoint("http://localhost:9000/v1", "x") and is_free_endpoint("https://box.local/v1", "x")
     assert is_free_endpoint("https://openrouter.ai/api/v1", "openai/whisper:free")
+    assert not is_free_endpoint("https://openrouter.ai/api/v1", "openai/whisper")
     assert not is_free_endpoint("https://api.openai.com/v1", "whisper-1")
     with pytest.raises(MediaError) as err:
         ApiTranscriber(MediaSettings(transcriber="api", api_base="https://api.openai.com/v1"))
@@ -259,9 +260,9 @@ def test_bad_mime_rejected() -> None:
 def test_youtube_captions_used_without_downloading(monkeypatch: pytest.MonkeyPatch) -> None:
     info = {"title": "Reef lecture", "duration": 600, "vcodec": "avc1",
             "subtitles": {"en": [{"ext": "vtt", "url": "https://captions.example/en.vtt"}]}}
-    monkeypatch.setattr(remote, "fetch_info", lambda url: info)
+    monkeypatch.setattr(remote, "fetch_info", lambda url, validator=None: info)
     monkeypatch.setattr(remote, "download_caption",
-                        lambda url: b"WEBVTT\n\n00:01:15.000 --> 00:01:20.000\nWarm water bleaches coral.\n")
+                        lambda url, validator=None: b"WEBVTT\n\n00:01:15.000 --> 00:01:20.000\nWarm water bleaches coral.\n")
 
     def no_download(*a: Any, **k: Any) -> Path:
         raise AssertionError("must not download when captions exist")
@@ -281,11 +282,11 @@ def test_youtube_captions_used_without_downloading(monkeypatch: pytest.MonkeyPat
 
 
 def test_youtube_without_captions_downloads_audio_and_transcribes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(remote, "fetch_info", lambda url: {"title": "Talk", "duration": 30, "vcodec": "none"})
+    monkeypatch.setattr(remote, "fetch_info", lambda url, validator=None: {"title": "Talk", "duration": 30, "vcodec": "none"})
     monkeypatch.setattr(pipeline_mod, "whisper_available", lambda: True)
     monkeypatch.setattr(frames_mod, "frame_backend", lambda: None)
 
-    def fake_download(url: str, out_dir: Path, settings: MediaSettings, *, video: bool) -> Path:
+    def fake_download(url: str, out_dir: Path, settings: MediaSettings, *, video: bool, validator: Any = None) -> Path:
         assert video is False
         path = out_dir / "audio.webm"
         path.write_bytes(b"x")
@@ -300,7 +301,7 @@ def test_youtube_without_captions_downloads_audio_and_transcribes(monkeypatch: p
 
 
 def test_private_media_links_blocked_before_any_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(remote, "fetch_info", lambda url: pytest.fail("fetched"))
+    monkeypatch.setattr(remote, "fetch_info", lambda url, validator=None: pytest.fail("fetched"))
     result = run(MediaAnalysisTool(settings=enabled(), url_validator=lambda u: False), "http://127.0.0.1/v.mp4")
     assert result.metadata["failure_kind"] == "blocked_url"
 

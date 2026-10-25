@@ -71,7 +71,8 @@ class MediaAnalysisTool(Tool):
                  pipeline: MediaPipeline | None = None, max_bytes: int = MAX_MEDIA_BYTES,
                  url_validator: Callable[[str], bool] = _default_validator) -> None:
         self.settings = settings or MediaSettings()
-        self.pipeline = pipeline or MediaPipeline(self.settings, vision_gateway=vision_gateway)
+        self.pipeline = pipeline or MediaPipeline(self.settings, vision_gateway=vision_gateway,
+                                                  url_validator=url_validator)
         self.max_bytes = max_bytes
         self.url_validator = url_validator
 

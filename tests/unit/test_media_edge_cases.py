@@ -47,8 +47,6 @@ def test_paid_endpoint_refused(base: str) -> None:
         ApiTranscriber(MediaSettings(transcriber="api", api_base=base, api_model="whisper-1"))
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: ':free' suffix on the model bypasses the host check on any host, "
-                   "so a paid API (and the API key) is used if the model name merely ends in ':free'")
 def test_free_suffix_only_on_free_provider() -> None:
     assert not is_free_endpoint("https://api.openai.com/v1", "whisper-1:free")
 
@@ -76,21 +74,16 @@ def test_vtt_hours_and_dedupe() -> None:
     assert len(segs) == 1 and segs[0].start == pytest.approx(3723.5)
 
 
-@pytest.mark.xfail(strict=True, raises=AttributeError,
-                   reason="BUG: json3 captions that are valid JSON but not an object raise AttributeError, "
-                   "not MediaError, so the caption->transcribe fallback in analyze_url is skipped")
 def test_json3_non_object_is_media_error() -> None:
     with pytest.raises(MediaError):
         remote.parse_captions(b"[]", "json3")
 
 
-@pytest.mark.xfail(strict=True, reason="BUG (SSRF): caption URLs from yt-dlp info are fetched without the "
-                   "public-address check; only the initial URL is validated")
 def test_caption_url_is_revalidated(monkeypatch: pytest.MonkeyPatch) -> None:
     fetched: list[str] = []
     info: dict[str, Any] = {"duration": 10, "vcodec": "none",
                             "subtitles": {"en": [{"ext": "vtt", "url": "http://169.254.169.254/latest/meta-data"}]}}
-    monkeypatch.setattr(remote, "fetch_info", lambda url: info)
+    monkeypatch.setattr(remote, "fetch_info", lambda url, validator=None: info)
     monkeypatch.setattr(remote, "download_caption",
                         lambda u: (fetched.append(u), b"WEBVTT\n\n00:00.000 --> 00:01.000\nhi\n")[1])
     pipe = MediaPipeline(MediaSettings(enabled=True, keyframes=0))

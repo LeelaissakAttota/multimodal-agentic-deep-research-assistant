@@ -6,7 +6,7 @@ import importlib.util
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from deep_research.media.config import MediaSettings
 from deep_research.media.errors import MediaError, MediaUnavailable
@@ -21,18 +21,53 @@ def ytdlp_available() -> bool:
     return importlib.util.find_spec("yt_dlp") is not None
 
 
-def _ydl(options: dict[str, Any]) -> Any:
+UrlValidator = Callable[[str], bool]
+
+
+def public_url(url: str) -> bool:
+    from deep_research.tools.web_tools import is_public_http_url
+
+    return is_public_http_url(url)
+
+
+def check_url(url: str, validator: UrlValidator | None = None) -> None:
+    if not (validator or public_url)(url):
+        raise MediaError("Blocked a media request to a private or non-public address.", "blocked_url")
+
+
+def _ydl(options: dict[str, Any], validator: UrlValidator | None = None) -> Any:
+    """A YoutubeDL whose every HTTP request (extractor, captions, media) is SSRF-checked.
+
+    The request URL is checked before it is sent and the final URL after redirects is checked before any
+    body is read. Native downloaders are forced so ffmpeg never fetches URLs on its own. Remaining gap:
+    an intermediate redirect hop is requested before it can be inspected (its body is never read).
+    """
+
     try:
         import yt_dlp
     except ImportError as exc:
         raise MediaUnavailable("yt-dlp for YouTube and remote media") from exc
-    base = {"quiet": True, "no_warnings": True, "noplaylist": True, "noprogress": True}
-    return yt_dlp.YoutubeDL({**base, **options})
+
+    class _Guarded(yt_dlp.YoutubeDL):  # type: ignore[misc]
+        def urlopen(self, req: Any) -> Any:
+            url = req if isinstance(req, str) else str(getattr(req, "url", "") or req.get_full_url())
+            check_url(url, validator)
+            response = super().urlopen(req)
+            final = str(getattr(response, "url", "") or url)
+            if final != url and not (validator or public_url)(final):
+                response.close()
+                raise MediaError("Blocked a media redirect to a private or non-public address.", "blocked_url")
+            return response
+
+    base = {"quiet": True, "no_warnings": True, "noplaylist": True, "noprogress": True,
+            "hls_prefer_native": True, "external_downloader": {}}
+    return _Guarded({**base, **options})
 
 
-def fetch_info(url: str) -> dict[str, Any]:
+def fetch_info(url: str, validator: UrlValidator | None = None) -> dict[str, Any]:
     try:
-        with _ydl({"skip_download": True}) as ydl:
+        with _ydl({"skip_download": True}, validator) as ydl:
+            check_url(url, validator)
             info = ydl.extract_info(url, download=False)
             return dict(ydl.sanitize_info(info) or {})
     except MediaError:
@@ -60,9 +95,10 @@ def pick_caption(info: dict[str, Any], language: str | None) -> tuple[str, str, 
     return None
 
 
-def download_caption(url: str) -> bytes:
+def download_caption(url: str, validator: UrlValidator | None = None) -> bytes:
     try:
-        with _ydl({}) as ydl:
+        with _ydl({}, validator) as ydl:
+            check_url(url, validator)
             return bytes(ydl.urlopen(url).read())
     except MediaError:
         raise
@@ -80,13 +116,23 @@ def parse_json3(text: str) -> list[Segment]:
         data = json.loads(text)
     except ValueError as exc:
         raise MediaError("Captions were not valid JSON.", "invalid_captions") from exc
+    events = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(events, list):
+        raise MediaError("Captions JSON has no 'events' list.", "invalid_captions")
     out: list[Segment] = []
-    for event in data.get("events") or []:
-        words = "".join(str(s.get("utf8") or "") for s in event.get("segs") or [] if isinstance(s, dict))
-        words = " ".join(words.split())
-        if words:
-            start = float(event.get("tStartMs") or 0) / 1000
-            out.append(Segment(start, start + float(event.get("dDurationMs") or 0) / 1000, words))
+    try:
+        for event in events:
+            if not isinstance(event, dict):
+                raise MediaError("Captions JSON has a malformed event.", "invalid_captions")
+            segs = event.get("segs") or []
+            if not isinstance(segs, list):
+                raise MediaError("Captions JSON has malformed 'segs'.", "invalid_captions")
+            words = " ".join("".join(str(s.get("utf8") or "") for s in segs if isinstance(s, dict)).split())
+            if words:
+                start = float(event.get("tStartMs") or 0) / 1000
+                out.append(Segment(start, start + float(event.get("dDurationMs") or 0) / 1000, words))
+    except (TypeError, ValueError) as exc:
+        raise MediaError("Captions JSON has non-numeric timings.", "invalid_captions") from exc
     return _dedupe(out)
 
 
@@ -123,15 +169,20 @@ def _dedupe(segments: list[Segment]) -> list[Segment]:
     return out
 
 
-def download(url: str, out_dir: Path, settings: MediaSettings, *, video: bool) -> Path:
+def download(url: str, out_dir: Path, settings: MediaSettings, *, video: bool,
+             validator: UrlValidator | None = None) -> Path:
     """Download bestaudio (or a <=360p video) into ``out_dir``; size-capped."""
 
     fmt = "worst[height>=240][ext=mp4]/worst[ext=mp4]/worst" if video else "bestaudio/best"
     options = {"format": fmt, "outtmpl": str(out_dir / ("video.%(ext)s" if video else "audio.%(ext)s")),
                "max_filesize": settings.max_download_mb * 1024 * 1024}
     try:
-        with _ydl(options) as ydl:
-            info = ydl.extract_info(url, download=True)
+        with _ydl(options, validator) as ydl:
+            check_url(url, validator)
+            info = ydl.extract_info(url, download=False)
+            for target in format_urls(info):  # the media hosts yt-dlp chose, before any byte is fetched
+                check_url(target, validator)
+            info = ydl.process_ie_result(info, download=True)
             path = Path(ydl.prepare_filename(info))
     except MediaError:
         raise
@@ -140,6 +191,13 @@ def download(url: str, out_dir: Path, settings: MediaSettings, *, video: bool) -
     if not path.exists():
         raise MediaError(f"Media was not downloaded (over {settings.max_download_mb} MB?).", "media_too_large")
     return path
+
+
+def format_urls(info: dict[str, Any]) -> list[str]:
+    """Media URLs a download would fetch (single format or merged video+audio formats)."""
+
+    picked = info.get("requested_formats") or [info]
+    return [str(f["url"]) for f in picked if isinstance(f, dict) and f.get("url")]
 
 
 def _reason(exc: Exception) -> str:

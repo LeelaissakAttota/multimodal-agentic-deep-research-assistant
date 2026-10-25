@@ -3,6 +3,15 @@
 ## [Unreleased] - feat/phase7
 
 ### Fixed
+- Media SSRF: caption URLs from yt-dlp info, the extractor's own requests, the chosen media URLs and the final URL
+  after redirects now all pass the public-address check (validating `YoutubeDL.urlopen`, native downloaders forced).
+- Media transcription API: the `:free` model suffix only counts on OpenRouter; other hosts must be local.
+- Malformed json3 captions (non-object JSON, bad `events`/`segs`, non-numeric times) raise `MediaError`, so the
+  transcription fallback runs instead of crashing.
+- Transcription timeouts stop the work: faster-whisper checks a cancel flag between segments, the API client
+  uses an httpx timeout and checks the flag, and transcription runs on a bounded 2-thread pool.
+- docs/SCALE.md section 9 lists `MDRA_MEDIA_API_MODEL`, `MDRA_MEDIA_API_KEY`, `MDRA_MEDIA_WHISPER_DEVICE` and
+  `MDRA_MEDIA_WHISPER_COMPUTE_TYPE` individually.
 - RAG chunks now have a hard `MDRA_RAG_CHUNK_WORDS` cap: text without sentence breaks (lowercase, unpunctuated,
   Telugu and other scripts) is split into overlapping word windows instead of one unbounded chunk.
 - The missing-embeddings hint now says `pip install -e '.[rag]'` (was `.[memory]`).

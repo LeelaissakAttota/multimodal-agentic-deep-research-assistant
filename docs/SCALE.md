@@ -243,7 +243,8 @@ Pipeline:
 2. **Transcription:** `MDRA_MEDIA_TRANSCRIBER=local` (default) runs faster-whisper (`MDRA_MEDIA_WHISPER_MODEL`,
    default `base`; it decodes audio and video containers itself, ffmpeg not needed). `api` posts to an
    OpenAI-compatible `/audio/transcriptions` (`verbose_json`) at `MDRA_MEDIA_API_BASE`; only localhost/`.local`
-   servers (e.g. faster-whisper-server / speaches) or `:free` models are accepted. With ffmpeg on PATH the
+   servers (e.g. faster-whisper-server / speaches), or `:free` models on OpenRouter (`openrouter.ai`), are
+   accepted. The `:free` suffix counts on no other host. With ffmpeg on PATH the
    audio is first reduced to 16 kHz mono MP3.
 3. **Keyframes (video):** `MDRA_MEDIA_KEYFRAMES` (default 6) evenly spaced frames are grabbed with
    ffmpeg/ffprobe, or PyAV when ffmpeg is missing, and captioned by the configured free vision model. Without a
@@ -258,21 +259,34 @@ Pipeline:
 |---|---|---|
 | `MDRA_MEDIA_ENABLED` | `false` | master switch |
 | `MDRA_MEDIA_TRANSCRIBER` | `local` | `local` (faster-whisper) or `api` |
-| `MDRA_MEDIA_WHISPER_MODEL` / `_DEVICE` / `_COMPUTE_TYPE` | `base` / `auto` / `int8` | faster-whisper model |
+| `MDRA_MEDIA_WHISPER_MODEL` | `base` | faster-whisper model name or local path |
+| `MDRA_MEDIA_WHISPER_DEVICE` | `auto` | `auto`, `cpu` or `cuda` |
+| `MDRA_MEDIA_WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute type (`int8`, `float16`, `int8_float16`, ...) |
 | `MDRA_MEDIA_LANGUAGE` | auto | ISO language for transcription and caption choice |
-| `MDRA_MEDIA_API_BASE` / `_API_MODEL` / `_API_KEY` | `http://127.0.0.1:8000/v1` / `whisper-1` / none | free/local transcription API |
+| `MDRA_MEDIA_API_BASE` | `http://127.0.0.1:8000/v1` | OpenAI-compatible transcription server (local, or OpenRouter) |
+| `MDRA_MEDIA_API_MODEL` | `whisper-1` | model sent to that server; must end in `:free` on OpenRouter |
+| `MDRA_MEDIA_API_KEY` | none | optional bearer token for that server (never logged) |
 | `MDRA_MEDIA_PREFER_CAPTIONS` | `true` | YouTube captions before transcription |
 | `MDRA_MEDIA_KEYFRAMES` | `6` | frames per video (0 = none) |
 | `MDRA_MEDIA_YOUTUBE_FRAMES` | `false` | download low-res YouTube video for keyframes |
 | `MDRA_MEDIA_WINDOW_SECONDS` | `60` | transcript seconds per cited chunk |
 | `MDRA_MEDIA_MAX_DURATION_SECONDS` | `10800` | longer media is refused |
 | `MDRA_MEDIA_MAX_DOWNLOAD_MB` | `200` | yt-dlp download cap |
-| `MDRA_MEDIA_TIMEOUT_SECONDS` | `600` | transcription timeout |
+| `MDRA_MEDIA_TIMEOUT_SECONDS` | `600` | transcription timeout (also each HTTP phase of the API call) |
 
 Notes: PyAV is pinned `<16` because faster-whisper 1.2 calls `av.open(metadata_errors=...)`, which PyAV 16
 removed. YouTube may answer "Sign in to confirm you're not a bot" from datacenter IPs; the error is shown as-is
 (captions-only requests are lighter and usually still work). Links go through the same public-address SSRF check
-as web pages.
+as web pages, and so does every request yt-dlp makes (extractor pages, caption URLs from the video info, the
+chosen media format URLs before download, and the final URL after redirects, checked before any body is read).
+yt-dlp's native downloaders are forced so ffmpeg never fetches URLs. Known gap: an intermediate redirect hop is
+requested before it can be inspected; its response body is never used.
+
+**Timeouts.** On `MDRA_MEDIA_TIMEOUT_SECONDS` the run fails with `transcription_timeout` and the worker is told
+to stop: faster-whisper decodes lazily, so it stops at the next segment; the API transcriber stops before its
+request, and an in-flight request is capped by the same httpx timeout per phase. Transcription runs on a
+dedicated 2-thread pool, so stragglers never pile up as unbounded threads. Not interruptible: a faster-whisper
+model load/download and the current segment, which finish in the background (still within the 2 threads).
 
 ## Testing
 

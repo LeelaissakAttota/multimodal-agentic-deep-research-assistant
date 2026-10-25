@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +24,10 @@ _SUFFIX = {"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav", "audi
            "audio/wave": ".wav", "audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/ogg": ".ogg",
            "audio/webm": ".webm", "audio/flac": ".flac", "audio/x-flac": ".flac", "video/mp4": ".mp4",
            "video/webm": ".webm", "video/quicktime": ".mov", "video/x-matroska": ".mkv", "video/ogg": ".ogv"}
+#: Transcription runs on its own small pool: a timed-out job that is still finishing its current segment
+#: (or a model load, which cannot be interrupted) occupies at most these threads; new jobs queue behind it.
+TRANSCRIBE_WORKERS = 2
+_TRANSCRIBE_POOL = ThreadPoolExecutor(max_workers=TRANSCRIBE_WORKERS, thread_name_prefix="dr-transcribe")
 AUDIO_MIMES = frozenset(m for m in _SUFFIX if m.startswith("audio/"))
 VIDEO_MIMES = frozenset(m for m in _SUFFIX if m.startswith("video/"))
 
@@ -55,8 +61,10 @@ async def caption_frame(gateway: Any, jpeg: bytes) -> tuple[str | None, str | No
 
 class MediaPipeline:
     def __init__(self, settings: MediaSettings, *, vision_gateway: Any = None,
-                 transcriber_factory: Callable[[MediaSettings], Transcriber] = build_transcriber) -> None:
+                 transcriber_factory: Callable[[MediaSettings], Transcriber] = build_transcriber,
+                 url_validator: Callable[[str], bool] | None = None) -> None:
         self.settings = settings
+        self.url_validator = url_validator
         self.vision_gateway = vision_gateway
         self.transcriber_factory = transcriber_factory
 
@@ -70,7 +78,7 @@ class MediaPipeline:
             return result
 
     async def analyze_url(self, url: str, title: str | None = None) -> MediaAnalysis:
-        info = await asyncio.to_thread(remote.fetch_info, url)
+        info = await asyncio.to_thread(remote.fetch_info, url, self.url_validator)
         duration = float(info.get("duration") or 0)
         if duration > self.settings.max_duration_seconds:
             raise MediaError(f"Media is {fmt_ts(duration)} long; the limit is "
@@ -84,7 +92,8 @@ class MediaPipeline:
             if picked:
                 cap_url, ext, auto = picked
                 try:
-                    raw = await asyncio.to_thread(remote.download_caption, cap_url)
+                    remote.check_url(cap_url, self.url_validator)  # yt-dlp info is untrusted input
+                    raw = await asyncio.to_thread(remote.download_caption, cap_url, self.url_validator)
                     result.segments = remote.parse_captions(raw, ext)
                     result.transcript_source = f"captions ({'auto' if auto else 'manual'})"
                 except MediaError as exc:
@@ -95,7 +104,8 @@ class MediaPipeline:
                 result.notes.append("keyframes skipped for remote video (set MDRA_MEDIA_YOUTUBE_FRAMES=true)")
             return result
         with tempfile.TemporaryDirectory(prefix="dr-media-") as tmp:
-            path = await asyncio.to_thread(remote.download, url, Path(tmp), self.settings, video=want_frames)
+            path = await asyncio.to_thread(remote.download, url, Path(tmp), self.settings, video=want_frames,
+                                           validator=self.url_validator)
             await self._local_file(path, Path(tmp), result, frames=want_frames,
                                    transcribe=not result.segments)
         return result
@@ -126,10 +136,14 @@ class MediaPipeline:
         source = path
         if self.settings.transcriber == "api":
             source = await asyncio.to_thread(frames_mod.extract_audio, path, tmp)
+        cancel = getattr(transcriber, "cancel", None)
+        loop = asyncio.get_running_loop()
         try:
-            segments = await asyncio.wait_for(asyncio.to_thread(transcriber.transcribe, source),
+            segments = await asyncio.wait_for(loop.run_in_executor(_TRANSCRIBE_POOL, transcriber.transcribe, source),
                                               timeout=self.settings.timeout_seconds)
         except TimeoutError as exc:
+            if isinstance(cancel, threading.Event):
+                cancel.set()  # the worker stops at its next segment / before its next request
             raise MediaError(f"Transcription timed out after {self.settings.timeout_seconds:.0f}s.",
                              "transcription_timeout") from exc
         except MediaError:

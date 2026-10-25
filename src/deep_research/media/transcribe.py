@@ -15,11 +15,19 @@ from deep_research.media.errors import MediaError, MediaUnavailable
 from deep_research.media.timecode import Segment
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"})
+_FREE_SUFFIX_HOSTS = frozenset({"openrouter.ai"})
 _MODELS: dict[tuple[str, str, str], Any] = {}
 _LOCK = threading.Lock()
 
 
+class TranscriptionCancelled(MediaError):
+    def __init__(self) -> None:
+        super().__init__("Transcription cancelled after the timeout.", "transcription_timeout")
+
+
 class Transcriber(Protocol):
+    """``cancel`` (optional attribute) is set by the pipeline on timeout; transcribers stop at the next segment."""
+
     name: str
 
     def transcribe(self, path: Path) -> list[Segment]: ...
@@ -30,10 +38,12 @@ def whisper_available() -> bool:
 
 
 def is_free_endpoint(api_base: str, model: str) -> bool:
-    """Only local servers or ``:free`` models: this project never calls paid APIs."""
+    """Local servers, or ``:free`` models *on OpenRouter* (the suffix means nothing elsewhere)."""
 
     host = (urlparse(api_base).hostname or "").lower()
-    return host in _LOCAL_HOSTS or host.endswith(".local") or model.endswith(":free")
+    if host in _LOCAL_HOSTS or host.endswith(".local"):
+        return True
+    return host in _FREE_SUFFIX_HOSTS and model.endswith(":free")
 
 
 class LocalWhisper:
@@ -42,6 +52,7 @@ class LocalWhisper:
     def __init__(self, settings: MediaSettings) -> None:
         self.settings = settings
         self.name = f"faster-whisper:{settings.whisper_model}"
+        self.cancel = threading.Event()
 
     def _model(self) -> Any:
         try:
@@ -55,9 +66,17 @@ class LocalWhisper:
             return _MODELS[key]
 
     def transcribe(self, path: Path) -> list[Segment]:
-        segments, _info = self._model().transcribe(str(path), language=self.settings.language or None,
-                                                   vad_filter=True)
-        return [Segment(float(s.start), float(s.end), str(s.text).strip()) for s in segments if str(s.text).strip()]
+        model = self._model()
+        if self.cancel.is_set():
+            raise TranscriptionCancelled()
+        segments, _info = model.transcribe(str(path), language=self.settings.language or None, vad_filter=True)
+        out: list[Segment] = []
+        for s in segments:  # lazy generator: decoding happens per segment, so a timeout stops it here
+            if self.cancel.is_set():
+                raise TranscriptionCancelled()
+            if str(s.text).strip():
+                out.append(Segment(float(s.start), float(s.end), str(s.text).strip()))
+        return out
 
 
 class ApiTranscriber:
@@ -70,6 +89,7 @@ class ApiTranscriber:
         self.settings = settings
         self.client = client
         self.name = f"api:{settings.api_model}"
+        self.cancel = threading.Event()
 
     def transcribe(self, path: Path) -> list[Segment]:
         key = self.settings.api_key.get_secret_value() if self.settings.api_key else ""
@@ -78,7 +98,11 @@ class ApiTranscriber:
         data = {"model": self.settings.api_model, "response_format": "verbose_json"}
         if self.settings.language:
             data["language"] = self.settings.language
-        client = self.client or httpx.Client(timeout=self.settings.timeout_seconds)
+        if self.cancel.is_set():
+            raise TranscriptionCancelled()
+        # Every connect/write/read phase is capped by the same timeout, so a stalled server cannot keep
+        # the worker thread past roughly one extra timeout after the pipeline gave up.
+        client = self.client or httpx.Client(timeout=httpx.Timeout(self.settings.timeout_seconds))
         try:
             with path.open("rb") as handle:
                 response = client.post(url, headers=headers, data=data, files={"file": (path.name, handle)})
