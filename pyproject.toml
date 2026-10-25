@@ -56,6 +56,10 @@ queue = [
     "rq>=1.16",
     "redis>=5.0",
 ]
+postgres = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+]
 test = [
     "httpx>=0.27.0",
     "mypy>=1.10.0",
@@ -70,6 +74,7 @@ deep-research-control = "deep_research.control.server:main"
 deep-research-eval = "deep_research.evaluation.__main__:main"
 deep-research-demo = "deep_research.demo:main"
 deep-research-worker = "deep_research.scale.worker:main"
+deep-research-migrate = "deep_research.scale.migrate:main"
 
 [project.urls]
 Homepage = "https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant"

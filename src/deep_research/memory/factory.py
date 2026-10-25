@@ -132,10 +132,10 @@ def build_long_term_memory(mode: str, memory_dir: str | Path) -> LongTermMemory 
     resolved = resolve_memory_mode(mode)
     if resolved == "off":
         return None
-    from deep_research.persistence.sqlite_repository import SQLiteResearchRepository
+    from deep_research.persistence.factory import build_session_repository
 
     base = Path(memory_dir)
-    repo = SQLiteResearchRepository(base / MEMORY_DB_NAME)
+    repo = build_session_repository(base / MEMORY_DB_NAME)  # MDRA_DATABASE_URL -> Postgres, else SQLite
     repo.initialize()
     if resolved == "lexical":
         return LongTermMemory("lexical", IndexingSessionRepository(repo), BoundedResearchMemory(repo))

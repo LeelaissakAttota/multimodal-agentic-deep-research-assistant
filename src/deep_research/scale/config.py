@@ -21,6 +21,9 @@ class ScaleSettings(BaseSettings):
     job_timeout_seconds: int = Field(default=1800, ge=30, le=86_400)
     job_poll_seconds: float = Field(default=1.0, gt=0, le=30)
 
+    # 2) Session storage (SQLAlchemy; postgresql://user:pass@host:5432/db). Unset = SQLite file.
+    database_url: SecretStr | None = Field(default=None)
+
     model_config = SettingsConfigDict(
         env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
         env_file_encoding="utf-8",
@@ -68,6 +71,35 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
     s = scale or ScaleSettings()
     rows = [_entry("Job queue (RQ/Redis)", bool(s.secret("redis_url")), ("rq", "redis"), "queue",
                    "in-process runs", f"queue '{s.rq_queue}'")]
+    db_url = s.secret("database_url")
+    is_pg = db_url.startswith(("postgres://", "postgresql"))
+    rows.append(_entry("Session database", bool(db_url), ("sqlalchemy", "psycopg") if is_pg else ("sqlalchemy",),
+                       "postgres", "SQLite file (data/research_memory.sqlite)", _db_label(db_url)))
     if probe:
         _probe(rows[0], lambda: queue.ping(s))
+        _probe(rows[1], lambda: _db_ping(db_url))
     return rows
+
+
+def _db_label(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        from deep_research.persistence.sqlalchemy_repository import safe_url
+
+        return safe_url(url)
+    except ImportError:
+        return url.split("://", 1)[0]
+
+
+def _db_ping(url: str) -> None:
+    import sqlalchemy as sa
+
+    from deep_research.persistence.sqlalchemy_repository import normalize_database_url
+
+    engine = sa.create_engine(normalize_database_url(url), connect_args={"connect_timeout": 2} if "postgres" in url else {})
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa.text("SELECT 1"))
+    finally:
+        engine.dispose()
