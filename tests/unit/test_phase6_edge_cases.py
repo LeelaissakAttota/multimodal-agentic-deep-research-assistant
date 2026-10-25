@@ -114,10 +114,11 @@ def test_backend_status_never_leaks_secrets(clean_env: None) -> None:
     assert SECRET not in json.dumps(backend_status(s))
 
 
-@pytest.mark.xfail(strict=True, reason="BUG(low): neo4j_uri/otel_endpoint are plain str; creds in them show in repr")
 def test_scale_settings_repr_hides_url_credentials() -> None:
     s = _scale(neo4j_uri=f"bolt://n:{SECRET}@neo:7687", otel_endpoint=f"https://u:{SECRET}@otel:4318/v1/traces")
-    assert SECRET not in repr(s)
+    assert SECRET not in repr(s) and SECRET not in str(s)
+    assert "bolt://[REDACTED]@neo:7687" in repr(s)
+    assert s.neo4j_uri.endswith("@neo:7687")  # real value still usable by the driver
 
 
 def test_invalid_ab_config_status_no_secret(clean_env: None) -> None:
@@ -249,3 +250,10 @@ def test_extension_no_remote_code() -> None:
         t = f.read_text(encoding="utf-8")
         assert "eval(" not in t and "new Function" not in t and "https://" not in t.replace("https://", "", 0) or f.suffix == ".md"
         assert "<script src=\"http" not in t
+
+
+def test_scale_settings_url_fields_never_leak_in_status_or_str() -> None:
+    s = _scale(neo4j_uri=f"neo4j+s://:{SECRET}@neo:7687", otel_endpoint=f"http://{SECRET}@otel:4318/v1/traces",
+               s3_endpoint=f"http://k:{SECRET}@minio:9000")
+    text = repr(s) + str(s) + str(backend_status(s)) + f"{s!r}"
+    assert SECRET not in text and "[REDACTED]" in repr(s)

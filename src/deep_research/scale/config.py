@@ -4,11 +4,23 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Any scheme; userinfo may be "user:pw", ":pw" (e.g. redis://:pw@host) or "user". Greedy up to the last "@"
+# of the authority so passwords containing "@" or ":" are removed too.
+_URL_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]*@")
+
+
+def redact_url_credentials(text: str) -> str:
+    """Replace the userinfo of every URL in ``text`` with ``[REDACTED]``."""
+    return _URL_CREDENTIALS.sub(r"\1[REDACTED]@", text)
+
 
 State = Literal["off", "missing-dependency", "configured", "ok", "unreachable", "invalid"]
 
@@ -52,6 +64,11 @@ class ScaleSettings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    def __repr_args__(self) -> Iterable[tuple[str | None, Any]]:
+        # Plain-string URL fields (neo4j_uri, otel_endpoint, s3_endpoint, ...) may carry user:pw@ - never show it.
+        for key, value in super().__repr_args__():
+            yield key, redact_url_credentials(value) if isinstance(value, str) else value
 
     def secret(self, name: str) -> str:
         value = getattr(self, name)

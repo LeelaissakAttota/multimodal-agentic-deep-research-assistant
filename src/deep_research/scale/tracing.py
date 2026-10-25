@@ -8,20 +8,17 @@ Prompts, report text and API keys are never attached.
 
 from __future__ import annotations
 
-import re
 import threading
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from deep_research.observability.redaction import is_sensitive_key, redact_text
+from deep_research.scale.config import redact_url_credentials
 
 if TYPE_CHECKING:
     from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
-# Any scheme; userinfo may be "user:pw", ":pw" (e.g. redis://:pw@host) or "user". Greedy up to the last "@"
-# of the authority so passwords containing "@" or ":" are removed too.
-_URL_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]*@")
 _MAX_VALUE = 256
 _lock = threading.Lock()
 _state: dict[str, Any] = {"configured": False, "tracer": None, "provider": None}
@@ -56,7 +53,7 @@ def safe_attributes(attrs: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _clean(text: str) -> str:
-    return redact_text(_URL_CREDENTIALS.sub(r"\1[REDACTED]@", text))[:_MAX_VALUE]
+    return redact_text(redact_url_credentials(text))[:_MAX_VALUE]
 
 
 def configure_tracing(*, exporter: Any | None = None, service_name: str | None = None, force: bool = False) -> bool:
