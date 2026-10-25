@@ -3,7 +3,9 @@
 A :class:`LocalSpanProcessor` added to the tracer provider writes every finished span that belongs to a
 research run (``mdra.run_id`` attribute, set from :func:`deep_research.scale.tracing.run_context`) to
 ``MDRA_TRACE_DIR`` (default ``data/traces``): one SQLite file ``spans.db`` or one ``<run_id>.jsonl`` per run.
-Attributes are passed through :func:`deep_research.scale.tracing.safe_attributes` again on write, so secrets
+Retention (``MDRA_TRACE_MAX_AGE_DAYS``, ``MDRA_TRACE_MAX_RUNS``) prunes whole runs at startup and then at most
+every ``MDRA_TRACE_PRUNE_INTERVAL_SECONDS`` on write. Span names, attributes and error descriptions are
+redacted again on write (:func:`deep_research.scale.tracing.safe_attributes`), so secrets
 never reach the store even if a caller set raw attributes. Errors are stored as exception type only.
 """
 
@@ -14,6 +16,7 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +33,67 @@ def safe_run_id(run_id: str) -> str:
 
 
 class SpanStore:
-    def __init__(self, directory: str | Path, fmt: str = "sqlite") -> None:
+    def __init__(self, directory: str | Path, fmt: str = "sqlite", *, max_age_days: float = 0.0, max_runs: int = 0,
+                 prune_interval: float = 3600.0) -> None:
         if fmt not in ("sqlite", "jsonl"):
             raise ValueError("trace store format must be sqlite or jsonl")
         self.dir = Path(directory)
         self.fmt = fmt
+        self.max_age_days = max_age_days
+        self.max_runs = max_runs
+        self.prune_interval = prune_interval
+        self._last_prune = 0.0
         self._lock = threading.Lock()
+
+    def _run_ages(self) -> dict[str, float]:
+        """Last activity (unix seconds) per stored run; keys are run ids (SQLite) or JSONL file stems."""
+        if self.fmt == "sqlite":
+            if not self.db_path.exists():
+                return {}
+            con = self._connect()
+            try:
+                return {str(r): float(e or 0) / 1e9 for r, e in
+                        con.execute("SELECT run_id, MAX(end_ns) FROM spans GROUP BY run_id").fetchall()}
+            finally:
+                con.close()
+        return {p.stem: p.stat().st_mtime for p in self.dir.glob("*.jsonl")} if self.dir.is_dir() else {}
+
+    def prune(self, now: float | None = None) -> list[str]:
+        """Delete runs older than ``max_age_days`` and beyond the newest ``max_runs``; returns removed run ids."""
+        if not self.max_age_days and not self.max_runs:
+            return []
+        now = time.time() if now is None else now
+        with self._lock:
+            ages = self._run_ages()
+            newest = sorted(ages, key=lambda r: (-ages[r], r))
+            drop = set(newest[self.max_runs:]) if self.max_runs else set()
+            if self.max_age_days:
+                drop |= {r for r, t in ages.items() if now - t > self.max_age_days * 86400}
+            if not drop:
+                return []
+            if self.fmt == "sqlite":
+                con = self._connect()
+                try:
+                    with con:
+                        con.executemany("DELETE FROM spans WHERE run_id = ?", [(r,) for r in sorted(drop)])
+                finally:
+                    con.close()
+            else:
+                for r in drop:
+                    (self.dir / f"{r}.jsonl").unlink(missing_ok=True)
+        return sorted(drop)
+
+    def maybe_prune(self, *, force: bool = False) -> list[str]:
+        """Prune when forced (startup) or when ``prune_interval`` has passed; never raises."""
+        now = time.monotonic()
+        if not force and (not self.prune_interval or now - self._last_prune < self.prune_interval):
+            return []
+        self._last_prune = now
+        try:
+            return self.prune()
+        except (OSError, sqlite3.Error) as exc:
+            log.warning("span store prune failed: %s", type(exc).__name__)
+            return []
 
     @property
     def db_path(self) -> Path:
@@ -66,6 +124,7 @@ class SpanStore:
                 for r in rows:
                     with (self.dir / f"{safe_run_id(r['run_id'])}.jsonl").open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(r, sort_keys=True) + "\n")
+        self.maybe_prune()  # periodic retention
 
     def load(self, run_id: str) -> list[dict[str, Any]]:
         """Spans of one run ordered by start time (empty when none were recorded)."""
@@ -101,7 +160,7 @@ class SpanStore:
 
 def span_row(span: Any) -> dict[str, Any] | None:
     """A redacted store row from a finished ``ReadableSpan`` (``None`` when it is not part of a run)."""
-    from deep_research.scale.tracing import safe_attributes
+    from deep_research.scale.tracing import _clean, safe_attributes
 
     attrs = safe_attributes(dict(span.attributes or {}))
     run_id = attrs.get(RUN_ATTR)
@@ -111,9 +170,9 @@ def span_row(span: Any) -> dict[str, Any] | None:
     parent = getattr(span, "parent", None)
     status = getattr(span, "status", None)
     code = getattr(getattr(status, "status_code", None), "name", "UNSET")
-    error = str(attrs.get("error.type") or (getattr(status, "description", None) or "")) if code == "ERROR" else ""
+    error = _clean(str(attrs.get("error.type") or (getattr(status, "description", None) or ""))) if code == "ERROR" else ""
     return {"run_id": str(run_id), "trace_id": f"{ctx.trace_id:032x}", "span_id": f"{ctx.span_id:016x}",
-            "parent_id": f"{parent.span_id:016x}" if parent is not None else "", "name": str(span.name),
+            "parent_id": f"{parent.span_id:016x}" if parent is not None else "", "name": _clean(str(span.name)),
             "start_ns": int(span.start_time or 0), "end_ns": int(span.end_time or span.start_time or 0),
             "status": code, "error": error[:200], "attrs": attrs}
 

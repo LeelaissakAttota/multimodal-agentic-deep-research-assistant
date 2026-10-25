@@ -54,6 +54,11 @@ class ScaleSettings(BaseSettings):
     # without an exporter above; needs the tracing extra).
     trace_store: Literal["off", "sqlite", "jsonl"] = Field(default="off")
     trace_dir: str = Field(default=str(Path("data") / "traces"), max_length=500)
+    # Retention: runs whose last span is older than max_age_days, and all but the newest max_runs runs, are
+    # pruned at startup and then at most every prune_interval_seconds (0 disables that limit).
+    trace_max_age_days: float = Field(default=14.0, ge=0, le=3650)
+    trace_max_runs: int = Field(default=500, ge=0, le=1_000_000)
+    trace_prune_interval_seconds: float = Field(default=3600.0, ge=0, le=7 * 86400)
     # A/B experiments: inline JSON or a path to a JSON file (see deep_research.scale.experiments).
     ab_config: str = Field(default="", max_length=20_000)
     # Optional Neo4j sync for the knowledge graph (the local graph needs no service).

@@ -96,7 +96,7 @@ class FakeDriver:
 def test_sync_neo4j_with_fake_driver() -> None:
     driver = FakeDriver()
     assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 9, "edges": 12}
-    (q0, _), (q1, p1), (q2, p2) = driver.log
+    (q0, _), (q1, p1), _forget, (q2, p2), _delete, _cleanup = driver.log
     assert "CREATE CONSTRAINT" in q0 and "IF NOT EXISTS" in q0
     assert "MERGE (n:MdraNode" in q1 and len(p1["rows"]) == 9 and "MERGE (a)-[e:REL" in q2 and len(p2["rows"]) == 12
     assert "coalesce(n.runs" in q1  # runs are unioned, never overwritten
@@ -145,7 +145,7 @@ def test_real_neo4j_sync() -> None:  # pragma: no cover - needs a service
     driver = GraphDatabase.driver(os.environ["MDRA_TEST_NEO4J_URI"],
                                   auth=("neo4j", os.environ.get("MDRA_TEST_NEO4J_PASSWORD", "")))
     try:
-        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 8, "edges": 11}
-        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 8, "edges": 11}  # idempotent
+        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 9, "edges": 12}
+        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 9, "edges": 12}  # idempotent
     finally:
         driver.close()

@@ -538,6 +538,10 @@ def live_view(run_id: str) -> None:  # noqa: C901 - one screen of layout
         else:
             st.markdown("<div class='muted'>The report appears here when the Report stage finishes.</div>", unsafe_allow_html=True)
             st.write("")
+    if status in TERMINAL and not report_of(run):  # failed/stopped runs: the timeline shows where it broke
+        with st.container(border=True, key="trace_live"):
+            st.markdown("<div class='ph'>⏱ Trace timeline</div>", unsafe_allow_html=True)
+            report_trace(run_id)
 
 
 def research_view(run_id: str, status: str) -> None:
@@ -630,6 +634,9 @@ def report_view(run_id: str) -> None:
         st.info("This run has no report yet.")
         st.markdown(f"<a class='btn' target='_self' href='{link('researches', run=run_id, view='live')}'>Open live run →</a>",
                     unsafe_allow_html=True)
+        if str(run.get("status", "")) in TERMINAL:  # failed or stopped: still show where the time went
+            st.markdown("#### ⏱ Trace timeline")
+            report_trace(run_id)
         return
     s = run_stats(run)
     tiles([("📌", "c2", "Status", s["status"], "run outcome", False),

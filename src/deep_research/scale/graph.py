@@ -49,6 +49,7 @@ def extract_entities(text: str, limit: int = 8) -> list[str]:
 class KnowledgeGraph:
     nodes: dict[str, dict[str, Any]] = field(default_factory=dict)
     edges: set[tuple[str, str, str]] = field(default_factory=set)
+    edge_runs: dict[tuple[str, str, str], set[str]] = field(default_factory=dict)
 
     def add_node(self, node_id: str, kind: str, label: str, **attrs: Any) -> str:
         node = self.nodes.setdefault(node_id, {"kind": kind, "label": label[:160], "runs": set()})
@@ -57,8 +58,11 @@ class KnowledgeGraph:
             node["runs"].add(str(attrs["run_id"]))
         return node_id
 
-    def add_edge(self, src: str, dst: str, rel: str) -> None:
+    def add_edge(self, src: str, dst: str, rel: str, run_id: str = "") -> None:
         self.edges.add((src, dst, rel))
+        runs = self.edge_runs.setdefault((src, dst, rel), set())
+        if run_id:
+            runs.add(str(run_id))
 
     def counts(self) -> dict[str, int]:
         c = Counter(n["kind"] for n in self.nodes.values())
@@ -107,20 +111,20 @@ def build_graph(reports: Iterable[Mapping[str, Any]]) -> KnowledgeGraph:
             title = str(cit.get("title") or url or "Untitled source")
             sid = graph.add_node(f"source:{url or _key(title)}", "source", title, url=url or None, run_id=run_id)
             by_number[cit.get("number")] = sid
-            graph.add_edge(rid, sid, "cites")
+            graph.add_edge(rid, sid, "cites", run_id)
             if domain := domain_of(url):
-                graph.add_edge(sid, graph.add_node(f"domain:{domain}", "domain", domain, run_id=run_id), "hosted_on")
+                graph.add_edge(sid, graph.add_node(f"domain:{domain}", "domain", domain, run_id=run_id), "hosted_on", run_id)
         for claim in rep.get("claims") or []:
             text = str(claim.get("text") or "").strip()
             if not text:
                 continue
             cid = graph.add_node(f"claim:{_key(text)}", "claim", text, verdict=claim.get("label") or None, run_id=run_id)
-            graph.add_edge(rid, cid, "makes")
+            graph.add_edge(rid, cid, "makes", run_id)
             for number in claim.get("citations") or []:
                 if number in by_number:
-                    graph.add_edge(cid, by_number[number], "supported_by")
+                    graph.add_edge(cid, by_number[number], "supported_by", run_id)
             for name in extract_entities(text):
-                graph.add_edge(cid, graph.add_node(f"entity:{_key(name)}", "entity", name, run_id=run_id), "mentions")
+                graph.add_edge(cid, graph.add_node(f"entity:{_key(name)}", "entity", name, run_id=run_id), "mentions", run_id)
         _add_contradictions(graph, run_id, rep.get("contradictions") or [])
     return graph
 
@@ -131,7 +135,7 @@ def _add_contradictions(graph: KnowledgeGraph, run_id: str, items: Iterable[Any]
         if len(pair) == 2 and all(pair) and claim_id(pair[0]) != claim_id(pair[1]):
             a = graph.add_node(claim_id(pair[0]), "claim", pair[0], run_id=run_id)
             b = graph.add_node(claim_id(pair[1]), "claim", pair[1], run_id=run_id)
-            graph.add_edge(a, b, "contradicts")
+            graph.add_edge(a, b, "contradicts", run_id)
 
 
 def to_networkx(graph: KnowledgeGraph) -> Any:
@@ -191,16 +195,32 @@ def sync_neo4j(graph: KnowledgeGraph, driver: Any = None, *, database: str | Non
         driver = neo4j_driver()
     nodes = [{"id": n, "kind": a["kind"], "label": a["label"], "url": a.get("url") or "",
               "runs": sorted(a["runs"])} for n, a in graph.nodes.items()]
-    edges = [{"src": s, "dst": d, "rel": r} for s, d, r in sorted(graph.edges)]
+    edges = [{"src": s, "dst": d, "rel": r, "runs": sorted(graph.edge_runs.get((s, d, r), set()))}
+             for s, d, r in sorted(graph.edges)]
+    runs = sorted({r for n in nodes for r in n["runs"]})
+
+    def write(tx: Any) -> None:
+        # runs are unioned so syncing one run never drops the others from a shared claim/source
+        tx.run("UNWIND $rows AS r MERGE (n:MdraNode {id: r.id}) "
+               "SET n.kind = r.kind, n.label = r.label, n.url = r.url, "
+               "n.runs = [x IN coalesce(n.runs, []) WHERE NOT x IN r.runs] + r.runs", rows=nodes)
+        # replace the synced runs' edges: forget these runs on every edge, re-add the current ones, then drop
+        # edges no run references any more (other runs' edges keep their run lists untouched)
+        tx.run("MATCH ()-[e:REL]->() WHERE any(x IN coalesce(e.runs, []) WHERE x IN $runs) "
+               "SET e.runs = [x IN e.runs WHERE NOT x IN $runs], e.mdra_pruned = true", runs=runs)
+        tx.run("UNWIND $rows AS r MATCH (a:MdraNode {id: r.src}), (b:MdraNode {id: r.dst}) "
+               "MERGE (a)-[e:REL {type: r.rel}]->(b) "
+               "SET e.runs = [x IN coalesce(e.runs, []) WHERE NOT x IN r.runs] + r.runs REMOVE e.mdra_pruned", rows=edges)
+        tx.run("MATCH ()-[e:REL]->() WHERE e.mdra_pruned AND size(e.runs) = 0 DELETE e")
+        tx.run("MATCH ()-[e:REL]->() WHERE e.mdra_pruned REMOVE e.mdra_pruned")
+
     try:
         with driver.session(database=database) as session:
             session.run("CREATE CONSTRAINT mdra_node_id IF NOT EXISTS FOR (n:MdraNode) REQUIRE n.id IS UNIQUE")
-            # runs are unioned so syncing one run never drops the others from a shared claim/source
-            session.run("UNWIND $rows AS r MERGE (n:MdraNode {id: r.id}) "
-                        "SET n.kind = r.kind, n.label = r.label, n.url = r.url, "
-                        "n.runs = [x IN coalesce(n.runs, []) WHERE NOT x IN r.runs] + r.runs", rows=nodes)
-            session.run("UNWIND $rows AS r MATCH (a:MdraNode {id: r.src}), (b:MdraNode {id: r.dst}) "
-                        "MERGE (a)-[e:REL {type: r.rel}]->(b)", rows=edges)
+            if hasattr(session, "execute_write"):
+                session.execute_write(write)  # one transaction: all or nothing
+            else:
+                write(session)
     finally:
         if own:
             driver.close()

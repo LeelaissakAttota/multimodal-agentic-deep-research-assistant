@@ -306,7 +306,13 @@ appears in.
 
 **Sync.** `deep-research graph-sync [--runs-dir DIR]` MERGEs every saved run (`:MdraNode {id}` with a uniqueness
 constraint, `:REL {type}` relationships). It is idempotent, and a node's `runs` list is unioned, so syncing one
-run never removes another run from a shared claim or source. With `MDRA_GRAPH_AUTO_SYNC=true` each finished run
+run never removes another run from a shared claim or source. Each relationship carries its own `runs` list.
+A sync **replaces** the synced runs' edges in one write transaction:
+1. those runs are removed from every edge's list;
+2. the current edges are MERGEd back with their runs;
+3. edges whose list became empty are deleted (e.g. a contradiction or citation the run no longer has).
+
+Edges of other runs keep their lists and are never deleted. With `MDRA_GRAPH_AUTO_SYNC=true` each finished run
 is synced as it completes (and before a graph query when the chat uses Neo4j). The dashboard button still works.
 
 **Retrieval.** With `MDRA_GRAPH_RAG=true` the chat takes the hybrid hits (RRF of BM25 and vectors, section 8) as
@@ -338,7 +344,21 @@ The report page's **⏱ Trace** tab draws a waterfall: one bar per span, indente
 by its share of the run, with its duration. Errors are shown in red with the exception type. The attributes are
 in a table below. Attributes are redacted a second time when written (the same `safe_attributes` redactor as
 the exporter), so keys, tokens and URL credentials never reach the store; exception messages are never stored.
-Runs recorded by a queue worker show up when the worker shares the same `MDRA_TRACE_DIR`.
+Runs recorded by a queue worker show up when the worker shares the same `MDRA_TRACE_DIR`. Span names and
+error descriptions are redacted too. Failed and stopped runs (no report) show the same timeline on their report
+page and at the bottom of the live run view.
+
+**Retention.** Whole runs are pruned when tracing starts and then, at most every
+`MDRA_TRACE_PRUNE_INTERVAL_SECONDS` (default `3600`, 0 = startup only), on the next write:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MDRA_TRACE_MAX_AGE_DAYS` | `14` | drop runs whose last span ended longer ago (0 = no age limit) |
+| `MDRA_TRACE_MAX_RUNS` | `500` | keep only the newest N runs (0 = no limit) |
+| `MDRA_TRACE_PRUNE_INTERVAL_SECONDS` | `3600` | how often to re-check while running |
+
+SQLite rows of pruned runs are deleted. In JSONL mode, a run's age is its file's modification time, and the
+`<run>.jsonl` file is removed. Other files in the folder are never touched.
 
 ## Testing
 

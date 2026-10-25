@@ -129,14 +129,12 @@ def test_span_row_without_run_is_dropped() -> None:
     assert spanstore.span_row(_span({"x": 1})) is None
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: status.description stored without redaction (spanstore.py:114)")
 def test_span_row_redacts_error_description() -> None:
     row = spanstore.span_row(_span({"mdra.run_id": "r"}, desc=f"failed GET https://u:secretpw@h.example key={FAKE_KEY}"))
     assert row is not None
     assert FAKE_KEY not in row["error"] and "secretpw" not in row["error"]
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: span name stored without redaction (spanstore.py:116)")
 def test_span_row_redacts_name() -> None:
     row = spanstore.span_row(_span({"mdra.run_id": "r"}, name=f"GET https://u:secretpw@h.example?k={FAKE_KEY}"))
     assert row is not None

@@ -2,6 +2,15 @@
 
 ## [Unreleased] - feat/phase7
 
+### Fixed (phase 7 C follow-up)
+- Span store: span names and error descriptions are redacted like attributes (URL credentials, keys, tokens).
+- Span store retention: `MDRA_TRACE_MAX_AGE_DAYS` (14), `MDRA_TRACE_MAX_RUNS` (500) and
+  `MDRA_TRACE_PRUNE_INTERVAL_SECONDS` (3600) prune whole runs from SQLite and the JSONL files. Pruning runs at
+  startup and then periodically on write.
+- Neo4j sync replaces each synced run's edges in one transaction: relationships carry per-run lists, so a run's
+  stale `contradicts` and `cites` edges, and any edge left with no run, are deleted. Other runs are untouched.
+- Failed and stopped runs show the trace timeline (report page and live run view).
+
 ### Added
 - GraphRAG (off by default): the knowledge graph gains entity nodes (`mentions`) and claim `contradicts` edges.
   `deep-research graph-sync` and `MDRA_GRAPH_AUTO_SYNC` MERGE runs into Neo4j idempotently (uniqueness

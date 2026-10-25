@@ -89,7 +89,9 @@ def configure_tracing(*, exporter: Any | None = None, service_name: str | None =
         if store is None and scale.trace_store != "off":
             from deep_research.scale.spanstore import SpanStore
 
-            store = SpanStore(scale.trace_dir, scale.trace_store)
+            store = SpanStore(scale.trace_dir, scale.trace_store, max_age_days=scale.trace_max_age_days,
+                              max_runs=scale.trace_max_runs, prune_interval=scale.trace_prune_interval_seconds)
+            store.maybe_prune(force=True)  # retention at startup
         if (mode == "off" and store is None) or not has_module("opentelemetry.sdk"):
             return False
         from opentelemetry.sdk.resources import Resource
