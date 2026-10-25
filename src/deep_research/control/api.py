@@ -22,6 +22,8 @@ from .secrets_store import SecretStore, mask
 class RunBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     params: dict[str, Any] = Field(default_factory=dict)
+    #: "Step-by-step approval" for this run only; None = use the saved setting (GET /control/settings).
+    approval_mode: bool | None = None
 
 
 class DecisionBody(BaseModel):
@@ -115,7 +117,7 @@ def build_control_app(  # noqa: C901 - flat route table
 
     @app.post("/control/runs", dependencies=auth, status_code=201)
     def create_run(body: RunBody) -> dict[str, Any]:
-        return manager.create(body.params).to_dict()
+        return manager.create(body.params, approval_mode=body.approval_mode).to_dict()
 
     @app.get("/control/runs", dependencies=auth)
     def list_runs() -> list[dict[str, Any]]:

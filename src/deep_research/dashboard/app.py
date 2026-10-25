@@ -31,6 +31,7 @@ from deep_research.dashboard.core import (
     needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
     strip_section, verdict_label, verification_line, verification_rows,
     source_rows, source_catalog, KIND_ICONS, SOURCE_FILTERS, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
+    STEP_HELP, STEP_LABEL, approval_state_html,
 )
 
 NAV = [("dashboard", "Dashboard", "▦"), ("new", "New Research", "＋"), ("researches", "My Researches", "☰"),
@@ -389,6 +390,14 @@ def keys_or_none() -> dict[str, Any] | None:
 
 
 # ----- New Research (+ live run / report views) ---------------------------------------------------
+def saved_step_approval() -> bool:
+    """The saved "Step-by-step approval" setting from the control API (OFF when the API is offline)."""
+    try:
+        return bool(client().settings().get("approval_mode", False)) if ok else False
+    except ControlError:
+        return False
+
+
 def page_new() -> None:
     head("New Research", "Start a new research project. Ask a question, upload files, or link a web page or file.")
     p = prefs.load()
@@ -417,7 +426,8 @@ def page_new() -> None:
                                  type=["pdf", "docx", "pptx", "txt", "md", "png", "jpg", "jpeg", "webp", "gif"],
                                  accept_multiple_files=True)
         a, b = st.columns([1.4, 1], vertical_alignment="center")
-        step = a.toggle("Step-by-step approval (approve each stage)", value=p["step_approval"])
+        step = a.checkbox(STEP_LABEL, value=saved_step_approval(), help=STEP_HELP + " (this run only; default from Settings)",
+                          key="run_step_approval")
         start = b.button("Start Research  →", type="primary", use_container_width=True)
         if start:
             if not str(q).strip():
@@ -429,8 +439,8 @@ def page_new() -> None:
                     atts.append(attachment_from_url(url))
                     if atts[-1]["kind"] == "url" and not web:
                         raise ValueError("Reading a web page needs Web Search on (live mode).")
-                client().update_settings(approval_mode=step, auto_approve_low_risk=False)
-                run = client().create_run(str(q).strip(), mode="live" if web else "offline", attachments=atts)
+                run = client().create_run(str(q).strip(), mode="live" if web else "offline", attachments=atts,
+                                          approval_mode=bool(step))
             except (ValueError, ControlError) as exc:
                 st.error(str(exc))
                 return
@@ -467,9 +477,7 @@ def live_view(run_id: str) -> None:  # noqa: C901 - one screen of layout
     left, right = st.columns([1.15, 1], gap="medium")
     with left, st.container(border=True):
         st.markdown("<div class='ph'>Pipeline stages</div>", unsafe_allow_html=True)
-        if run.get("approval_mode"):
-            st.markdown("<div class='note'>Step-by-step mode is on: each stage waits for your Approve or Reject.</div>",
-                        unsafe_allow_html=True)
+        st.markdown(approval_state_html(run), unsafe_allow_html=True)
         rows = stage_rows(run.get("steps") or [])
         if not rows:
             st.markdown("<div class='muted'>Waiting for the first stage…</div>", unsafe_allow_html=True)
@@ -1050,16 +1058,17 @@ def page_settings() -> None:
         mode = a.selectbox("Default research mode", ["offline", "live"], index=["offline", "live"].index(p["default_mode"]),
                            format_func=lambda m: "Live (free web + models)" if m == "live" else "Offline demo (no network)")
         lim = b.number_input("Items in Recent Researches", 3, 15, int(p["list_limit"]))
-        step = st.toggle("Step-by-step approval on by default", value=bool(p["step_approval"]))
         if st.button("Save Changes", type="primary", key="savegen"):
-            act(lambda: prefs.save(default_mode=mode, list_limit=int(lim), step_approval=step))
+            act(lambda: prefs.save(default_mode=mode, list_limit=int(lim)))
     with t[1]:
         a, b = st.columns(2, gap="medium")
         with a, st.container(border=True):
             st.markdown("<div class='ph'>Approval policy</div>", unsafe_allow_html=True)
             if ok:
                 cur = client().settings()
-                am = st.toggle("Step-by-step approval (approval mode)", value=cur.get("approval_mode", False))
+                am = st.toggle(STEP_LABEL, value=cur.get("approval_mode", False), help=STEP_HELP, key="set_step_approval")
+                st.markdown("<div class='muted'>Default for new runs (saved, survives restarts). New Research can "
+                            "change it for a single run.</div>", unsafe_allow_html=True)
                 lo = st.toggle("Auto-approve low-risk steps", value=cur.get("auto_approve_low_risk", False))
                 st.markdown("<div class='note'>Low-risk steps are planning, research, analysis and reporting. "
                             "High-risk or unknown steps always wait for a human.</div>", unsafe_allow_html=True)

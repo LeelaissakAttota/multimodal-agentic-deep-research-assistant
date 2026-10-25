@@ -95,11 +95,15 @@ class ControlClient:
     def update_settings(self, **values: bool) -> dict[str, bool]:
         return dict(self._call("PUT", "/control/settings", json=values))
 
-    def create_run(self, objective: str, *, mode: str, attachments: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def create_run(self, objective: str, *, mode: str, attachments: list[dict[str, str]] | None = None,
+                   approval_mode: bool | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"objective": objective, "mode": mode}
         if attachments:
             params["attachments"] = attachments
-        return dict(self._call("POST", "/control/runs", json={"params": params}))
+        body: dict[str, Any] = {"params": params}
+        if approval_mode is not None:
+            body["approval_mode"] = bool(approval_mode)
+        return dict(self._call("POST", "/control/runs", json=body))
 
     def list_runs(self) -> list[dict[str, Any]]:
         return list(self._call("GET", "/control/runs"))
@@ -802,7 +806,7 @@ def tool_catalog(settings: Any, masked_keys: dict[str, Any] | None, mode: str) -
 class Prefs:
     """Small JSON preferences file next to the saved runs (no secrets)."""
 
-    DEFAULTS: dict[str, Any] = {"default_mode": "offline", "step_approval": True, "list_limit": 5,
+    DEFAULTS: dict[str, Any] = {"default_mode": "offline", "step_approval": False, "list_limit": 5,
                                 "show_closed": True}
 
     def __init__(self, path: Path) -> None:
@@ -953,3 +957,16 @@ def strip_section(markdown: str, title: str) -> str:
     import re
 
     return re.sub(rf"(?ms)^## {re.escape(title)}\s*\n.*?(?=^## |\Z)", "", markdown).rstrip() + "\n"
+
+
+STEP_LABEL = "Step-by-step approval"
+STEP_HELP = "Asks for your OK before each important step"
+
+
+def approval_state_html(run: dict[str, Any]) -> str:
+    """Run page line: is Step-by-step approval on for this run, and where the value came from."""
+    on = bool(run.get("approval_mode"))
+    src = {"run": "set for this run", "settings": "from Settings"}.get(str(run.get("approval_source") or ""), "")
+    text = (f"<b>{STEP_LABEL}: {'ON' if on else 'OFF'}</b>" + (f" <span class='muted'>({src})</span>" if src else "")
+            + (" — each stage waits for your Approve or Reject." if on else " — stages run straight through."))
+    return f"<div class='note'>{text}</div>"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import threading
 import uuid
 from collections.abc import Callable
@@ -109,8 +110,20 @@ class Step:
         }
 
 
+#: Optional env default for "Step-by-step approval" used until it is saved in control_settings.json.
+APPROVAL_ENV = "DEEP_RESEARCH_APPROVAL_MODE"
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class ControlSettings:
-    """Persisted per-project control toggles (default OFF)."""
+    """Persisted per-project control toggles (default OFF), stored as JSON in the control config dir.
+
+    ``approval_mode`` ("Step-by-step approval") falls back to ``DEEP_RESEARCH_APPROVAL_MODE`` when the file has
+    no value yet; once saved, the file wins (survives restarts).
+    """
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -121,7 +134,7 @@ class ControlSettings:
         with contextlib.suppress(FileNotFoundError, ValueError):
             data = json.loads(self._path.read_text(encoding="utf-8"))
         return {
-            "approval_mode": bool(data.get("approval_mode", False)),
+            "approval_mode": bool(data["approval_mode"]) if "approval_mode" in data else _env_flag(APPROVAL_ENV),
             "auto_approve_low_risk": bool(data.get("auto_approve_low_risk", False)),
         }
 
@@ -182,10 +195,13 @@ class ControlRun:
         *,
         settings: dict[str, bool],
         audit: AuditLog,
+        approval_mode: bool | None = None,
     ) -> None:
         self.run_id = run_id
         self.params = params
-        self.approval_mode = settings["approval_mode"]
+        #: Per-run override wins over the saved setting; ``approval_source`` says which one applied.
+        self.approval_mode = settings["approval_mode"] if approval_mode is None else bool(approval_mode)
+        self.approval_source = "settings" if approval_mode is None else "run"
         self.auto_approve_low_risk = settings["auto_approve_low_risk"]
         self.audit = audit
         self.status = RunStatus.QUEUED
@@ -396,6 +412,7 @@ class ControlRun:
             "status": self.status.value,
             "params": self.params,
             "approval_mode": self.approval_mode,
+            "approval_source": self.approval_source,
             "auto_approve_low_risk": self.auto_approve_low_risk,
             "created_at": self.created_at,
             "finished_at": self.finished_at,
@@ -435,8 +452,10 @@ class RunManager:
         self._max_runs = max_runs
         self._lock = threading.Lock()
 
-    def create(self, params: dict[str, Any]) -> ControlRun:
-        run = ControlRun(uuid.uuid4().hex[:16], params, settings=self.settings.load(), audit=self.audit)
+    def create(self, params: dict[str, Any], *, approval_mode: bool | None = None) -> ControlRun:
+        """Start a run. ``approval_mode`` overrides the saved "Step-by-step approval" setting for this run only."""
+        run = ControlRun(uuid.uuid4().hex[:16], params, settings=self.settings.load(), audit=self.audit,
+                         approval_mode=approval_mode)
         with self._lock:
             self._runs[run.run_id] = run
             while len(self._runs) > self._max_runs:
@@ -445,7 +464,7 @@ class RunManager:
                     break
                 del self._runs[oldest]
         self.audit.record({"event": "run_created", "run_id": run.run_id,
-                           "approval_mode": run.approval_mode,
+                           "approval_mode": run.approval_mode, "approval_source": run.approval_source,
                            "auto_approve_low_risk": run.auto_approve_low_risk})
         thread = threading.Thread(target=self._execute, args=(run,), daemon=True, name=f"run-{run.run_id}")
         thread.start()
