@@ -18,7 +18,7 @@ def main() -> None:
     args = parser.parse_args()
     control = DeepResearchControl(settings)
     app = build_control_app(control.manager, control.secrets, admin_token=admin_token_from_env(), title="deep-research",
-                            assistant=AssistantStore(control.assistant_db))
+                            assistant=AssistantStore(control.assistant_db), share_ttl_days=settings.share_ttl_days)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False)
 
 

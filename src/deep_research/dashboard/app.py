@@ -726,9 +726,11 @@ def report_share(run_id: str, report: dict[str, Any]) -> None:
     if not ok:
         st.warning("Control API is offline: share links need it running on 127.0.0.1.")
         return
+    days = st.number_input("Link expires after (days, 0 = never)", 0, 365, int(Settings().share_ttl_days),
+                           key=f"share_days_{run_id}")
     if st.button("Create share link", type="primary", key=f"share_{run_id}"):
         try:
-            share = client().create_share(run_id, report)
+            share = client().create_share(run_id, report, expires_in_days=float(days))
         except ControlError as exc:
             st.error(str(exc))
         else:
@@ -743,8 +745,10 @@ def report_share(run_id: str, report: dict[str, Any]) -> None:
         return
     for sh in shares:
         a, b = st.columns([4, 1])
-        a.markdown(f"<span class='badge {'b-ok' if sh['active'] else 'b-off'}'>{'active' if sh['active'] else 'revoked'}</span> "
-                   f"{e(sh['id'])} · created {e(local_time(sh['created_at']))}", unsafe_allow_html=True)
+        status = str(sh.get("status") or ("active" if sh["active"] else "revoked"))
+        expiry = f" · expires {local_time(sh['expires_at'])}" if sh.get("expires_at") else " · never expires"
+        a.markdown(f"<span class='badge {'b-ok' if sh['active'] else 'b-off'}'>{e(status)}</span> "
+                   f"{e(sh['id'])} · created {e(local_time(sh['created_at']))}{e(expiry)}", unsafe_allow_html=True)
         if sh["active"] and b.button("Revoke", key=f"revoke_{sh['id']}"):
             act(lambda sid=sh["id"]: client().revoke_share(sid))
 

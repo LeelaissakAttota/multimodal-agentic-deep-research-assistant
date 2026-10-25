@@ -48,6 +48,9 @@ class AssistantStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(_SCHEMA)
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(shares)").fetchall()}
+            if "expires_at" not in cols:  # databases created before share expiry existed
+                db.execute("ALTER TABLE shares ADD COLUMN expires_at TEXT")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

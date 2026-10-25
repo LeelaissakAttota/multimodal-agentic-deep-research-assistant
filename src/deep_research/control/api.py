@@ -39,6 +39,7 @@ class SettingsBody(BaseModel):
 class ShareBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     report: dict[str, Any] | None = None  # for runs only kept by the dashboard (not in this API's memory)
+    expires_in_days: float | None = Field(default=None, ge=0, le=365)  # None = server default, 0 = never
 
 
 class KeyBody(BaseModel):
@@ -58,6 +59,7 @@ def build_control_app(  # noqa: C901 - flat route table
     admin_token: str,
     title: str,
     assistant: Any | None = None,
+    share_ttl_days: float = 7.0,
 ) -> FastAPI:
     if len(admin_token) < 16:
         raise ValueError("control admin token must be at least 16 characters")
@@ -227,17 +229,17 @@ def build_control_app(  # noqa: C901 - flat route table
         return {"name": name, "configured": bool(body.value.strip()), "masked": mask(body.value.strip())}
 
     if assistant is not None:
-        _share_routes(app, manager, assistant, auth)
+        _share_routes(app, manager, assistant, auth, share_ttl_days)
     return app
 
 
-def _share_routes(app: FastAPI, manager: RunManager, assistant: Any, auth: list[Any]) -> None:  # noqa: C901 - flat route table
+def _share_routes(app: FastAPI, manager: RunManager, assistant: Any, auth: list[Any], ttl_days: float = 7.0) -> None:  # noqa: C901 - flat route table
     """Revocable read-only share links: create/list/revoke need the bearer token, viewing needs the share token."""
     from fastapi.responses import HTMLResponse
 
     from deep_research.assistant.share import SHARE_HEADERS, ShareService
 
-    shares = ShareService(assistant)
+    shares = ShareService(assistant, ttl_days)
 
     def report_for(run_id: str, body: ShareBody) -> dict[str, Any]:
         try:
@@ -255,8 +257,9 @@ def _share_routes(app: FastAPI, manager: RunManager, assistant: Any, auth: list[
     def create_share(run_id: str, body: ShareBody, x_operator: str | None = Header(default=None)) -> dict[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id):
             raise HTTPException(status_code=422, detail="invalid run id")
-        info, token = shares.create(run_id, report_for(run_id, body))
-        manager.audit.record({"event": "share_created", "share_id": info["id"], "run_id": run_id, "by": _operator(x_operator)})
+        info, token = shares.create(run_id, report_for(run_id, body), expires_in_days=body.expires_in_days)
+        manager.audit.record({"event": "share_created", "share_id": info["id"], "run_id": run_id, "expires_at": info["expires_at"],
+                              "by": _operator(x_operator)})
         return {**info, "path": f"/share/{info['id']}?token={token}"}
 
     @app.get("/control/shares", dependencies=auth)
