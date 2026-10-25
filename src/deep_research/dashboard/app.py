@@ -936,10 +936,18 @@ def profile_form() -> None:
             blocked_sources=blocked, blocked_domains=[d for d in domains.split(",") if d.strip()], default_depth=depth))))
 
 
+SETTINGS_TABS = {"general": "General", "research": "Research", "profile": "Profile & Preferences",
+                 "reminders": "Reminders", "account": "Account"}
+
+
+def settings_default_tab(tab: str | None) -> str | None:
+    """Label of the Settings tab to open for ``?tab=<slug>`` (e.g. the Reminders 'Manage' link); None = first tab."""
+    return SETTINGS_TABS.get((tab or "").strip().lower())
+
+
 def page_settings() -> None:
     head("Settings", "Customize defaults, research policy and API keys. Keys are write-only and never shown.")
-    tabs = ["general", "research", "profile", "reminders", "account"]
-    t = st.tabs(["General", "Research", "Profile & Preferences", "Reminders", "Account"])
+    t = st.tabs(list(SETTINGS_TABS.values()), default=settings_default_tab(Q.get("tab")))
     p = prefs.load()
     s = Settings()
     with t[0], st.container(border=True):
@@ -999,7 +1007,6 @@ def page_settings() -> None:
             act(lambda: client().set_key(name, value))
         st.markdown("<div class='muted'>Saved to the local key store (file mode 0600). New keys apply on the next run.</div>",
                     unsafe_allow_html=True)
-    _ = tabs
 
 
 view, rid = Q.get("view"), Q.get("run")

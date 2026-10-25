@@ -113,3 +113,35 @@ def test_client_share_methods(tmp_path: Path) -> None:
     assert [s["id"] for s in api.list_shares("tea1")] == [share["id"]]
     assert api.revoke_share(share["id"])["active"] is False
     assert tc.get(share["url"].removeprefix("http://test")).status_code == 404
+
+
+def test_reminders_manage_link_opens_settings_reminders_tab(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    testing = pytest.importorskip("streamlit.testing.v1")
+    import streamlit as st
+
+    from deep_research.dashboard.app import settings_default_tab
+
+    assert settings_default_tab("reminders") == "Reminders" and settings_default_tab(" Profile ") == "Profile & Preferences"
+    assert settings_default_tab(None) is None and settings_default_tab("bogus") is None
+    _setup(tmp_path, monkeypatch)
+    at = testing.AppTest.from_file(APP, default_timeout=30)
+    at.run()
+    assert "page=settings&amp;tab=reminders" in _text(at) or "page=settings&tab=reminders" in _text(at)
+    seen: list[tuple[list[str], Any]] = []
+    real = st.tabs
+
+    def spy(labels: Any, **kw: Any) -> Any:
+        seen.append((list(labels), kw.get("default")))
+        return real(labels, **kw)
+
+    monkeypatch.setattr(st, "tabs", spy)
+    for tab, expected in (("reminders", "Reminders"), (None, None)):
+        seen.clear()
+        at = testing.AppTest.from_file(APP, default_timeout=30)
+        at.query_params["page"] = "settings"
+        if tab:
+            at.query_params["tab"] = tab
+        at.run()
+        assert not at.exception
+        settings_call = next(d for labels, d in seen if "Reminders" in labels and "Account" in labels)
+        assert settings_call == expected
