@@ -57,7 +57,7 @@ anonymous pull, amd64 + arm64), so `docker compose pull` is reproducible:
 | Service | Image |
 |---|---|
 | redis | `redis:7.4.11-alpine` |
-| postgres | `postgres:16.15-alpine` (stay on major 16 - the `postgres-data` volume is a PG16 cluster) |
+| postgres | `pgvector/pgvector:0.8.7-pg16-bookworm` (PostgreSQL 16.15 + pgvector 0.8.7; stay on major 16 - the `postgres-data` volume is a PG16 cluster) |
 | minio | `pgsty/silo:RELEASE.2026-10-18T00-00-00Z` |
 | minio-init | `pgsty/mc:RELEASE.2026-10-18T00-00-00Z` |
 | otel-collector | `otel/opentelemetry-collector:0.163.2` |
@@ -114,6 +114,18 @@ deep-research-migrate import --in sessions.jsonl --to data/research_memory.sqlit
 
 The assistant database (`data/assistant.db`: chat, notes, reminders, shares) stays on SQLite.
 
+**pgvector image.** The compose Postgres is `pgvector/pgvector:0.8.7-pg16-bookworm`: the official PostgreSQL
+16.15 build plus the `vector` extension, so the existing PG16 `postgres-data` volume opens as-is (same major,
+same minor). It replaced `postgres:16.15-alpine`; Alpine (musl) and Debian (glibc) sort non-ASCII text
+differently, so after the first start on an existing volume rebuild text indexes once (safe and quick at this
+size):
+
+```bash
+docker compose exec postgres psql -U mdra -d mdra -c "REINDEX DATABASE mdra" -c "ALTER DATABASE mdra REFRESH COLLATION VERSION"
+```
+
+RAG creates the extension itself (`CREATE EXTENSION IF NOT EXISTS vector`) on first use; see section 8.
+
 ## 3. Artifact storage
 
 Saving a copy of an export (dashboard **Save copy**, or `POST /control/runs/{id}/artifacts?format=pdf`) writes
@@ -169,6 +181,50 @@ selection to the local control API as a new research (`POST /control/runs`) or a
 `127.0.0.1`/`localhost`, the token lives only in `chrome.storage.local` and is never logged, and the clip
 endpoints also refuse non-loopback clients.
 
+## 8. Report RAG (hybrid retrieval)
+
+Off by default. `MDRA_RAG_ENABLED=true` makes the report follow-up chat and the Knowledge Base memory search
+use hybrid retrieval: Okapi BM25 over chunk text plus vector similarity, fused with reciprocal rank fusion
+(RRF, k = 60). Answers keep the report's `[n]` citations, and a question is answered only when a cited chunk
+is close enough (`MDRA_RAG_MIN_SIMILARITY`) or shares enough terms with it; otherwise the chat refuses.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MDRA_RAG_ENABLED` | `false` | turn RAG on (off = the original word-overlap retrieval) |
+| `MDRA_RAG_EMBEDDINGS` | `local` | `local` (sentence-transformers) or `api` (OpenAI-compatible `/embeddings`) |
+| `MDRA_RAG_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | local model (free, runs on CPU) |
+| `MDRA_RAG_API_BASE` | `https://openrouter.ai/api/v1` | API endpoint; `http://localhost:11434/v1` for Ollama |
+| `MDRA_RAG_API_MODEL` | `nvidia/nemotron-3-embed-1b:free` | must end in `:free` unless the endpoint is on localhost |
+| `MDRA_RAG_API_KEY` | (OpenRouter key) | defaults to `DEEP_RESEARCH_OPENROUTER_API_KEY` for openrouter.ai |
+| `MDRA_RAG_INDEX` | `auto` | `auto` = pgvector when `MDRA_DATABASE_URL` is set and the extension exists, else local; `local`; `pgvector` |
+| `MDRA_RAG_INDEX_DIR` | `data/rag` | local store (one `chunks.jsonl` per embedding model) |
+| `MDRA_RAG_CHUNK_WORDS` / `MDRA_RAG_OVERLAP_WORDS` | `120` / `30` | chunk window and carried-over context |
+| `MDRA_RAG_TOP_K` | `6` | chunks retrieved per question |
+| `MDRA_RAG_MIN_SIMILARITY` | `0.35` | cosine needed to treat a chunk as supporting |
+
+Install `pip install -e ".[rag]"` (sentence-transformers, faiss-cpu, numpy); add `postgres` for pgvector.
+Without the embeddings dependencies (or with a non-free API model, or no key) everything falls back to word
+overlap and the Knowledge Base shows why.
+
+**Chunking.** Report body: split at headings (the Sources/References list is dropped), then sentences are
+packed into ~`CHUNK_WORDS` windows, carrying whole trailing sentences up to `OVERLAP_WORDS` into the next one.
+Each claim is one chunk; each citation's title + excerpt is windowed the same way and tagged with its number.
+Only citation numbers present in the report are kept. A report is re-embedded only when its content, claims
+or citations change (hash).
+
+**Index schema.** pgvector table `mdra_rag_chunks(model, chunk_id, run_id, kind, ord, text, citations JSON,
+title, section, doc_hash, embedding vector, created_at)`, primary key `(model, chunk_id)`, index
+`(model, run_id)`; exact cosine search with `<=>`. The local store uses FAISS `IndexFlatIP` when installed,
+else numpy, over unit vectors.
+
+**Backfill** existing reports (saved under `dashboard_runs/`):
+
+```bash
+deep-research rag-backfill                      # or --runs-dir PATH, --force to re-embed everything
+```
+
+New reports are indexed the first time you ask about them or search the Knowledge Base.
+
 ## Testing
 
 All features are unit-tested with fakes (fakeredis, an in-memory S3 fake, SQLite through SQLAlchemy,
@@ -181,5 +237,5 @@ MDRA_TEST_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5433/mdra \
 MDRA_TEST_S3_BUCKET=mdra-test MDRA_TEST_S3_ENDPOINT=http://localhost:9000 \
 MDRA_TEST_S3_ACCESS_KEY=mdra-local MDRA_TEST_S3_SECRET_KEY=mdra-local-dev \
 MDRA_TEST_NEO4J_URI=bolt://localhost:7687 MDRA_TEST_NEO4J_PASSWORD=mdra-local-dev \
-pytest tests/unit/test_scale_*.py
+pytest tests/unit/test_scale_*.py tests/unit/test_rag.py   # test_rag's pgvector test needs the extension
 ```

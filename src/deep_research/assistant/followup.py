@@ -7,16 +7,26 @@ does not support an answer the reply is a refusal flagged ``supported=False``.
 With a free model (OpenRouter via the free-model guard) the model phrases the
 answer from the retrieved passages and its citations are validated; without a
 model (or on any model failure) an extractive answer is built offline.
+
+Retrieval is word overlap by default. With ``MDRA_RAG_ENABLED=true`` and a free embeddings model
+available, a :class:`deep_research.rag.service.RagService` supplies hybrid BM25 + vector passages
+(the report is chunked and indexed on first use); any RAG error falls back to word overlap.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from deep_research.core.agents.llm_support import AgentDecisionError, ask_json, clean_text
 from deep_research.models.model_gateway import ModelGateway
+
+if TYPE_CHECKING:
+    from deep_research.rag.service import RagService
+
+log = logging.getLogger(__name__)
 
 _CITE = re.compile(r"\[(\d+(?:\s*[,\u2013-]\s*\d+)*)\]")
 _WORD = re.compile(r"[a-z0-9][a-z0-9+#.-]*")
@@ -44,9 +54,11 @@ class Answer:
     mode: str  # "llm" | "extractive" | "refused"
     passages: list[Passage] = field(default_factory=list)
     reason: str = ""
+    retrieval: str = "overlap"  # "overlap" | "hybrid"
 
     def as_meta(self) -> dict[str, Any]:
-        return {"citations": self.citations, "supported": self.supported, "mode": self.mode, "reason": self.reason}
+        return {"citations": self.citations, "supported": self.supported, "mode": self.mode, "reason": self.reason,
+                "retrieval": self.retrieval}
 
 
 def terms(text: str) -> set[str]:
@@ -113,19 +125,43 @@ def retrieve(question: str, passages: list[Passage], k: int = 4) -> list[tuple[f
     return scored[:k]
 
 
-def extractive_answer(question: str, report: dict[str, Any]) -> Answer:
-    """Offline answer: the best-supported cited sentences from the report, or a refusal."""
-    ranked = retrieve(question, report_passages(report))
-    good = [p for s, p in ranked if s >= MIN_SCORE and p.citations]
+def hybrid_passages(question: str, report: dict[str, Any], rag: RagService, run_id: str) -> tuple[list[Passage], list[Passage]]:
+    """``(supported, all_ranked)`` passages from hybrid RAG over this report only (indexed on demand)."""
+    rag.index_report(run_id, report)
+    hits = rag.search(question, run_id=run_id)
+    ranked = [Passage(h.chunk.text, list(h.chunk.citations), h.chunk.kind) for h in hits]
+    good = [p for h, p in zip(hits, ranked) if rag.supported(h, MIN_SCORE)]
+    return good, ranked
+
+
+def extractive_answer(question: str, report: dict[str, Any], rag: RagService | None = None,
+                      run_id: str | None = None) -> Answer:
+    """Offline answer: the best-supported cited passages from the report, or a refusal."""
+    retrieval, note = "overlap", ""
+    good: list[Passage] = []
+    seen: list[Passage] = []
+    if rag is not None and run_id:
+        try:
+            good, seen = hybrid_passages(question, report, rag, run_id)
+            retrieval = "hybrid"
+        except Exception as exc:  # noqa: BLE001 - index/embedder failure must not break the chat
+            log.warning("rag retrieval failed, using word overlap: %s", type(exc).__name__)
+            note = f"rag fallback: {type(exc).__name__}"
+    if retrieval == "overlap":
+        ranked = retrieve(question, report_passages(report))
+        good = [p for s, p in ranked if s >= MIN_SCORE and p.citations]
+        seen = [p for _, p in ranked]
     if not good:
-        return Answer(REFUSAL, [], False, "refused", [p for _, p in ranked], reason="no supporting evidence in report")
+        return Answer(REFUSAL, [], False, "refused", seen, reason=note or "no supporting evidence in report",
+                      retrieval=retrieval)
     picked = good[:2]
     lines = []
     for p in picked:
         text = _CITE.sub("", p.text).strip()
         lines.append(f"{text} {''.join(f'[{n}]' for n in p.citations)}")
     cites = sorted({n for p in picked for n in p.citations})
-    return Answer("According to the report: " + " ".join(lines), cites, True, "extractive", picked)
+    return Answer("According to the report: " + " ".join(lines), cites, True, "extractive", picked, reason=note,
+                  retrieval=retrieval)
 
 
 def _prompt(question: str, passages: list[Passage]) -> str:
@@ -141,9 +177,10 @@ def _prompt(question: str, passages: list[Passage]) -> str:
 
 
 async def answer_question(question: str, report: dict[str, Any], gateway: ModelGateway | None = None, *,
-                          timeout_seconds: float = 30.0) -> Answer:
+                          timeout_seconds: float = 30.0, rag: RagService | None = None,
+                          run_id: str | None = None) -> Answer:
     """Grounded answer; the model is optional and its citations must come from the retrieved passages."""
-    base = extractive_answer(question, report)
+    base = extractive_answer(question, report, rag, run_id)
     if gateway is None or not base.supported:
         return base
     allowed = {n for p in base.passages for n in p.citations}
@@ -156,11 +193,12 @@ async def answer_question(question: str, report: dict[str, Any], gateway: ModelG
     cites = sorted({int(n) for n in reply.get("citations") or [] if isinstance(n, int) or str(n).isdigit()})
     cites = sorted(set(cites) | {n for m in _CITE.findall(text) for n in _numbers(m)})
     if reply.get("supported") is False:
-        return Answer(REFUSAL, [], False, "refused", base.passages, reason="model found no support")
+        return Answer(REFUSAL, [], False, "refused", base.passages, reason="model found no support",
+                      retrieval=base.retrieval)
     if not text or not cites or not set(cites) <= allowed:
         base.reason = "model fallback: uncited or out-of-report citations"
         return base
-    return Answer(text, cites, True, "llm", base.passages)
+    return Answer(text, cites, True, "llm", base.passages, retrieval=base.retrieval)
 
 
 def build_chat_gateway(settings: Any) -> ModelGateway | None:
@@ -175,12 +213,12 @@ def build_chat_gateway(settings: Any) -> ModelGateway | None:
 
 
 async def ask_report(store: Any, run_id: str, question: str, report: dict[str, Any],
-                     gateway: ModelGateway | None = None) -> Answer:
+                     gateway: ModelGateway | None = None, rag: RagService | None = None) -> Answer:
     """Answer and record both turns in the report's chat history (``AssistantStore``)."""
     question = " ".join(question.split())[:1000]
     if not question:
         raise ValueError("question is empty")
-    answer = await answer_question(question, report, gateway)
+    answer = await answer_question(question, report, gateway, rag=rag, run_id=run_id)
     store.add_chat(run_id, "user", question)
     store.add_chat(run_id, "assistant", answer.text, answer.as_meta())
     return answer

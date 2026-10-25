@@ -735,6 +735,46 @@ def persistent_memory_search(runs: list[dict[str, Any]], query: str, k: int, vec
     return out
 
 
+def rag_line(service: Any) -> str:
+    """Knowledge Base status row for report RAG (no model is loaded to answer this)."""
+    if service is not None:
+        return str(service.label)
+    from deep_research.rag.service import status
+
+    st = status()
+    if not st["enabled"]:
+        return "off (MDRA_RAG_ENABLED=false) · word overlap"
+    return f"word overlap fallback · {st['embeddings']}"
+
+
+def rag_search(service: Any, runs: list[dict[str, Any]], query: str, k: int = 10) -> list[dict[str, Any]]:
+    """Hybrid BM25 + vector search over every saved report's chunks; [] when RAG is off or fails.
+
+    Reports not yet indexed (or changed since) are indexed first; up-to-date ones cost a hash check.
+    """
+    if service is None or not query.strip():
+        return []
+    by_id: dict[str, dict[str, Any]] = {}
+    try:
+        for r in runs:
+            report = report_of(r)
+            if report and r.get("run_id"):
+                by_id[str(r["run_id"])] = r
+                service.index_report(str(r["run_id"]), report, title=title_of(r))
+        hits = service.search(query, k)
+    except Exception:  # noqa: BLE001 - fall back to the memory search
+        return []
+    out = []
+    for h in hits:
+        run = by_id.get(h.chunk.run_id)
+        cites = "".join(f"[{n}]" for n in h.chunk.citations)
+        out.append({"id": h.chunk.chunk_id, "kind": "claim" if h.chunk.kind == "claim" else "source" if h.chunk.kind == "source"
+                    else "memory", "text": shorten(f"{h.chunk.text} {cites}".strip(), 240), "score": round(h.score, 4),
+                    "run_id": h.chunk.run_id if run else None, "title": title_of(run) if run else h.chunk.title or h.chunk.run_id,
+                    "citations": list(h.chunk.citations), "backend": service.label})
+    return out
+
+
 def memory_search(runs: list[dict[str, Any]], query: str, k: int = 10,
                   vector_dir: Path | None = None) -> list[dict[str, Any]]:
     """Semantic search: the persistent vector store when present, else an in-memory index of saved runs."""

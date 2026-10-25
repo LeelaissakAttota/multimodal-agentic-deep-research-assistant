@@ -102,5 +102,8 @@ def test_every_compose_image_pinned_to_exact_version_and_digest() -> None:
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest), name
         assert ref.startswith("docker.io/") and "latest" not in tag, name
         # exact version (x.y.z, x.y-variant or RELEASE.<date>), never a floating major like "7-alpine"/"5-community"
-        assert re.fullmatch(r"(\d+\.\d+(\.\d+)?(-[a-z]+)?|RELEASE\.[0-9TZ-]+)", tag), (name, tag)
-    assert images["postgres"].startswith("docker.io/library/postgres:16.")  # volume is a PG16 cluster
+        assert re.fullmatch(r"(\d+\.\d+(\.\d+)?(-[a-z0-9]+)*|RELEASE\.[0-9TZ-]+)", tag), (name, tag)
+    # pgvector build of PostgreSQL 16.15 (same major as the PG16 postgres-data volume), checked live on Docker Hub
+    assert images["postgres"] == ("docker.io/pgvector/pgvector:0.8.7-pg16-bookworm"
+                                  "@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a")
+    assert "-pg16" in images["postgres"].split("@")[0]

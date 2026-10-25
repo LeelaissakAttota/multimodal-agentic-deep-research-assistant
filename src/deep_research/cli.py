@@ -82,7 +82,37 @@ def build_parser() -> argparse.ArgumentParser:
                      help="also write the report in this format (repeatable)")
     run.add_argument("--out", default=".", help="directory for exported files (default: current directory)")
     run.add_argument("--json", action="store_true", help="print the full JSON response instead of the report text")
+    bf = sub.add_parser("rag-backfill", help="chunk, embed and index saved reports for RAG follow-up chat")
+    bf.add_argument("--runs-dir", default=None,
+                    help="saved dashboard runs (default: $DEEP_RESEARCH_DASHBOARD_DIR or ./dashboard_runs)")
+    bf.add_argument("--force", action="store_true", help="re-index reports that are already up to date")
     return parser
+
+
+def rag_backfill(runs_dir: str | None, *, force: bool = False) -> int:
+    import os
+
+    from deep_research.rag.backfill import backfill, saved_runs
+    from deep_research.rag.config import RagSettings
+    from deep_research.rag.service import build_service, status
+
+    settings = RagSettings()
+    service = build_service(settings, require_enabled=False)
+    if service is None:
+        print(f"[rag-backfill: embeddings unavailable: {status(settings)['embeddings']}]", file=sys.stderr)
+        return 2
+    folder = Path(runs_dir or os.environ.get("DEEP_RESEARCH_DASHBOARD_DIR") or Path.cwd() / "dashboard_runs").expanduser()
+    runs = saved_runs(folder)
+    res = backfill(service, runs, force=force)
+    print(f"[rag-backfill: {len(runs)} run(s) in {folder} | indexed {res.indexed} ({res.chunks} chunks) | "
+          f"up to date {res.up_to_date} | no report {res.no_report} | failed {res.failed} | {service.label}]", file=sys.stderr)
+    if service.reason and service.index.name != "pgvector":
+        print(f"[index: local store ({service.reason})]", file=sys.stderr)
+    for err in res.errors:
+        print(f"[failed: {err}]", file=sys.stderr)
+    if not settings.enabled:
+        print("[note: MDRA_RAG_ENABLED is off, so chat still uses word overlap until you enable it]", file=sys.stderr)
+    return 1 if res.failed else 0
 
 
 def _safe_streams() -> None:
@@ -99,6 +129,8 @@ def _safe_streams() -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _safe_streams()
+    if args.command == "rag-backfill":
+        return rag_backfill(args.runs_dir, force=args.force)
     if len(args.file) > 5:
         raise SystemExit("at most 5 --file attachments")
     result = asyncio.run(run_once(args.question, args.file, mode=args.mode))

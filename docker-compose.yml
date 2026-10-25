@@ -26,7 +26,8 @@ services:
 
   postgres:
     # Keep major 16: the postgres-data volume is a PG16 cluster (a major upgrade needs dump/restore).
-    image: docker.io/library/postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
+    # pgvector 0.8.7 on PostgreSQL 16.15 (Debian bookworm) for optional RAG (MDRA_RAG_*); see docs/SCALE.md.
+    image: docker.io/pgvector/pgvector:0.8.7-pg16-bookworm@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     ports: ["127.0.0.1:${MDRA_PG_PORT:-5433}:5432"]
     environment:
       POSTGRES_DB: mdra

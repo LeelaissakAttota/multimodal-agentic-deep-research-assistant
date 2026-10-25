@@ -67,6 +67,11 @@ tracing = [
     "opentelemetry-sdk>=1.24",
     "opentelemetry-exporter-otlp-proto-http>=1.24",
 ]
+rag = [
+    "sentence-transformers>=2.7",
+    "faiss-cpu>=1.8",
+    "numpy>=1.24",
+]
 graph = [
     "networkx>=3.2",
     "neo4j>=5.20",
@@ -114,7 +119,7 @@ exclude = ["tests", ".git", "__pycache__", "build", "dist"]
 
 [[tool.mypy.overrides]]
 module = ["numpy", "streamlit", "streamlit.*", "fpdf", "fpdf.*", "docx", "docx.*", "pptx", "pptx.*", "rapidocr_onnxruntime", "pytesseract", "chromadb", "sentence_transformers",
-          "rq", "rq.*", "boto3", "botocore", "botocore.*", "networkx", "networkx.*"]
+          "rq", "rq.*", "boto3", "botocore", "botocore.*", "networkx", "networkx.*", "faiss"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

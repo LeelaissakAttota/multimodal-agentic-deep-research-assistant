@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1036 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1064 passing | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -56,7 +56,7 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **Optional scale backends (all off by default, all free/local):** RQ job queue on Redis with a Windows-safe worker, Postgres session storage with a migration tool, MinIO/S3 artifact storage, OpenTelemetry tracing with secret-free spans, deterministic A/B experiments on planner/prompt variants compared in the evaluation suite, a claims-and-sources knowledge graph (local, optional Neo4j sync) and a Chrome MV3 extension that sends pages to the local control API. The dashboard shows each backend's real status. See [docs/SCALE.md](docs/SCALE.md).
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 1036 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 1064 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -158,7 +158,7 @@ docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. live mode
 
 ### Scaling (optional)
 
-Nothing changes unless you opt in: SQLite, local files and in-process runs stay the default. `docker compose up -d` starts local Redis, Postgres, MinIO and an OpenTelemetry collector (Neo4j with `--profile graph`), all on `127.0.0.1`; then set the `MDRA_*` variables you want and install the matching extras (`queue`, `postgres`, `s3`, `tracing`, `graph`). Run queued research with `deep-research-worker` (SimpleWorker on Windows), move sessions with `deep-research-migrate`, compare A/B variants with `deep-research-eval --by-variant`, and load `extensions/mdra-chrome` as an unpacked extension. Details: [docs/SCALE.md](docs/SCALE.md).
+Nothing changes unless you opt in: SQLite, local files and in-process runs stay the default. `docker compose up -d` starts local Redis, Postgres, MinIO and an OpenTelemetry collector (Neo4j with `--profile graph`), all on `127.0.0.1`; then set the `MDRA_*` variables you want and install the matching extras (`queue`, `postgres`, `s3`, `tracing`, `graph`). Run queued research with `deep-research-worker` (SimpleWorker on Windows), move sessions with `deep-research-migrate`, compare A/B variants with `deep-research-eval --by-variant`, and load `extensions/mdra-chrome` as an unpacked extension. Details: [docs/SCALE.md](docs/SCALE.md). Optional report RAG (hybrid BM25 + vector retrieval for the follow-up chat and Knowledge Base, pgvector or local FAISS/numpy, `deep-research rag-backfill`) is off by default: set `MDRA_RAG_ENABLED=true` and install the `rag` extra; see docs/SCALE.md section 8.
 
 ## API
 
@@ -186,7 +186,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 1036 tests, offline, $0
+pytest          # 1064 tests, offline, $0
 ruff check .
 mypy src
 ```

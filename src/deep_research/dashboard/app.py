@@ -27,7 +27,7 @@ from deep_research.core.config import Settings
 from deep_research.tools.registry import SOURCE_TOOLS
 from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
-    build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, knowledge_graph, local_time, memory_items, memory_search, memory_status, merge_runs,
+    build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, knowledge_graph, local_time, memory_items, memory_search, memory_status, rag_line, rag_search, merge_runs,
     needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
     strip_section, verdict_label, verification_line, verification_rows,
     source_rows, source_catalog, KIND_ICONS, SOURCE_FILTERS, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
@@ -174,6 +174,17 @@ Q = st.query_params
 @st.cache_resource
 def client() -> ControlClient:
     return ControlClient()
+
+
+@st.cache_resource
+def rag_service() -> Any:
+    """Hybrid RAG service when report RAG is enabled and a free embedder is available, else None (word overlap)."""
+    from deep_research.rag.service import build_service
+
+    try:
+        return build_service()
+    except Exception:  # noqa: BLE001 - never block the dashboard on optional RAG
+        return None
 
 
 store = RunStore(ROOT)
@@ -662,18 +673,20 @@ def report_chat(run_id: str, report: dict[str, Any]) -> None:
     """Follow-up Q&A grounded only in this report's evidence; unsupported questions are refused."""
     st.markdown("<div class='muted'>Answers use only this report's text, claims and cited sources, with [n] citations. "
                 "If the report doesn't cover a question, the assistant says so. Uses a free model when an OpenRouter "
-                "key is set, otherwise an offline extractive answer.</div>", unsafe_allow_html=True)
+                "key is set, otherwise an offline extractive answer. Retrieval is hybrid BM25 + vector search when "
+                "report RAG is enabled, otherwise word overlap.</div>", unsafe_allow_html=True)
     for msg in assistant().chat_history(run_id):
         with st.chat_message(msg["role"]):
             st.markdown(md_safe(msg["text"]))
             meta = msg.get("meta") or {}
             if msg["role"] == "assistant":
                 st.caption(("⚠ not supported by this report" if not meta.get("supported") else f"grounded · {meta.get('mode', '')}")
+                           + (f" · {meta['retrieval']} retrieval" if meta.get("retrieval") else "")
                            + (f" · {meta['reason']}" if meta.get("reason") else ""))
     question = st.chat_input("Ask a follow-up question about this report", key=f"chat_{run_id}")
     if question:
         try:
-            asyncio.run(ask_report(assistant(), run_id, question, report, build_chat_gateway(Settings())))
+            asyncio.run(ask_report(assistant(), run_id, question, report, build_chat_gateway(Settings()), rag_service()))
         except ValueError as exc:
             st.error(str(exc))
             return
@@ -821,11 +834,12 @@ def page_knowledge() -> None:
             f"<div class='row'><div class='tx'><div class='tt'>{e(k)}</div></div><div class='rt'>{e(str(v))}</div></div>"
             for k, v in [("Embeddings", ms["embedder"]), ("Reranker", ms["reranker"]), ("Vector store", ms["vector_store"]),
                          ("Store path", ms["path"]), ("On disk", f"{ms['bytes_on_disk']:,} bytes"),
-                         ("Indexable items", f"{len(memory_items(runs_cache))} claims + sources")]) + "</div>",
+                         ("Indexable items", f"{len(memory_items(runs_cache))} claims + sources"),
+                         ("Report RAG", rag_line(rag_service()))]) + "</div>",
             unsafe_allow_html=True)
         q = st.text_input("Search memory", placeholder="Search claims and sources across all saved researches")
         if q:
-            hits = memory_search(runs_cache, q, vector_dir=Path(ms["path"]))
+            hits = rag_search(rag_service(), runs_cache, q) or memory_search(runs_cache, q, vector_dir=Path(ms["path"]))
             st.caption(f"Searched the {hits[0]['backend']} index" if hits else "")
 
             def _row(h: dict[str, Any]) -> str:

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - feat/phase7
+
+### Added
+- **Report RAG (optional, off by default):** `MDRA_RAG_ENABLED=true` gives the report follow-up chat and the
+  Knowledge Base memory search hybrid retrieval: report body, claims and cited source excerpts are chunked
+  (heading-aware sentence windows with overlap, `[n]` citations kept), embedded with a free model (local
+  `all-MiniLM-L6-v2` by default, or an OpenAI-compatible endpoint limited to `:free`/localhost models), stored
+  in pgvector (`mdra_rag_chunks`, when `MDRA_DATABASE_URL` is set and the extension exists) or a local
+  FAISS/numpy store, and ranked by BM25 + vector reciprocal rank fusion. Chat answers keep their citations
+  and still refuse unsupported questions; without the `rag` extra it falls back to word overlap.
+- `deep-research rag-backfill [--runs-dir PATH] [--force]` indexes reports saved before RAG was enabled.
+- `rag` extra (`sentence-transformers`, `faiss-cpu`, `numpy`).
+
+### Changed
+- Compose Postgres is now `pgvector/pgvector:0.8.7-pg16-bookworm` (PostgreSQL 16.15 + pgvector, pinned by
+  digest) instead of `postgres:16.15-alpine`; the PG16 volume keeps working. Run the one-time `REINDEX` in
+  docs/SCALE.md on an existing volume (musl -> glibc collation).
+
 ## [Unreleased] - feat/phase6
 
 ### Changed
