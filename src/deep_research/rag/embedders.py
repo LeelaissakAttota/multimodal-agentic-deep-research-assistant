@@ -115,7 +115,7 @@ def embeddings_ready(settings: RagSettings) -> tuple[bool, str]:
     """Cheap check (no model load, no network): can the configured provider run here?"""
     if settings.embeddings == "local":
         if importlib.util.find_spec("sentence_transformers") is None:
-            return False, "sentence-transformers not installed (pip install -e '.[memory]')"
+            return False, "sentence-transformers not installed (pip install -e '.[rag]')"
         return True, f"{settings.model} (local)"
     if not free_api_model(settings.api_base, settings.api_model):
         return False, f"{settings.api_model} is not a free model"

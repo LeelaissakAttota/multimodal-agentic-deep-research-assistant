@@ -59,7 +59,7 @@ def backfill(service: RagService, runs: list[dict[str, Any]], *, force: bool = F
             res.failed += 1
             res.errors.append(f"{rid}: {type(exc).__name__}")
             continue
-        if n:
+        if service.last_reindexed:  # includes reports that produce 0 chunks (and --force)
             res.indexed += 1
             res.chunks += n
         else:

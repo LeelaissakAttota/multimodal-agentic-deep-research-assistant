@@ -207,14 +207,16 @@ Without the embeddings dependencies (or with a non-free API model, or no key) ev
 overlap and the Knowledge Base shows why.
 
 **Chunking.** Report body: split at headings (the Sources/References list is dropped), then sentences are
-packed into ~`CHUNK_WORDS` windows, carrying whole trailing sentences up to `OVERLAP_WORDS` into the next one.
+packed into windows of at most `CHUNK_WORDS` words (a hard cap: text without sentence breaks, e.g. lowercase or
+Telugu, is cut into overlapping word windows), carrying whole trailing sentences up to `OVERLAP_WORDS` into the next one.
 Each claim is one chunk; each citation's title + excerpt is windowed the same way and tagged with its number.
 Only citation numbers present in the report are kept. A report is re-embedded only when its content, claims
 or citations change (hash).
 
 **Index schema.** pgvector table `mdra_rag_chunks(model, chunk_id, run_id, kind, ord, text, citations JSON,
 title, section, doc_hash, embedding vector, created_at)`, primary key `(model, chunk_id)`, index
-`(model, run_id)`; exact cosine search with `<=>`. The local store uses FAISS `IndexFlatIP` when installed,
+`(model, run_id)`, plus `mdra_rag_docs(model, run_id, doc_hash, chunks, updated_at)` so reports with no chunks are
+remembered too; exact cosine search with `<=>`. The local store keeps the same per-report hashes in `docs.json`. The local store uses FAISS `IndexFlatIP` when installed,
 else numpy, over unit vectors.
 
 **Backfill** existing reports (saved under `dashboard_runs/`):

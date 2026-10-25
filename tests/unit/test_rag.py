@@ -321,6 +321,10 @@ def test_pgvector_round_trip() -> None:
     n = idx.count()
     rag.index_report("pg-r1", {**REPORT, "content": "## A\nOne sentence only about ducts [1]."})
     assert idx.count() < n
+    empty = {"content": "", "citations": [], "claim_scores": []}
+    assert rag.index_report("pg-empty", empty, force=True) == 0 and rag.last_reindexed
+    assert idx.doc_hash("pg-empty") == report_hash(empty) and idx.chunks("pg-empty") == []
+    assert rag.index_report("pg-empty", empty) == 0 and not rag.last_reindexed
 
 
 # ----- backfill CLI ------------------------------------------------------------------------------
@@ -370,3 +374,72 @@ def test_kb_rag_search_indexes_and_links_runs(tmp_path: Path) -> None:
     assert "[3]" in hits[0]["text"]
     assert rag_search(None, runs, "tax") == [] and rag_line(rag).startswith("hybrid")
     assert rag_line(None).startswith("off")
+
+
+# ----- hard word cap, install hint, empty reports ------------------------------------------------
+TELUGU = "తెలుగు భాష దక్షిణ భారతదేశంలో మాట్లాడే ద్రావిడ భాష ఇది ఆంధ్రప్రదేశ్ తెలంగాణ రాష్ట్రాల అధికార భాష"
+
+
+@pytest.mark.parametrize("text", [" ".join([TELUGU] * 60), " ".join(["lowercase words without stops"] * 300)])
+def test_boundaryless_text_is_cut_into_capped_overlapping_windows(text: str) -> None:
+    rep = {"content": text, "citations": []}
+    body = [c for c in chunk_report("r", rep, chunk_words=120, overlap_words=30) if c.kind == "report"]
+    words = text.split()
+    assert len(body) > 5 and max(len(c.text.split()) for c in body) <= 120
+    assert body[0].text.split() == words[:120]
+    assert body[1].text.split()[:30] == words[90:120]  # 30-word overlap kept between windows
+    assert body[-1].text.split()[-1] == words[-1]  # nothing dropped at the end
+
+
+def test_overlap_never_pushes_a_window_over_the_cap() -> None:
+    long = " ".join(f"w{i}" for i in range(110)) + "."
+    rep = {"content": "## A\n" + " ".join(f"Short sentence {i} here." for i in range(10)) + " " + long.capitalize(),
+           "citations": []}
+    body = [c for c in chunk_report("r", rep, chunk_words=120, overlap_words=30) if c.kind == "report"]
+    assert max(len(c.text.split()) for c in body) <= 120
+
+
+def test_missing_st_hint_names_the_rag_extra(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "sentence_transformers" else real(n, *a))
+    ok, hint = embeddings_ready(settings(tmp_path))
+    assert not ok and ".[rag]" in hint and ".[memory]" not in hint
+
+
+EMPTY: dict[str, Any] = {"content": "", "citations": [], "claim_scores": []}
+
+
+def test_empty_report_hash_is_stored_and_force_reprocesses(tmp_path: Path) -> None:
+    rag = service(tmp_path)
+    calls: list[int] = []
+    orig = rag.embedder.embed
+    rag.embedder.embed = lambda texts: calls.append(len(texts)) or orig(texts)  # type: ignore[method-assign]
+    runs = [{"run_id": "e", "result": {"report": EMPTY}}]
+    first = backfill(rag, runs)
+    assert (first.indexed, first.up_to_date, first.chunks) == (1, 0, 0)
+    assert rag.index.doc_hash("e") == report_hash(EMPTY) and rag.index.count() == 0
+    again = backfill(rag, runs)
+    assert (again.indexed, again.up_to_date) == (0, 1) and rag.last_reindexed is False
+    reopened = LocalIndex(tmp_path / "rag", "hashing-256")  # persisted, not just cached
+    assert reopened.doc_hash("e") == report_hash(EMPTY)
+    forced = backfill(rag, runs, force=True)
+    assert (forced.indexed, forced.up_to_date) == (1, 0) and rag.last_reindexed is True
+    assert calls == []  # 0 chunks: never sent anything to the embedder
+
+
+def test_report_that_becomes_empty_drops_old_chunks(tmp_path: Path) -> None:
+    rag = service(tmp_path)
+    assert rag.index_report("r", REPORT) > 0
+    assert rag.index_report("r", EMPTY) == 0 and rag.last_reindexed
+    assert rag.index.chunks("r") == [] and rag.index.doc_hash("r") == report_hash(EMPTY)
+    assert rag.index_report("r", EMPTY) == 0 and not rag.last_reindexed
+
+
+def test_index_without_docs_file_still_reads_chunk_hash(tmp_path: Path) -> None:
+    rag = service(tmp_path)
+    rag.index_report("r", REPORT)
+    idx = LocalIndex(tmp_path / "rag", "hashing-256")
+    idx.docs_path.write_text("not json", encoding="utf-8")  # corrupt/legacy docs.json -> fall back to chunks
+    assert idx.doc_hash("r") == report_hash(REPORT)

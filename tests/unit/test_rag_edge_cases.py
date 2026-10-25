@@ -65,8 +65,6 @@ def test_huge_doc_with_punctuation_is_windowed() -> None:
     assert len(chunks) > 50 and max(len(c.text.split()) for c in chunks) <= 125
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: no hard word cap; text without [.!?] + capital boundaries "
-                   "(lowercase/non-Latin scripts, no punctuation) becomes one unbounded chunk")
 def test_unpunctuated_huge_doc_is_capped() -> None:
     rep = {"content": " ".join(["word"] * 5000), "citations": []}
     chunks = chunk_report("r", rep, chunk_words=120, overlap_words=30)

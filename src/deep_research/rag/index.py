@@ -11,6 +11,8 @@ pgvector schema (one table, created on first use)::
                     citations text /* JSON list */, title text, section text, doc_hash text,
                     embedding vector, created_at timestamptz, PRIMARY KEY (model, chunk_id))
     index mdra_rag_chunks_run (model, run_id)
+    mdra_rag_docs(model text, run_id text, doc_hash text, chunks int, updated_at timestamptz,
+                  PRIMARY KEY (model, run_id))   -- also records reports that produced 0 chunks
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from deep_research.rag.chunking import Chunk
 from deep_research.rag.config import RagSettings
 
 TABLE = "mdra_rag_chunks"
+DOCS = "mdra_rag_docs"
 
 
 class ChunkIndex(Protocol):
@@ -34,7 +37,7 @@ class ChunkIndex(Protocol):
 
     def doc_hash(self, run_id: str) -> str | None: ...
 
-    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]]) -> None: ...
+    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]], doc_hash: str = "") -> None: ...
 
     def chunks(self, run_id: str | None = None) -> list[Chunk]: ...
 
@@ -56,7 +59,22 @@ class LocalIndex:
         has_faiss = importlib.util.find_spec("faiss") is not None
         self._np = importlib.util.find_spec("numpy") is not None
         self.name = "faiss (local)" if has_faiss and self._np else "numpy (local)" if self._np else "python (local)"
+        self.docs_path = self.path.with_name("docs.json")
         self._rows: list[tuple[Chunk, list[float]]] | None = None
+        self._docs: dict[str, str] | None = None
+
+    def _load_docs(self) -> dict[str, str]:
+        """run_id -> doc_hash of every indexed report, including ones with 0 chunks."""
+        if self._docs is None:
+            docs: dict[str, str] = {}
+            try:
+                raw = json.loads(self.docs_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    docs = {str(k): v for k, v in raw.items() if isinstance(v, str)}
+            except (OSError, ValueError):
+                pass
+            self._docs = docs
+        return self._docs
 
     def _load(self) -> list[tuple[Chunk, list[float]]]:
         if self._rows is None:
@@ -72,9 +90,12 @@ class LocalIndex:
         return self._rows
 
     def doc_hash(self, run_id: str) -> str | None:
-        return next((c.doc_hash for c, _ in self._load() if c.run_id == run_id), None)
+        docs = self._load_docs()
+        if run_id in docs:
+            return docs[run_id]
+        return next((c.doc_hash for c, _ in self._load() if c.run_id == run_id), None)  # index from before docs.json
 
-    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
+    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]], doc_hash: str = "") -> None:
         if len(chunks) != len(vectors):
             raise ValueError("chunks and vectors differ in length")
         rows = [r for r in self._load() if r[0].run_id != run_id] + list(zip(chunks, vectors))
@@ -83,6 +104,16 @@ class LocalIndex:
         tmp.write_text("".join(json.dumps({"chunk": c.as_dict(), "vector": v}) + "\n" for c, v in rows), encoding="utf-8")
         os.replace(tmp, self.path)
         self._rows = rows
+        docs = dict(self._load_docs())
+        doc_hash = doc_hash or (chunks[0].doc_hash if chunks else "")
+        if doc_hash:
+            docs[run_id] = doc_hash
+        else:
+            docs.pop(run_id, None)
+        tmp = self.docs_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(docs, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, self.docs_path)
+        self._docs = docs
 
     def chunks(self, run_id: str | None = None) -> list[Chunk]:
         return [c for c, _ in self._load() if run_id is None or c.run_id == run_id]
@@ -162,6 +193,10 @@ class PgVectorIndex:
                 "title text NOT NULL DEFAULT '', section text NOT NULL DEFAULT '', doc_hash text NOT NULL DEFAULT '', "
                 "embedding vector NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (model, chunk_id))"))
             conn.execute(sa.text(f"CREATE INDEX IF NOT EXISTS {TABLE}_run ON {TABLE} (model, run_id)"))
+            conn.execute(sa.text(
+                f"CREATE TABLE IF NOT EXISTS {DOCS} (model text NOT NULL, run_id text NOT NULL, doc_hash text NOT NULL, "
+                "chunks integer NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now(), "
+                "PRIMARY KEY (model, run_id))"))
         self._ready = True
 
     @staticmethod
@@ -177,11 +212,14 @@ class PgVectorIndex:
 
         self._ensure()
         with self.engine.connect() as conn:
-            row = conn.execute(sa.text(f"SELECT doc_hash FROM {TABLE} WHERE model = :m AND run_id = :r LIMIT 1"),
+            row = conn.execute(sa.text(f"SELECT doc_hash FROM {DOCS} WHERE model = :m AND run_id = :r"),
                                {"m": self.model, "r": run_id}).first()
+            if row is None:  # chunks indexed before mdra_rag_docs existed
+                row = conn.execute(sa.text(f"SELECT doc_hash FROM {TABLE} WHERE model = :m AND run_id = :r LIMIT 1"),
+                                   {"m": self.model, "r": run_id}).first()
         return str(row[0]) if row else None
 
-    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
+    def replace_run(self, run_id: str, chunks: list[Chunk], vectors: list[list[float]], doc_hash: str = "") -> None:
         import sqlalchemy as sa
 
         if len(chunks) != len(vectors):
@@ -196,6 +234,12 @@ class PgVectorIndex:
                 conn.execute(sa.text(
                     f"INSERT INTO {TABLE} (model, chunk_id, run_id, kind, ord, text, citations, title, section, doc_hash, "
                     "embedding) VALUES (:m, :id, :r, :k, :o, :t, :c, :ti, :s, :h, CAST(:e AS vector))"), rows)
+            doc_hash = doc_hash or (chunks[0].doc_hash if chunks else "")
+            if doc_hash:
+                conn.execute(sa.text(
+                    f"INSERT INTO {DOCS} (model, run_id, doc_hash, chunks) VALUES (:m, :r, :h, :n) ON CONFLICT (model, run_id) "
+                    "DO UPDATE SET doc_hash = EXCLUDED.doc_hash, chunks = EXCLUDED.chunks, updated_at = now()"),
+                    {"m": self.model, "r": run_id, "h": doc_hash, "n": len(chunks)})
 
     def chunks(self, run_id: str | None = None) -> list[Chunk]:
         import sqlalchemy as sa

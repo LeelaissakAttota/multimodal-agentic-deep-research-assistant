@@ -2,6 +2,13 @@
 
 ## [Unreleased] - feat/phase7
 
+### Fixed
+- RAG chunks now have a hard `MDRA_RAG_CHUNK_WORDS` cap: text without sentence breaks (lowercase, unpunctuated,
+  Telugu and other scripts) is split into overlapping word windows instead of one unbounded chunk.
+- The missing-embeddings hint now says `pip install -e '.[rag]'` (was `.[memory]`).
+- Reports that produce 0 chunks still record their hash (`docs.json` / `mdra_rag_docs`), so `rag-backfill`
+  counts them as up to date instead of re-chunking every time; `--force` still re-processes them.
+
 ### Added
 - **Report RAG (optional, off by default):** `MDRA_RAG_ENABLED=true` gives the report follow-up chat and the
   Knowledge Base memory search hybrid retrieval: report body, claims and cited source excerpts are chunked

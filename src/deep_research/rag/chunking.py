@@ -59,18 +59,38 @@ def report_hash(report: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(keep, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
 
 
+def _split_long(sentence: str, size: int, overlap: int) -> list[str]:
+    """Word windows of at most ``size`` words (consecutive windows share ``overlap`` words)."""
+    words = sentence.split()
+    if len(words) <= size:
+        return [sentence]
+    step = max(1, size - overlap)
+    out = []
+    for start in range(0, len(words), step):
+        out.append(" ".join(words[start:start + size]))
+        if start + size >= len(words):
+            break
+    return out
+
+
 def _windows(sentences: list[str], size: int, overlap: int) -> list[str]:
+    """Pack sentences into windows of at most ``size`` words (hard cap), carrying trailing context.
+
+    Text without sentence boundaries (no ``.!?`` + capital, e.g. lowercase or non-Latin scripts such as
+    Telugu) arrives as one huge "sentence" and is cut into overlapping word windows first.
+    """
     out: list[str] = []
     cur: list[str] = []
     words = 0
-    for sent in sentences:
+    for sent in (piece for s in sentences for piece in _split_long(s, size, overlap)):
         n = len(sent.split())
         if cur and words + n > size:
             out.append(" ".join(cur))
+            budget = min(overlap, size - n)  # carried context never pushes the next window over the cap
             tail: list[str] = []
             kept = 0
-            for prev in reversed(cur):  # carry whole trailing sentences up to ``overlap`` words
-                if kept + len(prev.split()) > overlap:
+            for prev in reversed(cur):  # carry whole trailing sentences up to the budget
+                if kept + len(prev.split()) > budget:
                     break
                 tail.insert(0, prev)
                 kept += len(prev.split())

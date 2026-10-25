@@ -38,6 +38,7 @@ class RagService:
         self.embedder = embedder
         self.index = index
         self.reason = reason
+        self.last_reindexed = False  # did the last index_report call (re)process the report?
 
     @property
     def label(self) -> str:
@@ -45,12 +46,15 @@ class RagService:
 
     def index_report(self, run_id: str, report: dict[str, Any], *, title: str = "", force: bool = False) -> int:
         """(Re)index one report; returns chunks written, 0 when the stored copy is already current."""
-        if not force and self.index.doc_hash(run_id) == report_hash(report):
+        self.last_reindexed = False
+        doc = report_hash(report)
+        if not force and self.index.doc_hash(run_id) == doc:
             return 0
         chunks = chunk_report(run_id, report, title=title, chunk_words=self.settings.chunk_words,
                               overlap_words=self.settings.overlap_words)
         vectors = self.embedder.embed([c.text for c in chunks]) if chunks else []
-        self.index.replace_run(run_id, chunks, vectors)
+        self.index.replace_run(run_id, chunks, vectors, doc_hash=doc)  # hash stored even for 0 chunks
+        self.last_reindexed = True
         return len(chunks)
 
     def search(self, query: str, k: int | None = None, run_id: str | None = None) -> list[Hit]:
