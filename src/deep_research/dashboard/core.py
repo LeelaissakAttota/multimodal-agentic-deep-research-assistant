@@ -543,6 +543,7 @@ SOURCE_TOOL_ROWS = (
     ("commons_image_search", "Image Search", "Wikimedia Commons, freely licensed, with licence/author", "🖼️", "Images"),
     ("hackernews_search", "Hacker News", "HN stories + comments via the Algolia HN API (keyless)", "🟧", "Discussions"),
     ("bluesky_search", "Bluesky Posts", "public post search (keyless AppView; optional BSKY_HANDLE/APP_PASSWORD)", "🦋", "Discussions"),
+    ("stackexchange_search", "Stack Exchange", "Stack Overflow + stats/math/physics/quant/money Q&A (keyless)", "🧮", "Discussions"),
 )
 
 

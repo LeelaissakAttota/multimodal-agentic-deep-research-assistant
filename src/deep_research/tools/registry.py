@@ -138,6 +138,7 @@ SOURCE_TOOLS: Dict[str, tuple[str, str]] = {
     "commons_image_search": ("image", "freely licensed images/diagrams from Wikimedia Commons"),
     "hackernews_search": ("social", "Hacker News stories and comments (tech/startup discussion; not authoritative)"),
     "bluesky_search": ("social", "public Bluesky posts (recent reactions and commentary; not authoritative)"),
+    "stackexchange_search": ("social", "Stack Overflow / Stack Exchange Q&A (stats, math, physics, quant, money; community answers)"),
 }
 SOURCE_TOOL_IDS: tuple[str, ...] = tuple(SOURCE_TOOLS)
 
@@ -159,12 +160,14 @@ def build_source_tools(enabled: List[str] | None = None) -> Dict[str, Tool]:
     from deep_research.tools.commons_image_tool import CommonsImageSearchTool
     from deep_research.tools.hackernews_tool import HackerNewsSearchTool
     from deep_research.tools.reddit_tool import RedditSearchTool
+    from deep_research.tools.stackexchange_tool import StackExchangeSearchTool
     from deep_research.tools.youtube_tool import YouTubeTranscriptTool
 
     classes: Dict[str, Type[Tool]] = {
         "academic_search": AcademicSearchTool, "youtube_transcript": YouTubeTranscriptTool,
         "reddit_search": RedditSearchTool, "commons_image_search": CommonsImageSearchTool,
         "hackernews_search": HackerNewsSearchTool, "bluesky_search": BlueskySearchTool,
+        "stackexchange_search": StackExchangeSearchTool,
     }
     wanted = list(SOURCE_TOOL_IDS) if enabled is None else enabled
     return {tool_id: classes[tool_id]() for tool_id in wanted if tool_id in classes}

@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     live_max_fetch_pages: int = Field(default=2, ge=0, le=5)
     # Keyless public-source tools the planner may route tasks to in live mode:
     # "all" (default), "none", or a comma list of academic_search, youtube_transcript,
-    # reddit_search, commons_image_search, hackernews_search, bluesky_search.
+    # reddit_search, commons_image_search, hackernews_search, bluesky_search,
+    # stackexchange_search.
     live_source_tools: str = Field(default="all", max_length=200)
 
     # Agent mode: "auto" = LLM planner/evaluator/tool choice in live mode when an

@@ -209,6 +209,10 @@ SOURCE_ROUTES: dict[str, tuple[tuple[str, ...], str, str]] = {
     "bluesky_search": (("bluesky", "bsky", "social media", "tweet*", "twitter", "trending", "reaction*",
                         "public reaction*", "posts about"),
                        "Bluesky posts", "Survey Bluesky posts on"),
+    "stackexchange_search": (("stack overflow", "stackoverflow", "stack exchange", "stackexchange", "error message",
+                              "exception", "how do i", "how to fix", "bug", "compile*", "python", "javascript",
+                              "sql", "p-value", "theorem", "black-scholes", "q&a"),
+                             "Stack Exchange Q&A", "Find Stack Exchange questions and answers on"),
 }
 
 

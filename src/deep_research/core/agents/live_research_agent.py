@@ -408,7 +408,8 @@ class _ToolRun:
 _SOURCE_META_FIELDS = ("source_type", "provider", "authors", "year", "venue", "doi", "arxiv_id", "video_id",
                        "subreddit", "score", "image_url", "license", "artist", "caption_kind", "language",
                        "points", "num_comments", "created_at", "story_url", "hn_url", "likes", "reposts",
-                       "replies", "author")
+                       "replies", "author", "site",
+                       "answer_count", "is_answered", "creation_date", "tags")
 
 
 def source_hits_to_evidence(hits: list[dict[str, Any]], tool_id: str, query: str, *,

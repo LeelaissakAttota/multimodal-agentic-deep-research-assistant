@@ -35,3 +35,15 @@ def test_bluesky_live_smoke() -> None:
         assert result.metadata["failure_kind"] in ("auth_required", "rate_limited"), result.error
         pytest.skip(result.error or "bluesky unavailable")
     assert result.output.results[0]["url"].startswith("https://bsky.app/profile/")
+
+
+def test_stackexchange_live_smoke() -> None:
+    from deep_research.tools.stackexchange_tool import STACKEXCHANGE_TOOL_ID, StackExchangeSearchTool
+
+    result = asyncio.run(StackExchangeSearchTool().execute(
+        ToolRequest(tool_name=STACKEXCHANGE_TOOL_ID, parameters={"query": "p-value confidence interval", "limit": 3})))
+    if not result.success and result.metadata.get("failure_kind") in ("rate_limited", "quota_low", "backoff"):
+        pytest.skip(result.error or "stack exchange throttled")
+    assert result.success, result.error
+    row = result.output.results[0]
+    assert row["site"] == "stats" and row["url"].startswith("https://stats.stackexchange.com/")

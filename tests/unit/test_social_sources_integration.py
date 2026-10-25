@@ -43,3 +43,15 @@ def test_dashboard_lists_social_sources() -> None:
     assert only["Hacker News"] == "Active" and only["Bluesky Posts"] == "Disabled"
     tools = {t["name"]: t["state"] for t in core.tool_catalog(Settings(), None, "live")}
     assert tools["Hacker News"] == "on" and tools["Bluesky Posts"] == "on"
+
+
+def test_stackexchange_is_registered_routed_and_listed() -> None:
+    every = list(SOURCE_TOOL_IDS)
+    assert "stackexchange_search" in every and SOURCE_TOOLS["stackexchange_search"][0] == "social"
+    assert route_source_tools("Stack Overflow answers on Python asyncio errors", every) == ["stackexchange_search"]
+    live = {r["name"]: r["state"] for r in core.source_catalog(Settings(), "live")}
+    assert live["Stack Exchange"] == "Active"
+    hits = [{"title": "Q", "url": "https://stackoverflow.com/questions/1", "content": "body", "source_type": "social",
+             "site": "stackoverflow", "answer_count": "2", "is_answered": "true", "creation_date": "2024-01-01T00:00:00Z"}]
+    meta = source_hits_to_evidence(hits, "stackexchange_search", "q")[0][0].metadata
+    assert meta["site"] == "stackoverflow" and meta["answer_count"] == "2" and meta["is_answered"] == "true"
