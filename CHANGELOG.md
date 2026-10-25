@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] - feat/phase6
+
+### Changed
+- **Step-by-step approval** ("Asks for your OK before each important step") is now one setting, off by default:
+  the toggle in Settings -> Approval policy is saved by the control API in `control_settings.json` (survives
+  restarts), New Research has a per-run checkbox that defaults to it, and the run page shows the state.
+  Initial default: `DEEP_RESEARCH_APPROVAL_MODE` from the environment or `.env` (precedence: saved value, then env/.env, then off).
+
+### Removed
+- The General-tab toggle "Step-by-step approval on by default". It was a dashboard-only preference that defaulted
+  to ON. Its `step_approval` key in the dashboard preferences file is now ignored (left in place, not migrated);
+  use the Settings toggle instead.
+
 ## [1.0.0] - 2026-10-24
 
 ### Added

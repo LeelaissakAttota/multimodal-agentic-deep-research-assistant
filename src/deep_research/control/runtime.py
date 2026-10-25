@@ -114,15 +114,32 @@ class Step:
 APPROVAL_ENV = "DEEP_RESEARCH_APPROVAL_MODE"
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+def env_approval_default() -> bool:
+    """``DEEP_RESEARCH_APPROVAL_MODE`` from the environment or ``.env``, read like the main ``Settings``.
+
+    Same pydantic-settings rules: ``DEEP_RESEARCH_`` prefix, case-insensitive, real env vars beat ``.env``,
+    ``DEEP_RESEARCH_ENV_FILE`` picks the file (evaluated per call, so tests can point at a tmp file).
+    """
+    from pydantic import ValidationError
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class _ApprovalEnv(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="DEEP_RESEARCH_", case_sensitive=False, extra="ignore",
+                                          env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
+                                          env_file_encoding="utf-8")
+        approval_mode: bool = False
+
+    try:
+        return _ApprovalEnv().approval_mode
+    except ValidationError:  # unparsable value: stay safe and use the default (off)
+        return False
 
 
 class ControlSettings:
     """Persisted per-project control toggles (default OFF), stored as JSON in the control config dir.
 
-    ``approval_mode`` ("Step-by-step approval") falls back to ``DEEP_RESEARCH_APPROVAL_MODE`` when the file has
-    no value yet; once saved, the file wins (survives restarts).
+    ``approval_mode`` ("Step-by-step approval") precedence: saved value in this file, then
+    ``DEEP_RESEARCH_APPROVAL_MODE`` from env/.env (:func:`env_approval_default`), then off.
     """
 
     def __init__(self, path: Path) -> None:
@@ -134,7 +151,7 @@ class ControlSettings:
         with contextlib.suppress(FileNotFoundError, ValueError):
             data = json.loads(self._path.read_text(encoding="utf-8"))
         return {
-            "approval_mode": bool(data["approval_mode"]) if "approval_mode" in data else _env_flag(APPROVAL_ENV),
+            "approval_mode": bool(data["approval_mode"]) if "approval_mode" in data else env_approval_default(),
             "auto_approve_low_risk": bool(data.get("auto_approve_low_risk", False)),
         }
 

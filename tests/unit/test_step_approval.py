@@ -16,7 +16,7 @@ with warnings.catch_warnings():
     from fastapi.testclient import TestClient
 
 from deep_research.control.api import build_control_app
-from deep_research.control.runtime import APPROVAL_ENV, ControlSettings, RunStatus
+from deep_research.control.runtime import APPROVAL_ENV, ControlSettings, RunStatus, env_approval_default
 from deep_research.control.service import DeepResearchControl
 from deep_research.core.config import Settings
 from deep_research.dashboard import core
@@ -189,3 +189,43 @@ def test_dashboard_new_research_checkbox_defaults_to_setting(tmp_path: Path, mon
     at = _app(tmp_path, monkeypatch, control, "new")
     box = next(c for c in at.checkbox if c.label == STEP_LABEL)
     assert box.value is True and STEP_HELP in (box.help or "")
+
+
+def _envfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Path:
+    env = tmp_path / "test.env"
+    env.write_text(text, encoding="utf-8")
+    monkeypatch.setenv("DEEP_RESEARCH_ENV_FILE", str(env))
+    return env
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("DEEP_RESEARCH_APPROVAL_MODE=true\n", True),
+    ("deep_research_approval_mode=1\nMDRA_REDIS_URL=redis://localhost:6379/0\nOTHER=x\n", True),
+    ("DEEP_RESEARCH_APPROVAL_MODE=false\n", False),
+    ("DEEP_RESEARCH_APPROVAL_MODE=not-a-bool\n", False),
+    ("", False),
+])
+def test_dotenv_sets_initial_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, expected: bool) -> None:
+    _envfile(tmp_path, monkeypatch, text)
+    assert env_approval_default() is expected
+    assert ControlSettings(tmp_path / "cs.json").load()["approval_mode"] is expected
+
+
+def test_precedence_saved_then_env_then_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _envfile(tmp_path, monkeypatch, "DEEP_RESEARCH_APPROVAL_MODE=true\n")
+    store = ControlSettings(tmp_path / "cs.json")
+    monkeypatch.setenv(APPROVAL_ENV, "false")  # real env var beats .env (pydantic-settings rule)
+    assert store.load()["approval_mode"] is False
+    monkeypatch.delenv(APPROVAL_ENV)
+    assert store.load()["approval_mode"] is True
+    store.update(approval_mode=False)  # saved value beats both
+    assert store.load()["approval_mode"] is False
+
+
+def test_dotenv_default_reaches_new_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _envfile(tmp_path, monkeypatch, "DEEP_RESEARCH_APPROVAL_MODE=yes\n")
+    client = _client(_control(tmp_path / "cfg"))
+    assert client.get("/control/settings", headers=H).json()["approval_mode"] is True
+    run = client.post("/control/runs", json={"params": {"objective": "tea"}}, headers=H).json()
+    assert run["approval_mode"] is True and run["approval_source"] == "settings"
+    client.post(f"/control/runs/{run['run_id']}/stop", headers=H)
