@@ -49,9 +49,11 @@ class DeterministicPlanningAgent(PlanningAgent):
     each relevant tool. Empty (default) keeps the web-only plan.
     """
 
-    def __init__(self, source_tools: Iterable[str] = (), preferred: Iterable[str] = ()) -> None:
+    def __init__(self, source_tools: Iterable[str] = (), preferred: Iterable[str] = (),
+                 saved_topics: Iterable[str] = ()) -> None:
         self.source_tools = [t for t in source_tools if t in SOURCE_ROUTES]
         self.preferred = [t for t in preferred if t in self.source_tools]
+        self.saved_topics = [t for t in saved_topics if t.strip()]
 
     async def create_plan(
         self,
@@ -81,6 +83,7 @@ class DeterministicPlanningAgent(PlanningAgent):
         else:
             # Attachments first: their content becomes primary sources for later web tasks.
             tasks = [*_attachment_tasks(request), *_web_tasks(request.objective),
+                     *topic_tasks(request.objective, self.saved_topics),
                      *source_tasks(request.objective, self.source_tools, self.preferred)]
 
         plan = ResearchPlan(
@@ -167,6 +170,61 @@ def _web_tasks(question: str) -> list[ResearchTask]:
             )
         )
     return tasks
+
+
+_TOPIC_STOP = frozenset(
+    "about after also among and are because been before being between both but can could does doing during each from "
+    "have how into its more most much other over same should some such than that their them then there these they "
+    "this those through under until very what when where which while who whom why will with would your".split()
+)
+
+
+def _stem(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    return word[:-1] if len(word) > 4 and word.endswith("s") and not word.endswith("ss") else word
+
+
+def _topic_terms(text: str) -> dict[str, str]:
+    """Light-stemmed meaningful terms -> original word (first occurrence)."""
+    terms: dict[str, str] = {}
+    for word in re.findall(r"[a-z0-9][a-z0-9+#-]{2,}", text.lower()):
+        if word not in _TOPIC_STOP:
+            terms.setdefault(_stem(word), word)
+    return terms
+
+
+def related_topic(question: str, topics: Iterable[str]) -> tuple[str, list[str]] | None:
+    """Best saved topic sharing a meaningful term with the question, plus its terms the question lacks.
+
+    ``None`` when no topic is related or the related topic adds nothing new (no plan change).
+    """
+    q = _topic_terms(question)
+    best: tuple[int, str, list[str]] | None = None
+    for topic in topics:
+        terms = _topic_terms(topic)
+        overlap = len(q.keys() & terms.keys())
+        extra = [word for stem, word in terms.items() if stem not in q]
+        if overlap and extra and (best is None or overlap > best[0]):
+            best = (overlap, topic.strip(), extra)
+    return (best[1], best[2]) if best else None
+
+
+def topic_tasks(question: str, topics: Iterable[str]) -> list[ResearchTask]:
+    """At most one extra web task biased toward a related saved topic (user profile); none when unrelated/empty."""
+    match = related_topic(question, topics)
+    if match is None:
+        return []
+    topic, extra = match
+    return [ResearchTask(
+        plan_id=UUID(int=0),
+        description=f"Relate to saved topic '{topic}': {question}",
+        objective=f"Find how {question} relates to {topic}",
+        assigned_tool="web_search",
+        tool_input={"query": f"{question} {' '.join(extra[:4])}", "limit": 5},
+        metadata={"section": f"Related to {topic}"[:80], "question": question, "saved_topic": topic,
+                  "focus": f"how the question connects to {topic}"},
+    )]
 
 
 def _attachment_tasks(request: ResearchRequest) -> list[ResearchTask]:

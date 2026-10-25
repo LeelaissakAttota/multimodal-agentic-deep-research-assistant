@@ -81,12 +81,13 @@ class LlmPlanningAgent(PlanningAgent):
         max_tokens: int = 1_500,
         source_tools: List[str] | None = None,
         preferred: List[str] | None = None,
+        saved_topics: List[str] | None = None,
     ) -> None:
         if max_tasks < 1:
             raise ValueError("max_tasks must be at least 1")
         self.gateway = gateway
         self.source_tools = [t for t in (source_tools or []) if t in SOURCE_ROUTES]
-        self.fallback = fallback or DeterministicPlanningAgent(self.source_tools, preferred or ())
+        self.fallback = fallback or DeterministicPlanningAgent(self.source_tools, preferred or (), saved_topics or ())
         self.max_tasks = max_tasks
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds

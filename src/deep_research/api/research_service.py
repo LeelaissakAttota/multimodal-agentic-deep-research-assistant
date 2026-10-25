@@ -135,7 +135,8 @@ class ResearchApplication:
         )
         gateway = self._agent_gateway()
         sources = self.settings.enabled_source_tools() if self.settings.research_mode == "live" else []
-        planning_agent: PlanningAgent = DeterministicPlanningAgent(sources, self.settings.preferred_sources())
+        planning_agent: PlanningAgent = DeterministicPlanningAgent(sources, self.settings.preferred_sources(),
+                                                                    self.settings.saved_topic_list())
         evaluation_agent: EvaluationAgent = DeterministicEvaluationAgent()
         if gateway is not None:
             from deep_research.core.agents.llm_agents import LlmEvaluationAgent, LlmPlanningAgent
@@ -145,6 +146,7 @@ class ResearchApplication:
                 max_iterations=limits.max_research_iterations,
                 timeout_seconds=self.settings.agent_llm_timeout_seconds,
                 source_tools=sources, preferred=self.settings.preferred_sources(),
+                saved_topics=self.settings.saved_topic_list(),
             )
             evaluation_agent = LlmEvaluationAgent(
                 gateway, max_iterations=limits.max_research_iterations,

@@ -97,6 +97,7 @@ def apply_profile(settings: Settings, profile: UserProfile | None) -> Settings:
         "live_source_tools": ",".join(enabled) if enabled else "none",
         "preferred_source_tools": ",".join(t for t in profile.preferred_sources if t in enabled),
         "blocked_domains": ",".join(profile.blocked_domains),
+        "saved_topics": "|".join(t.replace("|", " ") for t in profile.saved_topics),
         "max_research_iterations": iterations,
         "live_max_search_results": results,
         "live_max_fetch_pages": fetch,

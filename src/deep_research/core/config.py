@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     # consulted once per plan (comma list); results from blocked domains are dropped.
     preferred_source_tools: str = Field(default="", max_length=200)
     blocked_domains: str = Field(default="", max_length=2000)
+    # Saved topics from the profile ('|'-separated); a related one adds one biased search task to the plan.
+    saved_topics: str = Field(default="", max_length=8000)
     # Read-only share links expire after this many days by default (0 = never); per-share override on create.
     share_ttl_days: float = Field(default=7.0, ge=0, le=365)
 
@@ -123,6 +125,9 @@ class Settings(BaseSettings):
 
         enabled = set(self.enabled_source_tools())
         return [t for t in parse_source_tools(self.preferred_source_tools or "none") if t in enabled]
+
+    def saved_topic_list(self) -> list[str]:
+        return [t for t in dict.fromkeys(" ".join(x.split()) for x in self.saved_topics.split("|")) if t]
 
     def blocked_domain_list(self) -> list[str]:
         """Normalized blocked hostnames (scheme, path, port, trailing dot and ``www.`` stripped; lower-case)."""
