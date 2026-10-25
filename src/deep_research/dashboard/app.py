@@ -924,6 +924,25 @@ def page_sources() -> None:
         st.markdown("<div class='panel'><div class='ph'>Source Settings</div>" + "".join(
             f"<div class='kv'><span>{e(a)}</span><span title='{e(b)}'>{e(b)}</span></div>" for a, b in kv)
             + "<div class='muted' style='margin-top:8px'>Change these in .env (DEEP_RESEARCH_*).</div></div>", unsafe_allow_html=True)
+        clipped_panel()
+
+
+def clipped_panel() -> None:
+    """Pages sent from the Chrome extension as sources (needs the control API)."""
+    try:
+        items = client().clips() if ok else None
+    except ControlError:
+        items = None
+    if items is None:
+        body = "<div class='muted'>Control API offline: clipped pages are not available.</div>"
+    else:
+        body = "".join(
+            f"<div class='row'><div class='sq c5'>📎</div><div class='tx'><div class='tt'>"
+            f"<a href='{e(c['url'])}' target='_blank' style='color:#e6ecff'>{e(c.get('title') or c['url'])}</a></div>"
+            f"<div class='ts' style='white-space:normal'>{e(str(c.get('selection') or '')[:200])}</div></div>"
+            f"<div class='rt'>{e(local_time(c.get('created_at')))}</div></div>" for c in items[:20]
+        ) or "<div class='muted'>Nothing clipped yet. Use the browser extension (extensions/mdra-chrome) to send a page here.</div>"
+    st.markdown(f"<div class='panel'><div class='ph'>Clipped from browser</div>{body}</div>", unsafe_allow_html=True)
 
 
 # ----- Tools & Integration -------------------------------------------------------------------------

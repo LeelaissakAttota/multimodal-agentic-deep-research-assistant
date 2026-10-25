@@ -9,7 +9,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +47,16 @@ class ArtifactBody(BaseModel):
     report: dict[str, Any] | None = None  # for runs only kept by the dashboard
 
 
+class ClipBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=8, max_length=2000)
+    title: str = Field(default="", max_length=500)
+    selection: str = Field(default="", max_length=20_000)
+
+
+LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
 class KeyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     value: str = Field(max_length=4096)
@@ -66,6 +76,7 @@ def build_control_app(  # noqa: C901 - flat route table
     assistant: Any | None = None,
     share_ttl_days: float = 7.0,
     artifacts: Any | None = None,
+    clips: Any | None = None,
 ) -> FastAPI:
     if len(admin_token) < 16:
         raise ValueError("control admin token must be at least 16 characters")
@@ -237,7 +248,32 @@ def build_control_app(  # noqa: C901 - flat route table
     if assistant is not None:
         _share_routes(app, manager, assistant, auth, share_ttl_days)
     _artifact_routes(app, manager, auth, artifacts)
+    if clips is not None:
+        _clip_routes(app, manager, auth, clips)
     return app
+
+
+def _clip_routes(app: FastAPI, manager: RunManager, auth: list[Any], clips: Any) -> None:
+    """Browser-extension inbox: pages/selections sent "as source". Loopback clients only."""
+
+    def loopback_only(request: Request) -> None:
+        if (request.client.host if request.client else "") not in LOOPBACK:
+            raise HTTPException(status_code=403, detail="clips are accepted from this computer only")
+
+    guard = [Depends(loopback_only), *auth]
+
+    @app.post("/control/clips", dependencies=guard, status_code=201)
+    def add_clip(body: ClipBody, x_operator: str | None = Header(default=None)) -> dict[str, Any]:
+        try:
+            item: dict[str, Any] = clips.add(body.url, body.title, body.selection, by=_operator(x_operator))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        manager.audit.record({"event": "source_clipped", "clip": item["id"], "by": item["by"]})
+        return item
+
+    @app.get("/control/clips", dependencies=guard)
+    def list_clips(limit: int = Query(default=100, ge=1, le=500)) -> list[dict[str, Any]]:
+        return list(clips.list(limit))
 
 
 def _artifact_routes(app: FastAPI, manager: RunManager, auth: list[Any], store: Any | None) -> None:  # noqa: C901 - flat route table

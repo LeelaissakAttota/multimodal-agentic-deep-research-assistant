@@ -149,6 +149,10 @@ class ControlClient:
     def list_artifacts(self, run_id: str | None = None) -> list[dict[str, Any]]:
         return list(self._call("GET", "/control/artifacts", params={"run_id": run_id} if run_id else None))
 
+    def clips(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Pages sent from the browser extension as sources (newest first)."""
+        return list(self._call("GET", "/control/clips", params={"limit": limit}))
+
 
 # ----- attachments ---------------------------------------------------------------
 

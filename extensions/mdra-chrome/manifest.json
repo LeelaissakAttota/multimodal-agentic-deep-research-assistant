@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "MDRA – Send to Deep Research",
+  "short_name": "MDRA",
+  "version": "1.0.0",
+  "description": "Send the current page or selected text to your local Multimodal Deep Research Assistant as a new research or a source.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage", "contextMenus", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "Send to MDRA", "default_popup": "popup.html"},
+  "options_ui": {"page": "options.html", "open_in_tab": true},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'self'"}
+}
