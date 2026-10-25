@@ -126,6 +126,18 @@ class ControlClient:
     def set_key(self, name: str, value: str) -> dict[str, Any]:
         return dict(self._call("PUT", f"/control/keys/{name}", json={"value": value}))
 
+    def create_share(self, run_id: str, report: dict[str, Any] | None = None) -> dict[str, Any]:
+        """New read-only share link; ``url`` holds the token and is shown once (it is not stored)."""
+        share = dict(self._call("POST", f"/control/runs/{run_id}/shares", json={"report": report}))
+        share["url"] = self.base_url + str(share.pop("path", ""))
+        return share
+
+    def list_shares(self, run_id: str | None = None) -> list[dict[str, Any]]:
+        return list(self._call("GET", "/control/shares", params={"run_id": run_id} if run_id else None))
+
+    def revoke_share(self, share_id: str) -> dict[str, Any]:
+        return dict(self._call("POST", f"/control/shares/{share_id}/revoke"))
+
 
 # ----- attachments ---------------------------------------------------------------
 

@@ -8,17 +8,23 @@ from that API or from runs saved under ``dashboard_runs/``; nothing is invented.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import streamlit as st
 
+from deep_research.assistant.followup import ask_report, build_chat_gateway
+from deep_research.assistant.notes import NotesService
+from deep_research.assistant.profile import DEPTHS, UserProfile, load_profile, save_profile
+from deep_research.assistant.store import AssistantStore, default_db_path
 from deep_research.core.config import Settings
+from deep_research.tools.registry import SOURCE_TOOLS
 from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
     build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, memory_items, memory_search, memory_status, merge_runs,
@@ -173,6 +179,19 @@ store = RunStore(ROOT)
 prefs = Prefs(ROOT / "prefs.json")
 
 
+@st.cache_resource
+def _assistant_at(path: str) -> AssistantStore:
+    return AssistantStore(path)
+
+
+def assistant() -> AssistantStore:
+    """Local SQLite store for chat history, profile, notes and reminders (``data/`` is git-ignored)."""
+    return _assistant_at(str(default_db_path(Settings().memory_dir)))
+
+
+notes = NotesService(assistant())
+
+
 def api_ok() -> bool:
     try:
         client().health()
@@ -218,7 +237,7 @@ def all_runs() -> list[dict[str, Any]]:
 def act(fn: Any) -> None:
     try:
         fn()
-    except (ControlError, ValueError) as exc:
+    except (ControlError, ValueError, KeyError) as exc:
         st.error(str(exc))
         return
     time.sleep(0.3)
@@ -332,6 +351,7 @@ def page_dashboard() -> None:
         st.markdown(f"<div class='panel'><div class='ph'>Recent Sources <a target='_self' href='{link('sources')}'>View all →</a></div>"
                     f"<div class='grid g4'>{cells}</div></div>", unsafe_allow_html=True)
     with right:
+        reminders_panel()
         cells = "".join(
             f"<div class='cap{' dis' if t['state'] == 'coming soon' else ''}'><div class='sq c1' style='width:32px;height:32px'>{t['icon']}</div>"
             f"<div class='ct' title='{e(t['name'])}'>{e(t['name'])}</div><div class='cs'>"
@@ -347,6 +367,18 @@ def page_dashboard() -> None:
             f"<div class='ts'>PDF or image (max 20 MB)</div></div></a>"
             f"<a class='qa' target='_self' href='{link('knowledge')}'><div class='sq c4'>◈</div><div><div class='tt'>View Knowledge Base</div>"
             f"<div class='ts'>Reports, claims and sources</div></div></a></div>", unsafe_allow_html=True)
+
+
+def reminders_panel(limit: int = 5) -> None:
+    """Upcoming local reminders (overdue first). Nothing is sent anywhere."""
+    items = notes.upcoming(limit)
+    rows = "".join(
+        f"<div class='st-row'><div style='min-width:0;flex:1'>{e(r['text'])}"
+        + (f" <a target='_self' href='{link('researches', run=r['run_id'], view='report')}'>report →</a>" if r.get("run_id") else "")
+        + f"</div><span class='badge {'b-off' if r['overdue'] else 'b-ok'}'>{e(('overdue · ' if r['overdue'] else '') + local_time(r['due']))}</span></div>"
+        for r in items) or "<div class='muted'>No upcoming reminders. Add one from a report or Settings → Reminders.</div>"
+    st.markdown(f"<div class='panel'><div class='ph'>Upcoming Reminders <a target='_self' href='{link('settings', tab='reminders')}'>"
+                f"Manage →</a></div>{rows}</div>", unsafe_allow_html=True)
 
 
 def keys_or_none() -> dict[str, Any] | None:
@@ -609,6 +641,112 @@ def report_view(run_id: str) -> None:
     with right, st.container(border=True):
         cits(report)
         export_buttons(report, run_id)
+    chat_tab, notes_tab, share_tab = st.tabs(["💬 Ask this report", "📝 Notes & reminders", "🔗 Share"])
+    with chat_tab:
+        report_chat(run_id, report)
+    with notes_tab:
+        report_notes(run_id)
+    with share_tab:
+        report_share(run_id, report)
+
+
+def report_chat(run_id: str, report: dict[str, Any]) -> None:
+    """Follow-up Q&A grounded only in this report's evidence; unsupported questions are refused."""
+    st.markdown("<div class='muted'>Answers use only this report's text, claims and cited sources, with [n] citations. "
+                "If the report doesn't cover a question, the assistant says so. Uses a free model when an OpenRouter "
+                "key is set, otherwise an offline extractive answer.</div>", unsafe_allow_html=True)
+    for msg in assistant().chat_history(run_id):
+        with st.chat_message(msg["role"]):
+            st.markdown(md_safe(msg["text"]))
+            meta = msg.get("meta") or {}
+            if msg["role"] == "assistant":
+                st.caption(("⚠ not supported by this report" if not meta.get("supported") else f"grounded · {meta.get('mode', '')}")
+                           + (f" · {meta['reason']}" if meta.get("reason") else ""))
+    question = st.chat_input("Ask a follow-up question about this report", key=f"chat_{run_id}")
+    if question:
+        try:
+            asyncio.run(ask_report(assistant(), run_id, question, report, build_chat_gateway(Settings())))
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        st.rerun()
+
+
+def report_notes(run_id: str) -> None:
+    left, right = st.columns(2, gap="medium")
+    with left:
+        st.markdown("<div class='ph'>Notes</div>", unsafe_allow_html=True)
+        for n in notes.list_notes(run_id):
+            with st.expander(f"{shorten(n['text'], 60)} · {local_time(n['updated_at'])}"):
+                text = st.text_area("Edit note", n["text"], key=f"note_{n['id']}", label_visibility="collapsed")
+                a, b = st.columns(2)
+                if a.button("Save", key=f"note_save_{n['id']}"):
+                    act(lambda nid=n["id"], t=text: notes.edit_note(nid, t))
+                if b.button("Delete", key=f"note_del_{n['id']}"):
+                    act(lambda nid=n["id"]: notes.delete_note(nid))
+        new = st.text_area("New note", key=f"note_new_{run_id}", placeholder="Your note on this report…")
+        if st.button("Add note", type="primary", key=f"note_add_{run_id}"):
+            act(lambda: notes.add_note(run_id, new))
+    with right:
+        st.markdown("<div class='ph'>Reminders</div>", unsafe_allow_html=True)
+        reminder_rows(notes.list_reminders(run_id=run_id))
+        reminder_form(run_id)
+
+
+def reminder_rows(items: list[dict[str, Any]]) -> None:
+    if not items:
+        st.markdown("<div class='muted'>No open reminders.</div>", unsafe_allow_html=True)
+    for r in items:
+        a, b, c = st.columns([4, 1, 1])
+        a.markdown(f"{e(r['text'])} <span class='badge {'b-off' if r['overdue'] else 'b-ok'}'>{e(local_time(r['due']))}</span>",
+                   unsafe_allow_html=True)
+        if b.button("Done", key=f"rem_done_{r['id']}"):
+            act(lambda rid=r["id"]: notes.set_done(rid))
+        if c.button("Delete", key=f"rem_del_{r['id']}"):
+            act(lambda rid=r["id"]: notes.delete_reminder(rid))
+
+
+def reminder_form(run_id: str | None) -> None:
+    key = run_id or "global"
+    text = st.text_input("Reminder", key=f"rem_text_{key}", placeholder="e.g. re-check the sources")
+    a, b = st.columns(2)
+    day = a.date_input("Due date", value=datetime.now(display_zone()).date() + timedelta(days=1), key=f"rem_day_{key}")
+    at = b.time_input("Time", value=datetime.strptime("09:00", "%H:%M").time(), key=f"rem_time_{key}")
+    if st.button("Add reminder", key=f"rem_add_{key}"):
+        due = datetime.combine(day, at).replace(tzinfo=display_zone())
+        act(lambda: notes.add_reminder(text, due, run_id=run_id))
+
+
+def report_share(run_id: str, report: dict[str, Any]) -> None:
+    """Self-contained HTML download + revocable token link served read-only by the local control API."""
+    from deep_research.assistant.share import render_html
+
+    st.download_button("⤓ Static HTML (self-contained)", render_html(report).encode("utf-8"),
+                       file_name=f"report-{run_id}.html", mime="text/html", key=f"html_{run_id}")
+    if not ok:
+        st.warning("Control API is offline: share links need it running on 127.0.0.1.")
+        return
+    if st.button("Create share link", type="primary", key=f"share_{run_id}"):
+        try:
+            share = client().create_share(run_id, report)
+        except ControlError as exc:
+            st.error(str(exc))
+        else:
+            st.success("Read-only link created. Copy it now: the token is not stored and is shown only once.")
+            st.code(share["url"], language=None)
+    st.markdown("<div class='muted'>Links are served on 127.0.0.1 only (local network sharing needs you to expose the port).</div>",
+                unsafe_allow_html=True)
+    try:
+        shares = client().list_shares(run_id)
+    except ControlError as exc:
+        st.error(str(exc))
+        return
+    for sh in shares:
+        a, b = st.columns([4, 1])
+        a.markdown(f"<span class='badge {'b-ok' if sh['active'] else 'b-off'}'>{'active' if sh['active'] else 'revoked'}</span> "
+                   f"{e(sh['id'])} · created {e(local_time(sh['created_at']))}", unsafe_allow_html=True)
+        if sh["active"] and b.button("Revoke", key=f"revoke_{sh['id']}"):
+            act(lambda sid=sh["id"]: client().revoke_share(sid))
 
 
 def export_buttons(report: dict[str, Any], run_id: str) -> None:
@@ -771,10 +909,33 @@ def page_tools() -> None:
 
 
 # ----- Settings ------------------------------------------------------------------------------------------
+def profile_form() -> None:
+    """Saved topics, preferred/blocked sources, blocked domains and default depth (applied to every new run)."""
+    p = load_profile(assistant())
+    st.markdown("<div class='ph'>Profile &amp; research preferences</div>", unsafe_allow_html=True)
+    tools = list(SOURCE_TOOLS)
+    name = st.text_input("Display name", p.display_name, max_chars=80)
+    topics = st.text_area("Saved topics (one per line)", "\n".join(p.saved_topics))
+    a, b = st.columns(2)
+    label = {t: f"{t.replace('_', ' ').title()} ({SOURCE_TOOLS[t][0]})" for t in tools}
+    preferred = a.multiselect("Preferred sources (always consulted)", tools, p.preferred_sources, format_func=lambda t: label[t])
+    blocked = b.multiselect("Blocked sources (never used)", tools, p.blocked_sources, format_func=lambda t: label[t])
+    domains = st.text_input("Blocked domains (comma separated)", ", ".join(p.blocked_domains), placeholder="example.com, spam.net")
+    depth = st.radio("Default depth", list(DEPTHS), index=list(DEPTHS).index(p.default_depth), horizontal=True,
+                     format_func=lambda d: f"{d.title()} ({DEPTHS[d][0]} iteration{'s' if DEPTHS[d][0] > 1 else ''}, "
+                                           f"{DEPTHS[d][1]} results)")
+    st.markdown("<div class='muted'>Applied by the planner to every new run: blocked sources are disabled, a preferred "
+                "source is always planned, blocked domains are dropped from results.</div>", unsafe_allow_html=True)
+    if st.button("Save profile", type="primary", key="saveprofile"):
+        act(lambda: save_profile(assistant(), UserProfile.model_validate(dict(
+            display_name=name, saved_topics=[x for x in topics.splitlines() if x.strip()], preferred_sources=preferred,
+            blocked_sources=blocked, blocked_domains=[d for d in domains.split(",") if d.strip()], default_depth=depth))))
+
+
 def page_settings() -> None:
     head("Settings", "Customize defaults, research policy and API keys. Keys are write-only and never shown.")
-    tabs = ["general", "research", "notifications", "account"]
-    t = st.tabs(["General", "Research", "Notifications", "Account"])
+    tabs = ["general", "research", "profile", "reminders", "account"]
+    t = st.tabs(["General", "Research", "Profile & Preferences", "Reminders", "Account"])
     p = prefs.load()
     s = Settings()
     with t[0], st.container(border=True):
@@ -811,12 +972,13 @@ def page_settings() -> None:
             st.markdown("".join(f"<div class='kv'><span>{e(x)}</span><span title='{e(y)}'>{e(y)}</span></div>" for x, y in kv)
                         + "<div class='muted' style='margin-top:8px'>Change these in .env (DEEP_RESEARCH_*).</div>", unsafe_allow_html=True)
     with t[2], st.container(border=True):
-        st.markdown("<div class='ph'>Notifications <span class='badge b-soon'>coming soon</span></div>", unsafe_allow_html=True)
-        st.toggle("Email me when a research completes", value=False, disabled=True)
-        st.toggle("Desktop alert when a step needs approval", value=False, disabled=True)
-        st.markdown("<div class='muted'>Not available yet. Runs waiting for approval are counted on the bell icon in the header.</div>",
-                    unsafe_allow_html=True)
+        profile_form()
     with t[3], st.container(border=True):
+        st.markdown("<div class='ph'>Reminders</div><div class='muted'>Local only: shown on the Dashboard, never sent "
+                    "by email or push.</div>", unsafe_allow_html=True)
+        reminder_rows(notes.list_reminders())
+        reminder_form(None)
+    with t[4], st.container(border=True):
         st.markdown("<div class='ph'>API keys</div>", unsafe_allow_html=True)
         if not ok:
             st.warning("Control API is offline.")
