@@ -128,3 +128,36 @@ def test_real_postgres_roundtrip() -> None:
     repo.save_session(snap)
     assert repo.load_session(snap.state.id) == snap
     assert repo.delete_session(snap.state.id)
+
+
+def _row_counts(db: Path) -> dict[str, int]:
+    import sqlite3
+
+    with sqlite3.connect(db) as con:
+        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        return {t: int(con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]) for t in tables}
+
+
+def test_migrate_twice_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    src = tmp_path / "old.sqlite"
+    sqlite_repo = SQLiteResearchRepository(src)
+    snap = make_snapshot()
+    sqlite_repo.save_session(snap)
+    dst_db = tmp_path / "new.db"
+    dst_url = f"sqlite:///{dst_db.as_posix()}"
+    out = tmp_path / "sessions.jsonl"
+    third = tmp_path / "third.sqlite"
+
+    assert migrate(["copy", "--from", str(src), "--to", dst_url]) == 0
+    assert migrate(["export", "--from", dst_url, "--out", str(out)]) == 0
+    assert migrate(["import", "--to", str(third), "--in", str(out)]) == 0
+    first = (_row_counts(dst_db), _row_counts(third))
+    assert sum(first[0].values()) > 0 and sum(first[1].values()) > 0
+
+    assert migrate(["copy", "--from", str(src), "--to", dst_url]) == 0
+    assert migrate(["import", "--to", str(third), "--in", str(out)]) == 0
+    assert (_row_counts(dst_db), _row_counts(third)) == first  # no duplicate rows anywhere
+    for target in (dst_url, str(third)):
+        repo = open_repository(target)
+        assert len(repo.list_sessions(limit=100)) == 1 and repo.load_session(snap.state.id) == snap
+    capsys.readouterr()
