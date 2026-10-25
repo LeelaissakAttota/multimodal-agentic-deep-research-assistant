@@ -174,7 +174,6 @@ def test_local_artifact_roundtrip(tmp_path: Path) -> None:
         store.get("runs/r1/missing.md")
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: MDRA_S3_BUCKET set without boto3 raises instead of falling back to local")
 def test_s3_configured_without_boto3_falls_back_to_local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "boto3", None)
     store = build_artifact_store(_scale(s3_bucket="b", artifacts_dir=str(tmp_path / "a")))

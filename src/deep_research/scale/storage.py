@@ -6,12 +6,15 @@ or the dashboard's "Save to artifact store" button), so default behaviour is unc
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
 from deep_research.scale.config import ScaleSettings
+
+logger = logging.getLogger(__name__)
 
 _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
@@ -85,8 +88,10 @@ class S3ArtifactStore:
 
     name = "s3"
 
-    def __init__(self, bucket: str, *, prefix: str = "", client: Any = None, create_bucket: bool = True) -> None:
+    def __init__(self, bucket: str, *, prefix: str = "", client: Any = None, create_bucket: bool = True,
+                 fallback: LocalArtifactStore | None = None) -> None:
         self.bucket = bucket
+        self.fallback = fallback
         self.prefix = safe_key(prefix.strip("/")) + "/" if prefix.strip("/") else ""
         self.client = client
         self._create = create_bucket
@@ -106,7 +111,16 @@ class S3ArtifactStore:
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"},
                           connect_timeout=3, read_timeout=30, retries={"max_attempts": 2}),
         )
-        return cls(scale.s3_bucket, prefix=scale.s3_prefix, client=client)
+        return cls(scale.s3_bucket, prefix=scale.s3_prefix, client=client,
+                   fallback=LocalArtifactStore(Path(scale.artifacts_dir)))
+
+    def _degrade(self, op: str, exc: Exception) -> LocalArtifactStore:
+        """Log (exception type only - messages can embed endpoint credentials) and return the local fallback."""
+        if self.fallback is None:
+            raise exc
+        logger.warning("S3 artifact %s failed (%s); falling back to local store at %s",
+                       op, type(exc).__name__, self.fallback.root)
+        return self.fallback
 
     def _ensure_bucket(self) -> None:
         if self._checked:
@@ -123,9 +137,13 @@ class S3ArtifactStore:
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> dict[str, Any]:
         if len(data) > MAX_ARTIFACT_BYTES:
             raise ValueError("artifact too large")
-        self._ensure_bucket()
         k = safe_key(key)
-        self.client.put_object(Bucket=self.bucket, Key=self.prefix + k, Body=data, ContentType=content_type)
+        try:
+            self._ensure_bucket()
+            self.client.put_object(Bucket=self.bucket, Key=self.prefix + k, Body=data, ContentType=content_type)
+        except Exception as exc:
+            out = self._degrade("put", exc).put(k, data, content_type)
+            return {**out, "fallback": True}
         return {"key": k, "size": len(data), "store": self.name, "content_type": content_type}
 
     def get(self, key: str) -> bytes:
@@ -133,8 +151,10 @@ class S3ArtifactStore:
             obj = self.client.get_object(Bucket=self.bucket, Key=self.prefix + safe_key(key))
         except Exception as exc:
             if str(getattr(exc, "response", {}).get("Error", {}).get("Code", "")) in ("NoSuchKey", "404"):
-                raise KeyError(key) from None
-            raise
+                if self.fallback is None:
+                    raise KeyError(key) from None
+                return self.fallback.get(key)
+            return self._degrade("get", exc).get(key)
         return bytes(obj["Body"].read())
 
     def list(self, prefix: str = "") -> list[dict[str, Any]]:
@@ -161,7 +181,11 @@ class S3ArtifactStore:
 def build_artifact_store(scale: ScaleSettings | None = None) -> ArtifactStore:
     s = scale or ScaleSettings()
     if s.s3_bucket:
-        return S3ArtifactStore.from_settings(s)
+        try:
+            return S3ArtifactStore.from_settings(s)
+        except ImportError:
+            logger.warning("MDRA_S3_BUCKET is set but boto3 is not installed (pip install '.[scale]'); "
+                           "using local artifact store at %s", s.artifacts_dir)
     return LocalArtifactStore(Path(s.artifacts_dir))
 
 

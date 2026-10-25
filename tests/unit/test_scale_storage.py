@@ -188,3 +188,34 @@ def test_dashboard_client_methods(tmp_path: Path) -> None:
     api = ControlClient("http://test", TOKEN, transport=httpx.MockTransport(handler))
     info = api.save_artifact("r9", "md", REPORT)
     assert info["key"].startswith("runs/r9/") and [a["key"] for a in api.list_artifacts("r9")] == [info["key"]]
+
+
+def test_s3_runtime_errors_fall_back_to_local(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    class Down:
+        def head_bucket(self, **k: Any) -> Any:
+            raise ConnectionError("http://user:pw@minio:9000 refused")
+
+        def put_object(self, **k: Any) -> Any:
+            raise AssertionError("unreachable")
+
+        def get_object(self, **k: Any) -> Any:
+            raise ConnectionError("http://user:pw@minio:9000 refused")
+
+    local = LocalArtifactStore(tmp_path / "art")
+    store = S3ArtifactStore("b", client=Down(), fallback=local)
+    with caplog.at_level("WARNING"):
+        meta = store.put("runs/r1/a.md", b"hello")
+    assert meta["fallback"] is True and meta["store"] == "local"
+    assert store.get("runs/r1/a.md") == b"hello"
+    with pytest.raises(KeyError):
+        store.get("runs/r1/missing.md")
+    assert "falling back to local" in caplog.text and "pw" not in caplog.text
+
+
+def test_s3_without_fallback_still_raises() -> None:
+    class Down:
+        def head_bucket(self, **k: Any) -> Any:
+            raise ConnectionError("x")
+
+    with pytest.raises(ConnectionError):
+        S3ArtifactStore("b", client=Down()).put("k", b"x")
