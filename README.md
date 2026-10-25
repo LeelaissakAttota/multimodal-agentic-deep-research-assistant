@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 916 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 920 passing | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -56,7 +56,7 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **Optional scale backends (all off by default, all free/local):** RQ job queue on Redis with a Windows-safe worker, Postgres session storage with a migration tool, MinIO/S3 artifact storage, OpenTelemetry tracing with secret-free spans, deterministic A/B experiments on planner/prompt variants compared in the evaluation suite, a claims-and-sources knowledge graph (local, optional Neo4j sync) and a Chrome MV3 extension that sends pages to the local control API. The dashboard shows each backend's real status. See [docs/SCALE.md](docs/SCALE.md).
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 916 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 920 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -186,7 +186,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 916 tests, offline, $0
+pytest          # 920 tests, offline, $0
 ruff check .
 mypy src
 ```
