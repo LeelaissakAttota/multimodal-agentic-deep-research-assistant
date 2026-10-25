@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from deep_research.assistant.followup import REFUSAL, answer_question, ask_report, build_chat_gateway, \
@@ -116,6 +117,7 @@ def test_no_key_means_offline_gateway() -> None:
 
 def test_default_db_path(monkeypatch: Any, tmp_path: Any) -> None:
     monkeypatch.delenv("DEEP_RESEARCH_ASSISTANT_DB", raising=False)
-    assert str(default_db_path("data")).endswith("data/assistant.db")
+    assert default_db_path("data") == Path("data") / "assistant.db"
+    assert default_db_path() == Path("data") / "assistant.db"
     monkeypatch.setenv("DEEP_RESEARCH_ASSISTANT_DB", str(tmp_path / "x.db"))
     assert default_db_path() == tmp_path / "x.db"
