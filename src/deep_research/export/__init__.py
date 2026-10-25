@@ -23,6 +23,7 @@ FORMATS: dict[str, tuple[str, str]] = {
     "pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx"),
     "json": ("application/json", "json"),
     "md": ("text/markdown", "md"),
+    "html": ("text/html", "html"),
 }
 _INSTALL = 'pip install "multimodal_agentic_deep_research_assistant[export]"'
 
@@ -139,6 +140,10 @@ def export_report(report: dict[str, Any], fmt: str) -> bytes:
         return json.dumps(report, indent=2, ensure_ascii=False, default=str).encode("utf-8")
     if fmt == "md":
         return to_markdown(report).encode("utf-8")
+    if fmt == "html":
+        from deep_research.assistant.share import render_html
+
+        return render_html(report).encode("utf-8")
     renderer = {"pdf": _pdf, "docx": _docx, "pptx": _pptx}[fmt]
     return renderer(parse(report))
 

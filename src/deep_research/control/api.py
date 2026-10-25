@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -35,6 +36,11 @@ class SettingsBody(BaseModel):
     auto_approve_low_risk: bool | None = None
 
 
+class ShareBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report: dict[str, Any] | None = None  # for runs only kept by the dashboard (not in this API's memory)
+
+
 class KeyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     value: str = Field(max_length=4096)
@@ -51,6 +57,7 @@ def build_control_app(  # noqa: C901 - flat route table
     *,
     admin_token: str,
     title: str,
+    assistant: Any | None = None,
 ) -> FastAPI:
     if len(admin_token) < 16:
         raise ValueError("control admin token must be at least 16 characters")
@@ -100,7 +107,7 @@ def build_control_app(  # noqa: C901 - flat route table
         return dict(run_or_404(run_id).to_dict())
 
     @app.get("/control/runs/{run_id}/export", dependencies=auth)
-    def export(run_id: str, format: str = Query(default="pdf", pattern="^(pdf|docx|pptx|json|md)$")) -> Response:
+    def export(run_id: str, format: str = Query(default="pdf", pattern="^(pdf|docx|pptx|json|md|html)$")) -> Response:
         from deep_research.export import FORMATS, ExportUnavailable, export_filename, export_report
 
         run = run_or_404(run_id)
@@ -219,4 +226,56 @@ def build_control_app(  # noqa: C901 - flat route table
                               "cleared": not body.value.strip()})
         return {"name": name, "configured": bool(body.value.strip()), "masked": mask(body.value.strip())}
 
+    if assistant is not None:
+        _share_routes(app, manager, assistant, auth)
     return app
+
+
+def _share_routes(app: FastAPI, manager: RunManager, assistant: Any, auth: list[Any]) -> None:  # noqa: C901 - flat route table
+    """Revocable read-only share links: create/list/revoke need the bearer token, viewing needs the share token."""
+    from fastapi.responses import HTMLResponse
+
+    from deep_research.assistant.share import SHARE_HEADERS, ShareService
+
+    shares = ShareService(assistant)
+
+    def report_for(run_id: str, body: ShareBody) -> dict[str, Any]:
+        try:
+            result = manager.get(run_id).result
+        except KeyError:
+            result = None
+        report = result.get("report") if isinstance(result, dict) else None
+        if not isinstance(report, dict):
+            report = body.report
+        if not isinstance(report, dict) or not report.get("content"):
+            raise HTTPException(status_code=409, detail="run has no report to share")
+        return report
+
+    @app.post("/control/runs/{run_id}/shares", dependencies=auth, status_code=201)
+    def create_share(run_id: str, body: ShareBody, x_operator: str | None = Header(default=None)) -> dict[str, Any]:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", run_id):
+            raise HTTPException(status_code=422, detail="invalid run id")
+        info, token = shares.create(run_id, report_for(run_id, body))
+        manager.audit.record({"event": "share_created", "share_id": info["id"], "run_id": run_id, "by": _operator(x_operator)})
+        return {**info, "path": f"/share/{info['id']}?token={token}"}
+
+    @app.get("/control/shares", dependencies=auth)
+    def list_shares(run_id: str | None = None) -> list[dict[str, Any]]:
+        return list(shares.list(run_id))
+
+    @app.post("/control/shares/{share_id}/revoke", dependencies=auth)
+    def revoke_share(share_id: str, x_operator: str | None = Header(default=None)) -> dict[str, Any]:
+        try:
+            info = shares.revoke(share_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="share not found") from None
+        manager.audit.record({"event": "share_revoked", "share_id": share_id, "by": _operator(x_operator)})
+        return dict(info)
+
+    @app.get("/share/{share_id}", include_in_schema=False)
+    def view_share(share_id: str, token: str = Query(default="", max_length=128)) -> Response:
+        html = shares.open(share_id, token)
+        if html is None:
+            return Response("Share link not found or revoked.", status_code=404, media_type="text/plain",
+                            headers=SHARE_HEADERS)
+        return HTMLResponse(html, headers=SHARE_HEADERS)

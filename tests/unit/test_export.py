@@ -52,7 +52,7 @@ def test_json_markdown_and_names() -> None:
     md = to_markdown(REPORT)
     assert md.startswith("# Research Report") and "82% - Reefs" in md
     assert export_filename(REPORT, "pdf", "abcdef123456") == "do-coral-reefs-recover-abcdef12.pdf"
-    assert set(FORMATS) == {"pdf", "docx", "pptx", "json", "md"}
+    assert set(FORMATS) == {"pdf", "docx", "pptx", "json", "md", "html"}
     with pytest.raises(ValueError):
         export_report(REPORT, "exe")
 
