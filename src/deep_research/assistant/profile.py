@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from deep_research.assistant.store import AssistantStore
 from deep_research.core.config import Settings
+from deep_research.security.domains import normalize_domain
 from deep_research.tools.registry import SOURCE_TOOLS
 
 PROFILE_KEY = "profile"
@@ -53,7 +54,7 @@ class UserProfile(BaseModel):
     def _domains(cls, value: list[str]) -> list[str]:
         out = []
         for raw in value:
-            d = re.sub(r"^https?://", "", raw.strip().lower()).split("/")[0].removeprefix("www.")
+            d = normalize_domain(raw)
             if d and not _DOMAIN.match(d):
                 raise ValueError(f"invalid domain: {raw[:60]}")
             out.append(d)

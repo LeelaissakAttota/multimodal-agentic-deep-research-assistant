@@ -123,8 +123,10 @@ class Settings(BaseSettings):
         return [t for t in parse_source_tools(self.preferred_source_tools or "none") if t in enabled]
 
     def blocked_domain_list(self) -> list[str]:
-        """Lower-cased blocked hostnames (``www.`` stripped)."""
-        out = [d.strip().lower().removeprefix("www.") for d in self.blocked_domains.split(",")]
+        """Normalized blocked hostnames (scheme, path, port, trailing dot and ``www.`` stripped; lower-case)."""
+        from deep_research.security.domains import normalize_domain
+
+        out = [normalize_domain(d) for d in self.blocked_domains.split(",")]
         return [d for d in dict.fromkeys(out) if d]
 
     def runtime_limits(self) -> RuntimeLimits:

@@ -23,6 +23,7 @@ from deep_research.errors.base import ModelError
 from deep_research.evidence.evidence import Evidence
 from deep_research.evidence.source import Source
 from deep_research.models.model_gateway import ModelGateway, ModelRequest
+from deep_research.security.domains import normalize_domain
 from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 from deep_research.tools.web_tools import WEB_FETCH_TOOL_ID, WEB_SEARCH_TOOL_ID
 
@@ -89,7 +90,7 @@ class LiveResearchAgent(ResearchAgent):
         blocked_domains: list[str] | None = None,
     ) -> None:
         self.source_tools: dict[str, Tool] = dict(source_tools or {})
-        self.blocked_domains = [d.lower().rstrip(".").removeprefix("www.") for d in blocked_domains or [] if d]
+        self.blocked_domains = [n for n in (normalize_domain(d) for d in blocked_domains or []) if n]
         self.tool_gateway = tool_gateway
         self.tool_steps = tool_steps
         self.max_searches = max_searches
