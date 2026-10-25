@@ -614,6 +614,23 @@ def knowledge(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 
+def graph_inputs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per-report claims + citations for :func:`deep_research.scale.graph.build_graph`."""
+    out = []
+    for r in runs:
+        report = report_of(r)
+        if report:
+            out.append({"run_id": r.get("run_id"), "title": title_of(r), "claims": claims(report),
+                        "citations": citations(report)})
+    return out
+
+
+def knowledge_graph(runs: list[dict[str, Any]]) -> Any:
+    from deep_research.scale.graph import build_graph
+
+    return build_graph(graph_inputs(runs))
+
+
 def _aggregate(verified: list[dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for v in verified:

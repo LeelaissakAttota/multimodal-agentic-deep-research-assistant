@@ -40,6 +40,10 @@ class ScaleSettings(BaseSettings):
     otel_service_name: str = Field(default="mdra", max_length=64)
     # A/B experiments: inline JSON or a path to a JSON file (see deep_research.scale.experiments).
     ab_config: str = Field(default="", max_length=20_000)
+    # Optional Neo4j sync for the knowledge graph (the local graph needs no service).
+    neo4j_uri: str = Field(default="", max_length=500)
+    neo4j_user: str = Field(default="neo4j", max_length=100)
+    neo4j_password: SecretStr | None = Field(default=None)
 
     model_config = SettingsConfigDict(
         env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
@@ -98,10 +102,13 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
     rows.append(_entry("Tracing (OpenTelemetry)", s.otel_exporter != "off", otel_deps, "tracing", "no tracing",
                        "console exporter" if s.otel_exporter == "console" else f"OTLP to {_host(s.otel_endpoint)}"))
     rows.append(_experiment_row(s))
+    rows.append(_entry("Knowledge graph (Neo4j)", bool(s.neo4j_uri), ("neo4j",), "graph",
+                       "local graph on the Knowledge Base page", f"Neo4j at {_host(s.neo4j_uri)}"))
     if probe:
         _probe(rows[0], lambda: queue.ping(s))
         _probe(rows[1], lambda: _db_ping(db_url))
         _probe(rows[2], lambda: _s3_ping(s))
+        _probe(rows[-1], lambda: _neo4j_ping())
     return rows
 
 
@@ -141,6 +148,16 @@ def _db_ping(url: str) -> None:
             conn.execute(sa.text("SELECT 1"))
     finally:
         engine.dispose()
+
+
+def _neo4j_ping() -> None:
+    from deep_research.scale.graph import neo4j_driver
+
+    driver = neo4j_driver()
+    try:
+        driver.verify_connectivity()
+    finally:
+        driver.close()
 
 
 def _s3_ping(scale: ScaleSettings) -> None:

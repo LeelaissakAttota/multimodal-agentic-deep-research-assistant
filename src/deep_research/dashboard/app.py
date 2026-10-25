@@ -27,7 +27,7 @@ from deep_research.core.config import Settings
 from deep_research.tools.registry import SOURCE_TOOLS
 from deep_research.dashboard.core import (
     APP_TITLE, display_zone, live_feed, md_safe, REPO_URL, TERMINAL, ControlClient, ControlError, Prefs, RunStore, attachment_from_url,
-    build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, local_time, memory_items, memory_search, memory_status, merge_runs,
+    build_attachment, citations, claims, fmt_duration, duration_seconds, knowledge, knowledge_graph, local_time, memory_items, memory_search, memory_status, merge_runs,
     needs_detail, preview_text, provider_health, report_charts, report_of, run_stats, run_tags, shorten, source_kind,
     strip_section, verdict_label, verification_line, verification_rows,
     source_rows, source_catalog, KIND_ICONS, SOURCE_FILTERS, stage_rows, status_badge, summary, title_of, tool_catalog, filter_runs,
@@ -804,7 +804,9 @@ def page_knowledge() -> None:
     st.markdown(f"<div class='panel'><div class='ph'>Categories</div><div class='grid g6'>{cells}</div></div>", unsafe_allow_html=True)
     st.markdown(f"<div class='panel'><div class='ph'>Fact check</div><div class='muted'>{e(verification_line(kb['verification']))}"
                 "</div></div>", unsafe_allow_html=True)
-    t1, t2, t3, t4 = st.tabs(["Reports", "Claims", "Files", "Memory"])
+    t1, t2, t3, t4, t5 = st.tabs(["Reports", "Claims", "Files", "Memory", "Graph"])
+    with t5:
+        graph_tab()
     with t4:
         ms = memory_status(Path(Settings().memory_dir) / "vector_store")
         st.markdown("<div class='panel'><div class='ph'>Long-term memory</div>" + "".join(
@@ -850,6 +852,38 @@ def page_knowledge() -> None:
             f"<div class='rt'>{e(local_time(f['when']))}</div></div>" for f in kb["files"])
             or "<div class='muted'>No uploaded files yet. Attach a PDF or image on New Research.</div>") + "</div>",
             unsafe_allow_html=True)
+
+
+def graph_tab() -> None:
+    from deep_research.scale import backend_status
+    from deep_research.scale.graph import sync_neo4j, to_dot, top_sources
+
+    graph = knowledge_graph(runs_cache)
+    c = graph.counts()
+    st.caption(f"{c['report']} reports · {c['claim']} claims · {c['source']} sources · {c['domain']} domains · "
+               f"{c['edges']} links. Claims link to the sources that support them; sources link to their site.")
+    if not graph.nodes:
+        st.markdown("<div class='muted'>No reports yet. Finished researches appear here as a graph.</div>", unsafe_allow_html=True)
+        return
+    limit = st.slider("Max nodes shown", 20, 200, 80, step=10)
+    st.graphviz_chart(to_dot(graph, max_nodes=limit), width="stretch")
+    tops = top_sources(graph)
+    if tops:
+        st.markdown("<div class='panel'><div class='ph'>Most supporting sources</div>" + "".join(
+            f"<div class='row'><div class='tx'><div class='tt'>{e(t)}</div></div><div class='rt'>{n} claims</div></div>"
+            for t, n in tops) + "</div>", unsafe_allow_html=True)
+    row = next(r for r in backend_status() if r["name"].startswith("Knowledge graph"))
+    if row["state"] == "off":
+        st.caption("Neo4j sync: not configured (the graph above is built locally).")
+    elif row["state"] != "configured":
+        st.warning(f"Neo4j sync unavailable: {row['detail']}")
+    elif st.button("Sync graph to Neo4j"):
+        try:
+            done = sync_neo4j(graph)
+        except Exception as exc:  # report the type only: never the URI or credentials
+            st.error(f"Neo4j sync failed ({type(exc).__name__}).")
+        else:
+            st.success(f"Synced {done['nodes']} nodes and {done['edges']} links to Neo4j.")
 
 
 # ----- Sources ---------------------------------------------------------------------------------------
