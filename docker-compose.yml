@@ -74,8 +74,12 @@ services:
     image: docker.io/library/neo4j:5.26.32-community@sha256:adaa077a3ab023015143b8f73f7076a7d053f12985f5b06f4c6a128c3a2f7240
     profiles: ["graph"]
     ports: ["127.0.0.1:${MDRA_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${MDRA_NEO4J_BOLT_PORT:-7687}:7687"]
+    # 5.23+ is required by the GraphRAG neighbour query (CALL (s) { ... }); 5.26 LTS is pinned.
+    # Then: MDRA_NEO4J_URI=bolt://localhost:7687, MDRA_NEO4J_PASSWORD=<same as below>, deep-research graph-sync.
     environment:
       NEO4J_AUTH: neo4j/${MDRA_NEO4J_PASSWORD:-mdra-local-dev}
+      NEO4J_server_memory_heap_max__size: ${MDRA_NEO4J_HEAP:-512m}
+      NEO4J_server_memory_pagecache_size: ${MDRA_NEO4J_PAGECACHE:-256m}
     volumes: ["neo4j-data:/data"]
 
 volumes:

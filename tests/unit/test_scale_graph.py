@@ -34,7 +34,7 @@ def _row() -> dict[str, Any]:
 
 def test_build_merges_claims_and_sources() -> None:
     g = build_graph(_reports())
-    assert g.counts() == {"report": 2, "claim": 2, "source": 2, "domain": 2, "edges": 11}
+    assert g.counts() == {"report": 2, "claim": 2, "source": 2, "domain": 2, "entity": 1, "edges": 12}
     claim = next(n for n in g.nodes.values() if n["kind"] == "claim" and "catechins" in n["label"])
     assert claim["runs"] == {"r1", "r2"} and claim["verdict"] == "supported"
     assert {n["label"] for n in g.nodes.values() if n["kind"] == "domain"} == {"nih.gov", "example.org"}
@@ -60,7 +60,7 @@ def test_networkx_and_dot() -> None:
     pytest.importorskip("networkx")
     g = build_graph(_reports())
     nxg = to_networkx(g)
-    assert nxg.number_of_nodes() == 8 and nxg.number_of_edges() == 11
+    assert nxg.number_of_nodes() == 9 and nxg.number_of_edges() == 12
     dot = to_dot(g)
     assert dot.startswith("digraph KG {") and dot.endswith("}") and '\\"x\\"' in dot and "supported_by" in dot
     small = to_dot(g, max_nodes=3)
@@ -95,9 +95,11 @@ class FakeDriver:
 
 def test_sync_neo4j_with_fake_driver() -> None:
     driver = FakeDriver()
-    assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 8, "edges": 11}
-    (q1, p1), (q2, p2) = driver.log
-    assert "MERGE (n:MdraNode" in q1 and len(p1["rows"]) == 8 and "MERGE (a)-[e:REL" in q2 and len(p2["rows"]) == 11
+    assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 9, "edges": 12}
+    (q0, _), (q1, p1), (q2, p2) = driver.log
+    assert "CREATE CONSTRAINT" in q0 and "IF NOT EXISTS" in q0
+    assert "MERGE (n:MdraNode" in q1 and len(p1["rows"]) == 9 and "MERGE (a)-[e:REL" in q2 and len(p2["rows"]) == 12
+    assert "coalesce(n.runs" in q1  # runs are unioned, never overwritten
     assert not driver.closed  # injected drivers are owned by the caller
 
 

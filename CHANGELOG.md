@@ -2,6 +2,17 @@
 
 ## [Unreleased] - feat/phase7
 
+### Added
+- GraphRAG (off by default): the knowledge graph gains entity nodes (`mentions`) and claim `contradicts` edges.
+  `deep-research graph-sync` and `MDRA_GRAPH_AUTO_SYNC` MERGE runs into Neo4j idempotently (uniqueness
+  constraint, run lists unioned). `MDRA_GRAPH_RAG=true` expands the report chat's hybrid hits through
+  contradicting, shared-source and shared-entity claims, weighted by `MDRA_GRAPH_WEIGHT`, with citations kept
+  valid. It falls back to the local graph when Neo4j is not configured or not reachable. The compose neo4j
+  service has heap and page-cache limits.
+- Per-run trace timeline (off by default): `MDRA_TRACE_STORE=sqlite|jsonl` stores redacted spans per control run
+  id (`MDRA_TRACE_DIR`). The report page has a **⏱ Trace** waterfall tab showing names, durations, attributes and
+  errors. Works with or without the OTLP/console exporter.
+
 ### Fixed
 - Media SSRF: caption URLs from yt-dlp info, the extractor's own requests, the chosen media URLs and the final URL
   after redirects now all pass the public-address check (validating `YoutubeDL.urlopen`, native downloaders forced).

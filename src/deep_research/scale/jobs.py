@@ -29,8 +29,13 @@ def run_research_job(payload: dict[str, Any]) -> dict[str, Any]:
         settings, assignment = run_variant(settings, run_id)
     application = ResearchApplication(settings)
     response = asyncio.run(application.submit(
-        ResearchSubmission(objective=objective, attachments=_attachments(payload.get("attachments")))))
+        ResearchSubmission(objective=objective, attachments=_attachments(payload.get("attachments"))),
+        run_id=run_id or None))
     result = response.model_dump(mode="json")
+    if run_id:
+        from deep_research.scale.graphrag import auto_sync
+
+        auto_sync(run_id, result, objective[:200])
     if assignment:
         result["experiment"] = assignment
     return result

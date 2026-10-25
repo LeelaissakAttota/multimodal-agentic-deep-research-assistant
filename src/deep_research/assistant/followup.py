@@ -37,13 +37,14 @@ _STOP = frozenset(
 )
 REFUSAL = "The report does not contain evidence that answers this question, so I can't answer it from this report."
 MIN_SCORE = 0.34
+_GRAPH_ADDED = re.compile(r"graph (local|neo4j): \+[1-9]")
 
 
 @dataclass
 class Passage:
     text: str
     citations: list[int]
-    kind: str  # "report" | "claim" | "source"
+    kind: str  # "report" | "claim" | "source" | "graph:<relation>" (a graph-neighbour claim)
 
 
 @dataclass
@@ -54,7 +55,7 @@ class Answer:
     mode: str  # "llm" | "extractive" | "refused"
     passages: list[Passage] = field(default_factory=list)
     reason: str = ""
-    retrieval: str = "overlap"  # "overlap" | "hybrid"
+    retrieval: str = "overlap"  # "overlap" | "hybrid" | "hybrid+graph"
 
     def as_meta(self) -> dict[str, Any]:
         return {"citations": self.citations, "supported": self.supported, "mode": self.mode, "reason": self.reason,
@@ -125,13 +126,65 @@ def retrieve(question: str, passages: list[Passage], k: int = 4) -> list[tuple[f
     return scored[:k]
 
 
-def hybrid_passages(question: str, report: dict[str, Any], rag: RagService, run_id: str) -> tuple[list[Passage], list[Passage]]:
-    """``(supported, all_ranked)`` passages from hybrid RAG over this report only (indexed on demand)."""
+def hybrid_passages(question: str, report: dict[str, Any], rag: RagService, run_id: str,
+                    graph_note: list[str] | None = None) -> tuple[list[Passage], list[Passage]]:
+    """``(supported, all_ranked)`` passages from hybrid RAG over this report only (indexed on demand).
+
+    With ``MDRA_GRAPH_RAG=true`` the hits are expanded through knowledge-graph neighbours
+    (:func:`graph_expand`); ``graph_note`` (when given) receives a short note about the expansion.
+    """
     rag.index_report(run_id, report)
     hits = rag.search(question, run_id=run_id)
     ranked = [Passage(h.chunk.text, list(h.chunk.citations), h.chunk.kind) for h in hits]
     good = [p for h, p in zip(hits, ranked) if rag.supported(h, MIN_SCORE)]
+    scored = [(h.score, p, p in good) for h, p in zip(hits, ranked)]
+    extra, note = graph_expand(report, run_id, scored)
+    if graph_note is not None and note:
+        graph_note.append(note)
+    if extra:
+        merged = sorted(scored + extra, key=lambda x: -x[0])
+        ranked = [p for _, p, _ in merged]
+        good = [p for _, p, ok in merged if ok]
     return good, ranked
+
+
+def graph_expand(report: dict[str, Any], run_id: str, scored: list[tuple[float, Passage, bool]],
+                 backend: Any = None) -> tuple[list[tuple[float, Passage, bool]], str]:
+    """Graph neighbours of the hybrid hits as extra ``(score, passage, supported)``; off unless ``MDRA_GRAPH_RAG``.
+
+    A neighbour counts as supported only when its seed hit passed the evidence gate. Any graph error
+    returns no neighbours (the plain hybrid answer stands).
+    """
+    try:
+        from deep_research.scale.graph import claim_id
+        from deep_research.scale.graphrag import GraphSettings, expand, open_backend, source_ids
+
+        settings = GraphSettings()
+        if not settings.rag or not scored:
+            return [], ""
+        note = ""
+        if backend is None:
+            backend, note = open_backend(run_id, report, settings)
+        seeds: list[tuple[float, list[str]]] = []
+        seed_ok: dict[str, bool] = {}
+        for score, p, ok in scored:
+            nodes = ([claim_id(p.text)] if p.kind == "claim" else []) + source_ids(report, p.citations)
+            seeds.append((score, nodes))
+            for n in nodes:
+                seed_ok[n] = seed_ok.get(n, False) or ok
+        have = {_CITE.sub("", p.text).strip().lower() for _, p, _ in scored}
+        found = expand(run_id, report, seeds, backend, settings)
+        out = []
+        for score, row, rel, seed in found:
+            if row["text"].strip().lower() in have:
+                continue
+            ok = seed_ok.get(seed, False)
+            out.append((score, Passage(row["text"], list(row["citations"]), f"graph:{rel}"), ok))
+        label = f"graph {backend.name}: +{len(out)}"
+        return out, f"{label} ({note})" if note else label
+    except Exception as exc:  # noqa: BLE001 - graph expansion is best-effort
+        log.warning("graph expansion failed: %s", type(exc).__name__)
+        return [], f"graph fallback: {type(exc).__name__}"
 
 
 def extractive_answer(question: str, report: dict[str, Any], rag: RagService | None = None,
@@ -142,8 +195,10 @@ def extractive_answer(question: str, report: dict[str, Any], rag: RagService | N
     seen: list[Passage] = []
     if rag is not None and run_id:
         try:
-            good, seen = hybrid_passages(question, report, rag, run_id)
-            retrieval = "hybrid"
+            notes: list[str] = []
+            good, seen = hybrid_passages(question, report, rag, run_id, notes)
+            retrieval = "hybrid+graph" if any(_GRAPH_ADDED.match(n) for n in notes) else "hybrid"
+            note = "; ".join(notes)
         except Exception as exc:  # noqa: BLE001 - index/embedder failure must not break the chat
             log.warning("rag retrieval failed, using word overlap: %s", type(exc).__name__)
             note = f"rag fallback: {type(exc).__name__}"

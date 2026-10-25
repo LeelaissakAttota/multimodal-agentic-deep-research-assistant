@@ -15,9 +15,9 @@ never contain passwords, keys or URLs with credentials.
 | 1 | Background job queue (RQ on Redis) | `MDRA_REDIS_URL` | `queue` | in-process runs |
 | 2 | Session database (Postgres) | `MDRA_DATABASE_URL` | `postgres` | `data/research_memory.sqlite` |
 | 3 | Artifact storage (MinIO / S3) | `MDRA_S3_BUCKET` (+ `MDRA_S3_*`) | `s3` | `data/artifacts/` folder |
-| 4 | Tracing (OpenTelemetry) | `MDRA_OTEL_EXPORTER=console\|otlp` | `tracing` | off |
+| 4 | Tracing (OpenTelemetry) | `MDRA_OTEL_EXPORTER=console\|otlp`, `MDRA_TRACE_STORE=sqlite\|jsonl` | `tracing` | off |
 | 5 | A/B experiments | `MDRA_AB_CONFIG` | – | default prompts |
-| 6 | Knowledge graph sync (Neo4j) | `MDRA_NEO4J_URI` | `graph` | local graph only |
+| 6 | Knowledge graph sync (Neo4j) + GraphRAG | `MDRA_NEO4J_URI`, `MDRA_GRAPH_RAG`, `MDRA_GRAPH_AUTO_SYNC` | `graph` | local graph only |
 | 7 | Chrome extension | load `extensions/mdra-chrome` | – | – |
 
 Install extras as needed, e.g. `pip install -e ".[dashboard,queue,postgres,s3,tracing,graph]"`.
@@ -287,6 +287,58 @@ to stop: faster-whisper decodes lazily, so it stops at the next segment; the API
 request, and an in-flight request is capped by the same httpx timeout per phase. Transcription runs on a
 dedicated 2-thread pool, so stragglers never pile up as unbounded threads. Not interruptible: a faster-whisper
 model load/download and the current segment, which finish in the background (still within the 2 threads).
+
+## 10. GraphRAG (Neo4j)
+
+The knowledge graph (section 6) now also has **entity** nodes (acronyms and capitalised multi-word names,
+extracted without a model; claim → entity `mentions`) and claim → claim `contradicts` edges from the report's
+contradiction check. Each report is one `report` node (= one run); every node keeps the list of runs it
+appears in.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MDRA_GRAPH_RAG` | `false` | expand the report chat's hybrid RAG hits through graph neighbours |
+| `MDRA_GRAPH_AUTO_SYNC` | `false` | MERGE each finished run into Neo4j (control API runs and queue workers) |
+| `MDRA_GRAPH_BACKEND` | `auto` | `auto` = Neo4j when configured and reachable, else local; `neo4j`; `local` |
+| `MDRA_GRAPH_WEIGHT` | `0.5` | neighbour score = weight × seed hit score × relation factor |
+| `MDRA_GRAPH_MAX_NEIGHBOURS` | `4` | neighbours added per question (0 = none) |
+| `MDRA_GRAPH_TIMEOUT_SECONDS` | `5` | Neo4j connect timeout before falling back |
+
+**Sync.** `deep-research graph-sync [--runs-dir DIR]` MERGEs every saved run (`:MdraNode {id}` with a uniqueness
+constraint, `:REL {type}` relationships). It is idempotent, and a node's `runs` list is unioned, so syncing one
+run never removes another run from a shared claim or source. With `MDRA_GRAPH_AUTO_SYNC=true` each finished run
+is synced as it completes (and before a graph query when the chat uses Neo4j). The dashboard button still works.
+
+**Retrieval.** With `MDRA_GRAPH_RAG=true` the chat takes the hybrid hits (RRF of BM25 and vectors, section 8) as
+seeds: claim hits by their claim node, and every hit by the sources it cites. Neighbours are claims that
+contradict a seed (factor 1.0), share a cited source (0.8) or mention the same entity (0.6). They are merged
+into the ranking with `weight × seed score × factor` and shown as `graph:<relation>` passages. Only claims of the
+**report being asked about** with at least one valid citation are added, so every `[n]` still points into that
+report. A neighbour passes the evidence gate only if its seed did. The chat caption then says
+`hybrid+graph retrieval` and `graph neo4j: +N` or `graph local: +N`.
+
+**Fallback.** Without `MDRA_NEO4J_URI`, without the `neo4j` package, or when Neo4j is unreachable or rejects the
+login, the same neighbours are read from the local in-process graph built from the report. Any graph error
+leaves the plain hybrid answer unchanged. Errors are logged and shown by exception type only, never with the
+URI or the password.
+
+Local Neo4j: `docker compose --profile graph up -d` (5.26 community; the neighbour query needs 5.23+). Without
+Docker, the community tarball works too (it needs Java 21).
+
+## 11. Per-run trace timeline
+
+`MDRA_TRACE_STORE=sqlite|jsonl` (default `off`, `tracing` extra) adds a local span processor that writes each
+finished span of a run to `MDRA_TRACE_DIR` (default `data/traces`): one `spans.db` file, or one
+`<run_id>.jsonl` per run. The control API passes its run id into the research run, so `mdra.run`, `mdra.agent`
+and `mdra.tool` spans (including ones in child tasks and threads) are tagged `mdra.run_id`. Spans outside a run
+are not stored. The store works on its own or together with `MDRA_OTEL_EXPORTER=console|otlp`; with both, the
+collector still gets every span.
+
+The report page's **⏱ Trace** tab draws a waterfall: one bar per span, indented by parent, positioned and sized
+by its share of the run, with its duration. Errors are shown in red with the exception type. The attributes are
+in a table below. Attributes are redacted a second time when written (the same `safe_attributes` redactor as
+the exporter), so keys, tokens and URL credentials never reach the store; exception messages are never stored.
+Runs recorded by a queue worker show up when the worker shares the same `MDRA_TRACE_DIR`.
 
 ## Testing
 

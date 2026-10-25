@@ -50,6 +50,10 @@ class ScaleSettings(BaseSettings):
     otel_exporter: Literal["off", "console", "otlp"] = Field(default="off")
     otel_endpoint: str = Field(default="http://localhost:4318/v1/traces", max_length=300)
     otel_service_name: str = Field(default="mdra", max_length=64)
+    # Local span store for the dashboard's per-run trace timeline: off | sqlite | jsonl (works with or
+    # without an exporter above; needs the tracing extra).
+    trace_store: Literal["off", "sqlite", "jsonl"] = Field(default="off")
+    trace_dir: str = Field(default=str(Path("data") / "traces"), max_length=500)
     # A/B experiments: inline JSON or a path to a JSON file (see deep_research.scale.experiments).
     ab_config: str = Field(default="", max_length=20_000)
     # Optional Neo4j sync for the knowledge graph (the local graph needs no service).
@@ -116,8 +120,11 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
     rows.append(_entry("Artifact storage (S3/MinIO)", bool(s.s3_bucket), ("boto3",), "s3",
                        f"local folder ({s.artifacts_dir})", f"bucket '{s.s3_bucket}'"))
     otel_deps = ("opentelemetry.sdk",) + (("opentelemetry.exporter.otlp",) if s.otel_exporter == "otlp" else ())
-    rows.append(_entry("Tracing (OpenTelemetry)", s.otel_exporter != "off", otel_deps, "tracing", "no tracing",
-                       "console exporter" if s.otel_exporter == "console" else f"OTLP to {_host(s.otel_endpoint)}"))
+    export = ("" if s.otel_exporter == "off" else "console exporter" if s.otel_exporter == "console"
+              else f"OTLP to {_host(s.otel_endpoint)}")
+    local = f"{s.trace_store} span store" if s.trace_store != "off" else ""
+    rows.append(_entry("Tracing (OpenTelemetry)", s.otel_exporter != "off" or s.trace_store != "off", otel_deps, "tracing",
+                       "no tracing", " + ".join(x for x in (export, local) if x)))
     rows.append(_experiment_row(s))
     rows.append(_entry("Knowledge graph (Neo4j)", bool(s.neo4j_uri), ("neo4j",), "graph",
                        "local graph on the Knowledge Base page", f"Neo4j at {_host(s.neo4j_uri)}"))

@@ -635,9 +635,14 @@ def graph_inputs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for r in runs:
         report = report_of(r)
-        if report:
+        if report and report.get("claim_scores"):
+            # raw claim text: the same node ids the report chat's graph retrieval looks up
+            from deep_research.scale.graphrag import report_input
+
+            out.append(report_input(str(r.get("run_id") or ""), report, title_of(r)))
+        elif report:
             out.append({"run_id": r.get("run_id"), "title": title_of(r), "claims": claims(report),
-                        "citations": citations(report)})
+                        "citations": citations(report), "contradictions": report.get("contradictions") or []})
     return out
 
 

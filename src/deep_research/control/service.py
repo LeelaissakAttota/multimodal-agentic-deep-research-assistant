@@ -127,11 +127,16 @@ class DeepResearchControl:
             application.submit(
                 ResearchSubmission(objective=objective, attachments=_attachments(run.params.get("attachments"))),
                 step_gate=ControlGate(run),
+                run_id=run.run_id,
             )
         )
         if response.status not in ("completed",) and not run.stopped:
             run.log(f"research ended with status {response.status}: {response.error}", level="warning")
         result = response.model_dump(mode="json")
+        from deep_research.scale.graphrag import auto_sync
+
+        if auto_sync(run.run_id, result, objective[:200]):
+            run.log("knowledge graph synced to Neo4j")
         if assignment:
             result["experiment"] = assignment
         return result

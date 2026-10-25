@@ -52,7 +52,7 @@ def test_report_view_chat_is_grounded_and_saved(tmp_path: Path, monkeypatch: pyt
     at.query_params.update({"page": "researches", "run": "tea1", "view": "report"})
     at.run()
     assert not at.exception
-    assert [t.label for t in at.tabs][-3:] == ["💬 Ask this report", "📝 Notes & reminders", "🔗 Share"]
+    assert [t.label for t in at.tabs][-4:] == ["💬 Ask this report", "📝 Notes & reminders", "🔗 Share", "⏱ Trace"]
     assert any("check the dose" in x.label for x in at.expander)
     at.chat_input[0].set_value("Does green tea contain catechins?").run()
     assert not at.exception

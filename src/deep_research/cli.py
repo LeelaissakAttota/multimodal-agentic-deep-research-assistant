@@ -96,7 +96,31 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--runs-dir", default=None,
                     help="saved dashboard runs (default: $DEEP_RESEARCH_DASHBOARD_DIR or ./dashboard_runs)")
     bf.add_argument("--force", action="store_true", help="re-index reports that are already up to date")
+    gs = sub.add_parser("graph-sync", help="MERGE every saved report's knowledge graph into Neo4j (MDRA_NEO4J_URI)")
+    gs.add_argument("--runs-dir", default=None,
+                    help="saved dashboard runs (default: $DEEP_RESEARCH_DASHBOARD_DIR or ./dashboard_runs)")
     return parser
+
+
+def graph_sync(runs_dir: str | None) -> int:
+    import os
+
+    from deep_research.rag.backfill import saved_runs
+    from deep_research.scale.graphrag import neo4j_configured, sync_runs
+
+    if not neo4j_configured():
+        print("[graph-sync: Neo4j is not configured (set MDRA_NEO4J_URI and install the 'graph' extra)]", file=sys.stderr)
+        return 2
+    folder = Path(runs_dir or os.environ.get("DEEP_RESEARCH_DASHBOARD_DIR") or Path.cwd() / "dashboard_runs").expanduser()
+    runs = saved_runs(folder)
+    try:
+        res = sync_runs(runs)
+    except Exception as exc:  # noqa: BLE001 - type only: never the URI or credentials
+        print(f"[graph-sync failed: {type(exc).__name__}]", file=sys.stderr)
+        return 1
+    print(f"[graph-sync: {res['runs']} report(s) from {len(runs)} run(s) in {folder} | "
+          f"{res['nodes']} nodes, {res['edges']} links merged]", file=sys.stderr)
+    return 0
 
 
 def rag_backfill(runs_dir: str | None, *, force: bool = False) -> int:
@@ -141,6 +165,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _safe_streams()
     if args.command == "rag-backfill":
         return rag_backfill(args.runs_dir, force=args.force)
+    if args.command == "graph-sync":
+        return graph_sync(args.runs_dir)
     if len(args.file) > 5:
         raise SystemExit("at most 5 --file attachments")
     result = asyncio.run(run_once(args.question, args.file, mode=args.mode))

@@ -668,13 +668,53 @@ def report_view(run_id: str) -> None:
     with right, st.container(border=True):
         cits(report)
         export_buttons(report, run_id)
-    chat_tab, notes_tab, share_tab = st.tabs(["💬 Ask this report", "📝 Notes & reminders", "🔗 Share"])
+    chat_tab, notes_tab, share_tab, trace_tab = st.tabs(["💬 Ask this report", "📝 Notes & reminders", "🔗 Share",
+                                                         "⏱ Trace"])
     with chat_tab:
         report_chat(run_id, report)
     with notes_tab:
         report_notes(run_id)
     with share_tab:
         report_share(run_id, report)
+    with trace_tab:
+        report_trace(run_id)
+
+
+def report_trace(run_id: str) -> None:
+    """Per-run span waterfall from the local span store (names, durations, attributes, errors)."""
+    from deep_research.scale.spanstore import load_spans, open_store, waterfall
+
+    if open_store() is None:
+        st.caption("Trace timeline is off. Set TRACE_STORE=sqlite (or jsonl) in the scale settings and install the "
+                   "tracing extra; spans of new runs then appear here. See docs/SCALE.md.")
+        return
+    rows = waterfall(load_spans(run_id))
+    if not rows:
+        st.caption("No spans recorded for this run (it ran before the span store was enabled, or in another process).")
+        return
+    total = max(r["start_ms"] + r["duration_ms"] for r in rows)
+    errors = sum(1 for r in rows if r["error"])
+    st.caption(f"{len(rows)} spans · {fmt_duration(total / 1000)} total" + (f" · {errors} with errors" if errors else ""))
+    bars = []
+    for r in rows:
+        color = "#ff5c7a" if r["error"] else "#4f7cff" if r["name"].endswith(".run") else "#36c48f" \
+            if r["name"].endswith(".agent") else "#f5b94a"
+        name = r["name"] + (f" · {r['label']}" if r["label"] else "")
+        tip = "; ".join(f"{k}={v}" for k, v in sorted(r["attrs"].items()))[:600]
+        bars.append(
+            f"<div class='st-row' title='{e(tip)}'><div style='width:32%;min-width:0;padding-left:{12 * r['depth']}px;"
+            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>{e(name)}"
+            + (f" <span class='badge b-bad'>{e(r['error'])}</span>" if r["error"] else "") + "</div>"
+            f"<div style='flex:1;position:relative;height:14px;background:rgba(136,146,176,.12);border-radius:3px'>"
+            f"<div style='position:absolute;left:{r['offset_pct']:.2f}%;width:{r['width_pct']:.2f}%;height:100%;"
+            f"background:{color};border-radius:3px'></div></div>"
+            f"<span class='muted' style='width:80px;text-align:right'>{r['duration_ms']:.0f} ms</span></div>")
+    st.markdown("".join(bars), unsafe_allow_html=True)
+    with st.expander("Span attributes"):
+        st.dataframe([{"span": r["name"], "start ms": round(r["start_ms"], 1), "duration ms": round(r["duration_ms"], 1),
+                       "status": r["status"], "error": r["error"],
+                       "attributes": ", ".join(f"{k}={v}" for k, v in sorted(r["attrs"].items()))} for r in rows],
+                     hide_index=True)
 
 
 def report_chat(run_id: str, report: dict[str, Any]) -> None:
@@ -891,7 +931,7 @@ def graph_tab() -> None:
     graph = knowledge_graph(runs_cache)
     c = graph.counts()
     st.caption(f"{c['report']} reports · {c['claim']} claims · {c['source']} sources · {c['domain']} domains · "
-               f"{c['edges']} links. Claims link to the sources that support them; sources link to their site.")
+               f"{c['entity']} entities · {c['edges']} links. Claims link to the sources that support them; sources link to their site.")
     if not graph.nodes:
         st.markdown("<div class='muted'>No reports yet. Finished researches appear here as a graph.</div>", unsafe_allow_html=True)
         return

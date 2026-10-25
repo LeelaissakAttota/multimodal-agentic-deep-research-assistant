@@ -1,9 +1,11 @@
 """Knowledge graph from report claims and cited sources.
 
 Built locally in plain Python (``networkx`` is used for analysis when the ``graph`` extra is installed).
-Optionally synced to Neo4j when ``MDRA_NEO4J_URI`` is set. Nodes: ``report``, ``claim``, ``source``,
-``domain``. Edges: report -makes-> claim, claim -supported_by-> source, report -cites-> source,
-source -hosted_on-> domain. Claims are merged across runs by normalized text, sources by URL.
+Optionally synced to Neo4j when ``MDRA_NEO4J_URI`` is set. Nodes: ``report`` (one per run), ``claim``,
+``source``, ``domain``, ``entity``. Edges: report -makes-> claim, claim -supported_by-> source,
+report -cites-> source, source -hosted_on-> domain, claim -mentions-> entity, claim -contradicts-> claim.
+Claims are merged across runs by normalized text, sources by URL, entities by normalized name.
+Entities are extracted deterministically (acronyms and capitalised phrases), no model is called.
 """
 
 from __future__ import annotations
@@ -15,9 +17,32 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit
 
-KINDS = ("report", "claim", "source", "domain")
+KINDS = ("report", "claim", "source", "domain", "entity")
 _STYLE = {"report": ("box", "#4f7cff"), "claim": ("ellipse", "#f5b94a"), "source": ("note", "#36c48f"),
-          "domain": ("hexagon", "#9b8cff")}
+          "domain": ("hexagon", "#9b8cff"), "entity": ("diamond", "#ff8fa3")}
+_ENTITY = re.compile(r"\b(?:[A-Z]{2,6}[0-9]*s?|[A-Z][a-z0-9]+(?:[ -](?:of |de |the )?[A-Z][A-Za-z0-9]+)+)\b")
+_NOT_ENTITY = frozenset("The This That These Those It In On At For And But Or If When While As By To From With Of A An "
+                        "However Moreover According Overall Most Some Many More".split())
+
+
+def extract_entities(text: str, limit: int = 8) -> list[str]:
+    """Acronyms (``GPT``, ``EU``) and multi-word capitalised names (``European Union``); stable order, deduped."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _ENTITY.finditer(re.sub(r"\[[\d,\s\u2013-]+\]", " ", str(text))):
+        words = m.group(0).split()
+        while words and words[0] in _NOT_ENTITY:
+            words = words[1:]
+        name = " ".join(words)
+        if len(name) < 2 or (len(words) == 1 and not name.isupper() and not any(ch.isdigit() for ch in name)):
+            continue
+        k = name.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(name)
+        if len(out) >= limit:
+            break
+    return out
 
 
 @dataclass
@@ -38,6 +63,10 @@ class KnowledgeGraph:
     def counts(self) -> dict[str, int]:
         c = Counter(n["kind"] for n in self.nodes.values())
         return {**{k: c.get(k, 0) for k in KINDS}, "edges": len(self.edges)}
+
+
+def claim_id(text: str) -> str:
+    return f"claim:{_key(text)}"
 
 
 def _key(text: str) -> str:
@@ -66,7 +95,8 @@ def clean_url(url: Any) -> str:
 
 
 def build_graph(reports: Iterable[Mapping[str, Any]]) -> KnowledgeGraph:
-    """``reports`` = ``[{run_id, title, claims: [{text, citations: [n], label}], citations: [{number, title, url}]}]``."""
+    """``reports`` = ``[{run_id, title, claims: [{text, citations: [n], label}], citations: [{number, title, url}],
+    contradictions: [{claims: [a, b]}]}]`` (``contradictions`` optional)."""
     graph = KnowledgeGraph()
     for rep in reports:
         run_id = str(rep.get("run_id") or "")
@@ -89,7 +119,19 @@ def build_graph(reports: Iterable[Mapping[str, Any]]) -> KnowledgeGraph:
             for number in claim.get("citations") or []:
                 if number in by_number:
                     graph.add_edge(cid, by_number[number], "supported_by")
+            for name in extract_entities(text):
+                graph.add_edge(cid, graph.add_node(f"entity:{_key(name)}", "entity", name, run_id=run_id), "mentions")
+        _add_contradictions(graph, run_id, rep.get("contradictions") or [])
     return graph
+
+
+def _add_contradictions(graph: KnowledgeGraph, run_id: str, items: Iterable[Any]) -> None:
+    for item in items:
+        pair = [str(t or "").strip() for t in (item.get("claims") or [])] if isinstance(item, Mapping) else []
+        if len(pair) == 2 and all(pair) and claim_id(pair[0]) != claim_id(pair[1]):
+            a = graph.add_node(claim_id(pair[0]), "claim", pair[0], run_id=run_id)
+            b = graph.add_node(claim_id(pair[1]), "claim", pair[1], run_id=run_id)
+            graph.add_edge(a, b, "contradicts")
 
 
 def to_networkx(graph: KnowledgeGraph) -> Any:
@@ -152,8 +194,11 @@ def sync_neo4j(graph: KnowledgeGraph, driver: Any = None, *, database: str | Non
     edges = [{"src": s, "dst": d, "rel": r} for s, d, r in sorted(graph.edges)]
     try:
         with driver.session(database=database) as session:
+            session.run("CREATE CONSTRAINT mdra_node_id IF NOT EXISTS FOR (n:MdraNode) REQUIRE n.id IS UNIQUE")
+            # runs are unioned so syncing one run never drops the others from a shared claim/source
             session.run("UNWIND $rows AS r MERGE (n:MdraNode {id: r.id}) "
-                        "SET n.kind = r.kind, n.label = r.label, n.url = r.url, n.runs = r.runs", rows=nodes)
+                        "SET n.kind = r.kind, n.label = r.label, n.url = r.url, "
+                        "n.runs = [x IN coalesce(n.runs, []) WHERE NOT x IN r.runs] + r.runs", rows=nodes)
             session.run("UNWIND $rows AS r MATCH (a:MdraNode {id: r.src}), (b:MdraNode {id: r.dst}) "
                         "MERGE (a)-[e:REL {type: r.rel}]->(b)", rows=edges)
     finally:
@@ -162,7 +207,7 @@ def sync_neo4j(graph: KnowledgeGraph, driver: Any = None, *, database: str | Non
     return {"nodes": len(nodes), "edges": len(edges)}
 
 
-def neo4j_driver() -> Any:
+def neo4j_driver(timeout: float = 10.0) -> Any:
     from deep_research.scale.config import ScaleSettings
 
     s = ScaleSettings()
@@ -172,4 +217,5 @@ def neo4j_driver() -> Any:
         from neo4j import GraphDatabase
     except ImportError as exc:
         raise RuntimeError("install the 'graph' extra for Neo4j support") from exc
-    return GraphDatabase.driver(s.neo4j_uri, auth=(s.neo4j_user, s.secret("neo4j_password")) if s.neo4j_user else None)
+    return GraphDatabase.driver(s.neo4j_uri, auth=(s.neo4j_user, s.secret("neo4j_password")) if s.neo4j_user else None,
+                                connection_timeout=timeout, connection_acquisition_timeout=timeout)

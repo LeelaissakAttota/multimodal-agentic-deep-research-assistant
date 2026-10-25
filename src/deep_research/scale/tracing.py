@@ -1,5 +1,8 @@
 """Optional OpenTelemetry tracing for runs, agents and tools (``MDRA_OTEL_EXPORTER=console|otlp``).
 
+``MDRA_TRACE_STORE=sqlite|jsonl`` additionally (or alone) keeps spans locally per run for the dashboard's
+trace timeline (:mod:`deep_research.scale.spanstore`); spans opened inside :func:`run_context` carry the run id.
+
 Off by default: every helper is a no-op unless tracing is enabled *and* ``opentelemetry-sdk`` is
 installed. Span attributes pass through :func:`safe_attributes`: secret-like keys are dropped, values
 are redacted (API keys, bearer tokens, ``key=value`` secrets, credentials in URLs) and truncated.
@@ -8,6 +11,7 @@ Prompts, report text and API keys are never attached.
 
 from __future__ import annotations
 
+import contextvars
 import threading
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
@@ -22,6 +26,21 @@ if TYPE_CHECKING:
 _MAX_VALUE = 256
 _lock = threading.Lock()
 _state: dict[str, Any] = {"configured": False, "tracer": None, "provider": None}
+_run_id: contextvars.ContextVar[str] = contextvars.ContextVar("mdra_trace_run_id", default="")
+
+
+def current_run_id() -> str:
+    return _run_id.get()
+
+
+@contextmanager
+def run_context(run_id: str | None) -> Iterator[None]:
+    """Spans started inside (including child tasks and ``to_thread`` work) are tagged ``mdra.run_id``."""
+    token = _run_id.set(str(run_id or ""))
+    try:
+        yield
+    finally:
+        _run_id.reset(token)
 
 
 class _Span:
@@ -56,8 +75,9 @@ def _clean(text: str) -> str:
     return redact_text(redact_url_credentials(text))[:_MAX_VALUE]
 
 
-def configure_tracing(*, exporter: Any | None = None, service_name: str | None = None, force: bool = False) -> bool:
-    """Set up tracing once from ``MDRA_OTEL_*`` (or with an explicit exporter, for tests). Returns enabled."""
+def configure_tracing(*, exporter: Any | None = None, service_name: str | None = None, force: bool = False,
+                      store: Any | None = None) -> bool:
+    """Set up tracing once from ``MDRA_OTEL_*`` / ``MDRA_TRACE_*`` (or explicit exporter/store, for tests)."""
     with _lock:
         if _state["configured"] and not force:
             return _state["tracer"] is not None
@@ -66,14 +86,24 @@ def configure_tracing(*, exporter: Any | None = None, service_name: str | None =
 
         scale = ScaleSettings()
         mode = scale.otel_exporter if exporter is None else "custom"
-        if mode == "off" or not has_module("opentelemetry.sdk"):
+        if store is None and scale.trace_store != "off":
+            from deep_research.scale.spanstore import SpanStore
+
+            store = SpanStore(scale.trace_dir, scale.trace_store)
+        if (mode == "off" and store is None) or not has_module("opentelemetry.sdk"):
             return False
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 
         provider = TracerProvider(resource=Resource.create({"service.name": service_name or scale.otel_service_name}))
-        if exporter is not None:
+        if store is not None:
+            from deep_research.scale.spanstore import make_processor
+
+            provider.add_span_processor(make_processor(store))
+        if mode == "off":
+            pass
+        elif exporter is not None:
             provider.add_span_processor(SimpleSpanProcessor(exporter))
         elif mode == "console":
             provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
