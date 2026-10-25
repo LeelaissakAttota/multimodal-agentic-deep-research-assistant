@@ -969,6 +969,36 @@ def page_tools() -> None:
             f"<div class='row'><div class='tx'><div class='tt'>{e(r['name'])}</div><div class='ts' title='{e(r['detail'])}'>{e(r['detail'])}</div></div>"
             f"<div class='rt'><span class='badge {'b-ok' if r['state'] == 'ok' else 'b-off' if r['state'] == 'off' else 'b-bad'}'>"
             f"{e(r['state'])}</span></div></div>" for r in rows), unsafe_allow_html=True)
+    with right, st.container(border=True):
+        scale_backends_panel()
+
+
+@st.cache_data(ttl=60, show_spinner="Checking backends…")
+def _backend_rows() -> list[dict[str, Any]]:
+    from deep_research.scale import backend_status
+
+    return backend_status(probe=True)
+
+
+BACKEND_BADGE = {"ok": ("b-ok", "connected"), "configured": ("b-ok", "configured"), "off": ("b-off", "not configured"),
+                 "missing-dependency": ("b-bad", "unavailable"), "unreachable": ("b-bad", "unreachable"),
+                 "invalid": ("b-bad", "invalid config")}
+
+
+def scale_backends_panel() -> None:
+    """Optional scale backends (queue, database, object storage, tracing, A/B, graph). Real probes, cached 60 s."""
+    st.markdown("<div class='ph'>Scale backends <span class='muted'>all optional</span></div>", unsafe_allow_html=True)
+    rows = _backend_rows()
+    st.markdown("".join(
+        f"<div class='row'><div class='tx'><div class='tt'>{e(r['name'])}</div><div class='ts' title='{e(r['detail'])}'>"
+        f"{e(r['detail'])}</div></div><div class='rt'><span class='badge {BACKEND_BADGE.get(r['state'], ('b-bad', ''))[0]}'>"
+        f"{e(BACKEND_BADGE.get(r['state'], ('', r['state']))[1])}</span></div></div>" for r in rows), unsafe_allow_html=True)
+    down = [r["name"] for r in rows if r["state"] in ("missing-dependency", "unreachable", "invalid")]
+    if down:
+        st.warning("Unavailable: " + ", ".join(down) + ". Fix the setting, or unset it to use the built-in default (see docs/SCALE.md).")
+    if st.button("Re-check backends", key="recheck_backends"):
+        _backend_rows.clear()
+        st.rerun()
 
 
 # ----- Settings ------------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 765 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 840 passing | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -53,9 +53,10 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **Exports and CLI:** reports download as PDF, DOCX, PPTX, JSON, Markdown or self-contained HTML from the dashboard and `GET /control/runs/{id}/export`, and a `deep-research` CLI runs one question end to end.
 - **Assistant features (local):** follow-up chat on a finished report that answers only from that report's text, claims and cited sources (with `[n]` citations, refusing unsupported questions; free model optional, offline extractive fallback), a user profile (saved topics, preferred/blocked sources and domains, default depth) that the planner applies to every run, notes and due-date reminders per report, and revocable token-protected read-only share links plus self-contained HTML export. Stored in SQLite under the git-ignored `data/`. See [docs/ASSISTANT.md](docs/ASSISTANT.md).
 - **Supervised-control API:** a local, token-protected API to start, pause, resume and stop runs and to approve, reject or retry steps. Low-risk steps can be auto-approved, and every decision goes to an audit log. Keys are write-only and shown masked.
+- **Optional scale backends (all off by default, all free/local):** RQ job queue on Redis with a Windows-safe worker, Postgres session storage with a migration tool, MinIO/S3 artifact storage, OpenTelemetry tracing with secret-free spans, deterministic A/B experiments on planner/prompt variants compared in the evaluation suite, a claims-and-sources knowledge graph (local, optional Neo4j sync) and a Chrome MV3 extension that sends pages to the local control API. The dashboard shows each backend's real status. See [docs/SCALE.md](docs/SCALE.md).
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 765 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 840 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -155,6 +156,10 @@ docker run --rm -p 8000:8000 deep-research                 # offline
 docker run --rm -p 8000:8000 --env-file .env deep-research # e.g. live mode
 ```
 
+### Scaling (optional)
+
+Nothing changes unless you opt in: SQLite, local files and in-process runs stay the default. `docker compose up -d` starts local Redis, Postgres, MinIO and an OpenTelemetry collector (Neo4j with `--profile graph`), all on `127.0.0.1`; then set the `MDRA_*` variables you want and install the matching extras (`queue`, `postgres`, `s3`, `tracing`, `graph`). Run queued research with `deep-research-worker` (SimpleWorker on Windows), move sessions with `deep-research-migrate`, compare A/B variants with `deep-research-eval --by-variant`, and load `extensions/mdra-chrome` as an unpacked extension. Details: [docs/SCALE.md](docs/SCALE.md).
+
 ## API
 
 | Endpoint | Purpose |
@@ -181,7 +186,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 765 tests, offline, $0
+pytest          # 840 tests, offline, $0
 ruff check .
 mypy src
 ```
@@ -196,6 +201,9 @@ mypy src
 | `src/deep_research/tools` | web search and fetch, web page reader, PDF, document, image, OCR, audio tools, registry and selector |
 | `src/deep_research/export`, `src/deep_research/cli.py` | PDF/DOCX/PPTX/JSON/Markdown/HTML report export, `deep-research` CLI |
 | `src/deep_research/assistant` | report follow-up chat, profile and preferences, notes and reminders, share links (local SQLite) |
+| `src/deep_research/scale` | optional backends: job queue, artifact storage, tracing, A/B experiments, knowledge graph, migration, status |
+| `extensions/mdra-chrome` | Chrome MV3 extension (send page or selection to the local control API) |
+| `docker-compose.yml`, `deploy/otel` | local Redis, Postgres, MinIO, OpenTelemetry collector, Neo4j (all optional) |
 | `src/deep_research/models` | OpenRouter gateway, catalog, routing, speech-to-text router |
 | `src/deep_research/{evidence (incl. credibility and claim scoring),domain,persistence,runtime,memory,context,observability,security}` | contracts, storage, budgets, logging and redaction |
 | `tests/unit`, `tests/integration` | offline tests |
@@ -205,7 +213,7 @@ mypy src
 ## Security and limitations
 
 - Never commit `.env`, keys, runtime databases, logs or generated research. See [SECURITY.md](SECURITY.md) and [docs/SECURITY_GUIDELINES.md](docs/SECURITY_GUIDELINES.md).
-- Results are kept in memory by a single process. A durable or multi-worker deployment would need the existing `ResearchSessionRepository` boundary connected to the API.
+- The public `/research` API keeps results in memory in a single process. Control-API runs can use the optional Redis job queue and Postgres session storage (docs/SCALE.md); the assistant database stays on SQLite.
 - Retrieval is lexical, not embedding-based, and token limits are counted in characters.
 - Credibility and claim confidence are domain and citation heuristics. They flag weak sourcing; they do not verify facts.
 - OCR quality depends on scan quality; RapidOCR's bundled models are tuned for English and Chinese text.

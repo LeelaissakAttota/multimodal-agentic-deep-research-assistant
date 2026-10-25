@@ -132,3 +132,18 @@ def test_knowledge_page_graph_tab(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert [t.label for t in at.tabs][-1] == "Graph"
     captions = " ".join(c.value for c in at.caption)
     assert "1 reports" in captions and "2 sources" in captions and "Neo4j sync: not configured" in captions
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("MDRA_TEST_NEO4J_URI"), reason="set MDRA_TEST_NEO4J_URI to test real Neo4j")
+def test_real_neo4j_sync() -> None:  # pragma: no cover - needs a service
+    import os
+
+    from neo4j import GraphDatabase
+
+    driver = GraphDatabase.driver(os.environ["MDRA_TEST_NEO4J_URI"],
+                                  auth=("neo4j", os.environ.get("MDRA_TEST_NEO4J_PASSWORD", "")))
+    try:
+        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 8, "edges": 11}
+        assert sync_neo4j(build_graph(_reports()), driver) == {"nodes": 8, "edges": 11}  # idempotent
+    finally:
+        driver.close()
