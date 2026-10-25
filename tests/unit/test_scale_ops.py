@@ -79,3 +79,13 @@ def test_compose_host_ports_configurable_with_safe_defaults() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert all(var in doc and var in env for var in expected)
     assert "@localhost:5433/mdra" in doc and "@localhost:5433/mdra" in env and "localhost:5432" not in doc + env
+
+
+def test_compose_images_are_pinned_and_not_removed_upstream() -> None:
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    images = dict(re.findall(r"\n  ([a-z0-9-]+):\n(?:    #.*\n)*    image: (\S+)", text))
+    assert {"redis", "postgres", "minio", "minio-init", "otel-collector", "neo4j"} <= set(images)
+    assert not any(img.split("@")[0].split(":")[0].removeprefix("docker.io/") in ("minio/minio", "minio/mc")
+                   or "quay.io/minio" in img for img in images.values())
+    for name in ("minio", "minio-init"):
+        assert re.fullmatch(r"docker\.io/pgsty/(silo|mc):RELEASE\.[0-9TZ-]+@sha256:[0-9a-f]{64}", images[name]), images[name]

@@ -27,7 +27,7 @@ Install extras as needed, e.g. `pip install -e ".[dashboard,queue,postgres,s3,tr
 `docker-compose.yml` starts free local services, all bound to `127.0.0.1`:
 
 ```bash
-docker compose up -d                   # redis :6379, postgres :5433, minio :9000 (console :9001), otel-collector :4318
+docker compose up -d                   # redis :6379, postgres :5433, minio/Silo :9000 (console :9001), otel-collector :4318
 docker compose --profile graph up -d   # + neo4j :7474/:7687
 ```
 
@@ -44,6 +44,12 @@ these in your shell or in the `.env` next to `docker-compose.yml`, and change th
 | `MDRA_NEO4J_HTTP_PORT` / `MDRA_NEO4J_BOLT_PORT` | 7474 / 7687 | Neo4j browser / Bolt |
 
 PowerShell example: `$env:MDRA_PG_PORT=5434; docker compose up -d`, then use `...@localhost:5434/mdra`.
+
+**Object storage image.** The upstream `minio/minio` / `minio/mc` images (Docker Hub and quay.io) are no longer
+published, so `docker compose` uses **Silo** (`docker.io/pgsty/silo`), the community-maintained MinIO fork with the
+same S3 API, `MINIO_*` variables, ports 9000/9001 and on-disk format, plus `docker.io/pgsty/mc` for bucket setup. Both
+are pinned to `RELEASE.2026-10-18T00-00-00Z` with a multi-arch (amd64/arm64) digest. Any S3-compatible endpoint
+works instead: point `MDRA_S3_ENDPOINT` at it.
 
 The compose file uses local development passwords (`mdra-local-dev`); override them with
 `MDRA_PG_PASSWORD`, `MDRA_MINIO_USER`, `MDRA_MINIO_PASSWORD`, `MDRA_NEO4J_PASSWORD`. Matching `.env` entries:

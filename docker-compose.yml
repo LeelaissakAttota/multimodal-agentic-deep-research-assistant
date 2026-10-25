@@ -38,7 +38,9 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    # Upstream minio/minio and quay.io/minio/minio images were removed (Sept 2026). Silo is the community-maintained
+    # MinIO fork (same S3 API, MINIO_* env, ports and data format). Pinned by release tag + multi-arch digest.
+    image: docker.io/pgsty/silo:RELEASE.2026-10-18T00-00-00Z@sha256:2636fc4155d9a7e41ff58cdb65ddd13ba9304e67184e13c25bc5cb34016269d7
     command: ["server", "/data", "--console-address", ":9001"]
     ports: ["127.0.0.1:${MDRA_MINIO_PORT:-9000}:9000", "127.0.0.1:${MDRA_MINIO_CONSOLE_PORT:-9001}:9001"]
     environment:
@@ -51,13 +53,13 @@ services:
       retries: 5
 
   minio-init:
-    image: minio/mc:latest
+    image: docker.io/pgsty/mc:RELEASE.2026-10-18T00-00-00Z@sha256:6ecdaec70bc5e8cf9d0e9a70c190f3beb1c83f11617ff4333f1fcd71ab1daf18
     depends_on:
       minio: {condition: service_healthy}
     environment:
       MC_USER: ${MDRA_MINIO_USER:-mdra-local}
       MC_PASSWORD: ${MDRA_MINIO_PASSWORD:-mdra-local-dev}
-    entrypoint: ["/bin/sh", "-c", "mc alias set local http://minio:9000 \"$$MC_USER\" \"$$MC_PASSWORD\" >/dev/null && mc mb --ignore-existing local/mdra-artifacts"]
+    entrypoint: ["/usr/bin/sh", "-c", "mc alias set local http://minio:9000 \"$$MC_USER\" \"$$MC_PASSWORD\" >/dev/null && mc mb --ignore-existing local/mdra-artifacts"]
     restart: "no"
 
   otel-collector:
