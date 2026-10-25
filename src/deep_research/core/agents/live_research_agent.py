@@ -89,7 +89,7 @@ class LiveResearchAgent(ResearchAgent):
         blocked_domains: list[str] | None = None,
     ) -> None:
         self.source_tools: dict[str, Tool] = dict(source_tools or {})
-        self.blocked_domains = [d.lower().removeprefix("www.") for d in blocked_domains or [] if d]
+        self.blocked_domains = [d.lower().rstrip(".").removeprefix("www.") for d in blocked_domains or [] if d]
         self.tool_gateway = tool_gateway
         self.tool_steps = tool_steps
         self.max_searches = max_searches
@@ -217,7 +217,10 @@ class LiveResearchAgent(ResearchAgent):
         """True when the URL's host is a blocked domain or one of its subdomains (user preference)."""
         if not self.blocked_domains or not isinstance(url, str):
             return False
-        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+        try:
+            host = (urlparse(url).hostname or "").lower().rstrip(".").removeprefix("www.")
+        except ValueError:
+            return False
         return any(host == d or host.endswith("." + d) for d in self.blocked_domains)
 
     async def _search(self, run: "_ToolRun", query: str) -> None:

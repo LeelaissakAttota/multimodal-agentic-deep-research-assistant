@@ -276,9 +276,11 @@ def test_not_blocked_urls(url: Any) -> None:
     assert not _agent(["spam.net"]).is_blocked(url)
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: trailing-dot FQDN host bypasses blocked domain (live_research_agent.py:220)")
 def test_trailing_dot_host_is_blocked() -> None:
     assert _agent(["spam.net"]).is_blocked("https://spam.net./x")
+    assert _agent(["spam.net"]).is_blocked("https://sub.SPAM.net./x")
+    assert _agent(["spam.net."]).is_blocked("https://spam.net/x")
+    assert not _agent(["spam.net"]).is_blocked("https://notspam.net./x")
 
 
 def test_apply_profile_roundtrip_to_settings() -> None:
