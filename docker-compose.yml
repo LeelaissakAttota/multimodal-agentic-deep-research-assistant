@@ -15,7 +15,7 @@ name: mdra-scale
 
 services:
   redis:
-    image: redis:7-alpine
+    image: docker.io/library/redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
     ports: ["127.0.0.1:${MDRA_REDIS_PORT:-6379}:6379"]
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["redis-data:/data"]
@@ -25,7 +25,8 @@ services:
       retries: 5
 
   postgres:
-    image: postgres:16-alpine
+    # Keep major 16: the postgres-data volume is a PG16 cluster (a major upgrade needs dump/restore).
+    image: docker.io/library/postgres:16.15-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
     ports: ["127.0.0.1:${MDRA_PG_PORT:-5433}:5432"]
     environment:
       POSTGRES_DB: mdra
@@ -63,13 +64,13 @@ services:
     restart: "no"
 
   otel-collector:
-    image: otel/opentelemetry-collector:latest
+    image: docker.io/otel/opentelemetry-collector:0.163.2@sha256:63e5e8eccf4268be02388ba9f2dc36b80b5e47721291293411c0e83152d75bda
     command: ["--config=/etc/otelcol/config.yaml"]
     ports: ["127.0.0.1:${MDRA_OTEL_PORT:-4318}:4318"]
     volumes: ["./deploy/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
 
   neo4j:
-    image: neo4j:5-community
+    image: docker.io/library/neo4j:5.26.32-community@sha256:adaa077a3ab023015143b8f73f7076a7d053f12985f5b06f4c6a128c3a2f7240
     profiles: ["graph"]
     ports: ["127.0.0.1:${MDRA_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${MDRA_NEO4J_BOLT_PORT:-7687}:7687"]
     environment:

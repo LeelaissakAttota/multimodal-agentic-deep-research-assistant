@@ -51,6 +51,20 @@ same S3 API, `MINIO_*` variables, ports 9000/9001 and on-disk format, plus `dock
 are pinned to `RELEASE.2026-10-18T00-00-00Z` with a multi-arch (amd64/arm64) digest. Any S3-compatible endpoint
 works instead: point `MDRA_S3_ENDPOINT` at it.
 
+**Pinned images.** Every image is pinned to an exact version plus its multi-arch digest (checked on Docker Hub,
+anonymous pull, amd64 + arm64), so `docker compose pull` is reproducible:
+
+| Service | Image |
+|---|---|
+| redis | `redis:7.4.11-alpine` |
+| postgres | `postgres:16.15-alpine` (stay on major 16 - the `postgres-data` volume is a PG16 cluster) |
+| minio | `pgsty/silo:RELEASE.2026-10-18T00-00-00Z` |
+| minio-init | `pgsty/mc:RELEASE.2026-10-18T00-00-00Z` |
+| otel-collector | `otel/opentelemetry-collector:0.163.2` |
+| neo4j | `neo4j:5.26.32-community` |
+
+To upgrade, change tag and digest together (`docker buildx imagetools inspect <image:tag>` prints the digest).
+
 The compose file uses local development passwords (`mdra-local-dev`); override them with
 `MDRA_PG_PASSWORD`, `MDRA_MINIO_USER`, `MDRA_MINIO_PASSWORD`, `MDRA_NEO4J_PASSWORD`. Matching `.env` entries:
 

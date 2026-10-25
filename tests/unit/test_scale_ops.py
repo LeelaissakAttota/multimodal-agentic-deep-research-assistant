@@ -89,3 +89,18 @@ def test_compose_images_are_pinned_and_not_removed_upstream() -> None:
                    or "quay.io/minio" in img for img in images.values())
     for name in ("minio", "minio-init"):
         assert re.fullmatch(r"docker\.io/pgsty/(silo|mc):RELEASE\.[0-9TZ-]+@sha256:[0-9a-f]{64}", images[name]), images[name]
+
+
+def test_every_compose_image_pinned_to_exact_version_and_digest() -> None:
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    images = dict(re.findall(r"\n  ([a-z0-9-]+):\n(?:    #.*\n)*    image: (\S+)", text))
+    assert set(images) == {"redis", "postgres", "minio", "minio-init", "otel-collector", "neo4j"}
+    assert text.count("image:") == len(images)
+    for name, image in images.items():
+        ref, _, digest = image.partition("@")
+        tag = ref.rsplit(":", 1)[1]
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest), name
+        assert ref.startswith("docker.io/") and "latest" not in tag, name
+        # exact version (x.y.z, x.y-variant or RELEASE.<date>), never a floating major like "7-alpine"/"5-community"
+        assert re.fullmatch(r"(\d+\.\d+(\.\d+)?(-[a-z]+)?|RELEASE\.[0-9TZ-]+)", tag), (name, tag)
+    assert images["postgres"].startswith("docker.io/library/postgres:16.")  # volume is a PG16 cluster
