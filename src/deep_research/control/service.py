@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from pathlib import Path
@@ -22,6 +23,8 @@ from deep_research.core.orchestration.step_gate import GateOutcome
 from deep_research.domain.research.research_task import ResearchTask
 from deep_research.scale.config import ScaleSettings
 from deep_research.scale.queue import JobQueue, build_queue
+
+logger = logging.getLogger(__name__)
 
 #: Env-style key name -> Settings field.
 KEY_FIELDS: dict[str, str] = {
@@ -84,6 +87,8 @@ class DeepResearchControl:
         # Optional background queue (MDRA_REDIS_URL); None = in-process runs exactly as before.
         self.queue: JobQueue | None = queue
         self.queue_error: str | None = None
+        #: Last enqueue failure ("<ExcType>"), set while runs are falling back to in-process; cleared on success.
+        self.queue_fallback: str | None = None
         if queue is None and with_queue:
             try:
                 self.queue = build_queue()
@@ -108,8 +113,11 @@ class DeepResearchControl:
         mode = run.params.get("mode")
         if self.queue is not None:
             if not run.approval_mode:
-                return self._run_queued(run, self.queue, objective)
-            run.log("approval mode needs the in-process runner; this run is not sent to the job queue")
+                queued = self._run_queued(run, self.queue, objective)
+                if queued is not None:
+                    return queued
+            else:
+                run.log("approval mode needs the in-process runner; this run is not sent to the job queue")
         settings, assignment = run_variant(self.settings_with_keys(mode if isinstance(mode, str) else None), run.run_id)
         if assignment:
             run.log(f"A/B experiment {assignment['experiment']}: variant {assignment['variant']}")
@@ -128,12 +136,24 @@ class DeepResearchControl:
             result["experiment"] = assignment
         return result
 
-    def _run_queued(self, run: ControlRun, queue: JobQueue, objective: str) -> dict[str, Any]:
-        """Enqueue the run for a worker and poll it; stop requests cancel the job."""
+    def _run_queued(self, run: ControlRun, queue: JobQueue, objective: str) -> dict[str, Any] | None:
+        """Enqueue the run for a worker and poll it; stop requests cancel the job.
+
+        Returns ``None`` when the queue cannot accept the job (e.g. Redis down): the caller then runs it in-process.
+        """
         payload = {"objective": objective, "mode": run.params.get("mode"), "attachments": run.params.get("attachments") or [],
                    "run_id": run.run_id}
         _attachments(payload["attachments"])  # validate before queueing
-        job_id = queue.submit(payload)
+        try:
+            job_id = queue.submit(payload)
+        except Exception as exc:  # unreachable broker: degrade, never fail the run. Type only - messages may hold URLs.
+            self.queue_fallback = type(exc).__name__
+            msg = (f"job queue '{queue.name}' is unreachable ({type(exc).__name__}); "
+                   "running this job in-process instead (start Redis or unset MDRA_REDIS_URL)")
+            logger.warning(msg)
+            run.log(msg, level="warning", queue_fallback=True)
+            return None
+        self.queue_fallback = None
         run.log(f"queued as job {job_id} on the {queue.name} queue", job_id=job_id)
         last = ""
         poll = ScaleSettings().job_poll_seconds

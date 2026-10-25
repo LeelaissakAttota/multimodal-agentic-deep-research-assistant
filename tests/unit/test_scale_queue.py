@@ -130,3 +130,22 @@ def test_real_redis_roundtrip() -> None:
     job_id = queue.submit({"objective": "What is green tea?", "mode": "offline"})
     SimpleWorker([queue.queue], connection=queue.connection).work(burst=True)
     assert queue.status(job_id)["status"] == "finished"
+
+
+def test_unreachable_queue_at_enqueue_runs_in_process(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    class DownQueue(InProcessQueue):
+        name = "rq"
+
+        def submit(self, payload: dict[str, Any]) -> str:
+            raise ConnectionError("Error 111 connecting to redis://:hunter2secret@redis.internal:6379")
+
+    control = _control(tmp_path, queue=DownQueue())
+    with caplog.at_level("WARNING"):
+        run = control.manager.create({"objective": "What is green tea?", "mode": "offline"})
+        _wait(run)
+    assert run.status == RunStatus.COMPLETED
+    messages = " ".join(line["message"] for line in run.logs)
+    assert "unreachable" in messages and "in-process" in messages and "queued as job" not in messages
+    assert control.queue_fallback == "ConnectionError"
+    assert "running this job in-process" in caplog.text
+    assert "hunter2secret" not in messages + caplog.text + str(run.logs)

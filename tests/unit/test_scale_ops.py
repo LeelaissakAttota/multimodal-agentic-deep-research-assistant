@@ -59,3 +59,10 @@ def test_dashboard_marks_unavailable_backends(tmp_path: Path, monkeypatch: pytes
     assert "invalid config" in text and "hunter2pw" not in text
     warning = " ".join(w.value for w in at.warning)  # type: ignore[attr-defined]
     assert "A/B experiments" in warning and "Job queue" in warning
+
+
+def test_dashboard_shows_queue_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MDRA_REDIS_URL", "redis://:hunter2pw@127.0.0.1:9/0")  # closed local port -> unreachable
+    at = _run_tools(tmp_path, monkeypatch)
+    info = " ".join(i.value for i in at.info)  # type: ignore[attr-defined]
+    assert "fallback" in info and "in-process" in info and "hunter2pw" not in info

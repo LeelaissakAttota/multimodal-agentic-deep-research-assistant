@@ -994,6 +994,9 @@ def scale_backends_panel() -> None:
         f"{e(r['detail'])}</div></div><div class='rt'><span class='badge {BACKEND_BADGE.get(r['state'], ('b-bad', ''))[0]}'>"
         f"{e(BACKEND_BADGE.get(r['state'], ('', r['state']))[1])}</span></div></div>" for r in rows), unsafe_allow_html=True)
     down = [r["name"] for r in rows if r["state"] in ("missing-dependency", "unreachable", "invalid")]
+    if rows and rows[0]["name"].startswith("Job queue") and rows[0]["state"] in ("missing-dependency", "unreachable"):
+        st.info("Job queue fallback active: new runs execute in-process in the control API until the queue is "
+                "reachable again (each run's log notes the fallback).")
     if down:
         st.warning("Unavailable: " + ", ".join(down) + ". Fix the setting, or unset it to use the built-in default (see docs/SCALE.md).")
     if st.button("Re-check backends", key="recheck_backends"):
