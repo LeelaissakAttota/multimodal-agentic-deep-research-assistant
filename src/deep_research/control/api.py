@@ -42,6 +42,11 @@ class ShareBody(BaseModel):
     expires_in_days: float | None = Field(default=None, ge=0, le=365)  # None = server default, 0 = never
 
 
+class ArtifactBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report: dict[str, Any] | None = None  # for runs only kept by the dashboard
+
+
 class KeyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     value: str = Field(max_length=4096)
@@ -60,6 +65,7 @@ def build_control_app(  # noqa: C901 - flat route table
     title: str,
     assistant: Any | None = None,
     share_ttl_days: float = 7.0,
+    artifacts: Any | None = None,
 ) -> FastAPI:
     if len(admin_token) < 16:
         raise ValueError("control admin token must be at least 16 characters")
@@ -230,7 +236,62 @@ def build_control_app(  # noqa: C901 - flat route table
 
     if assistant is not None:
         _share_routes(app, manager, assistant, auth, share_ttl_days)
+    _artifact_routes(app, manager, auth, artifacts)
     return app
+
+
+def _artifact_routes(app: FastAPI, manager: RunManager, auth: list[Any], store: Any | None) -> None:  # noqa: C901 - flat route table
+    """Save exports to the artifact store (local folder by default, S3/MinIO via MDRA_S3_*)."""
+
+    def get_store() -> Any:
+        if store is not None:
+            return store
+        from deep_research.scale.storage import build_artifact_store
+
+        return build_artifact_store()
+
+    @app.post("/control/runs/{run_id}/artifacts", dependencies=auth, status_code=201)
+    def save_artifact(run_id: str, body: ArtifactBody, format: str = Query(default="md", pattern="^(pdf|docx|pptx|json|md|html)$"),
+                      x_operator: str | None = Header(default=None)) -> dict[str, Any]:
+        from deep_research.export import ExportUnavailable
+        from deep_research.scale.storage import save_export
+
+        report = body.report
+        if report is None:
+            try:
+                result = manager.get(run_id).result
+            except KeyError:
+                raise HTTPException(status_code=404, detail="run not found") from None
+            report = result.get("report") if isinstance(result, dict) else None
+        if not isinstance(report, dict):
+            raise HTTPException(status_code=409, detail="run has no report yet")
+        try:
+            info = save_export(get_store(), run_id, report, format)
+        except ExportUnavailable as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from None
+        except Exception as exc:  # storage unreachable: report the type only (no endpoint or credentials)
+            raise HTTPException(status_code=503, detail=f"artifact store unavailable ({type(exc).__name__})") from None
+        manager.audit.record({"event": "artifact_saved", "run_id": run_id, "key": info["key"], "store": info["store"],
+                              "by": _operator(x_operator)})
+        return info
+
+    @app.get("/control/artifacts", dependencies=auth)
+    def list_artifacts(run_id: str | None = Query(default=None, pattern="^[A-Za-z0-9_-]{1,64}$")) -> list[dict[str, Any]]:
+        try:
+            return list(get_store().list(f"runs/{run_id}/" if run_id else ""))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"artifact store unavailable ({type(exc).__name__})") from None
+
+    @app.get("/control/artifacts/{key:path}", dependencies=auth)
+    def get_artifact(key: str) -> Response:
+        try:
+            data = get_store().get(key)
+        except (KeyError, ValueError):
+            raise HTTPException(status_code=404, detail="artifact not found") from None
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"artifact store unavailable ({type(exc).__name__})") from None
+        name = key.rsplit("/", 1)[-1]
+        return Response(data, media_type="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 def _share_routes(app: FastAPI, manager: RunManager, assistant: Any, auth: list[Any], ttl_days: float = 7.0) -> None:  # noqa: C901 - flat route table

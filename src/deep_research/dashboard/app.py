@@ -769,6 +769,12 @@ def export_buttons(report: dict[str, Any], run_id: str) -> None:
             continue
         col.download_button(label, data, file_name=export_filename(report, fmt, run_id), mime=FORMATS[fmt][0],
                             key=f"dl_{fmt}", use_container_width=True)
+    if ok:
+        a, b = st.columns([2, 1])
+        fmt = a.selectbox("Save a copy to the artifact store", ["md", "pdf", "docx", "json", "html"], key="art_fmt",
+                          help="Local folder data/artifacts by default; S3/MinIO when a bucket is configured (docs/SCALE.md).")
+        if b.button("Save copy", key="art_save", use_container_width=True):
+            act(lambda: client().save_artifact(run_id, fmt, report))
 
 
 # ----- My Researches ---------------------------------------------------------------------------------

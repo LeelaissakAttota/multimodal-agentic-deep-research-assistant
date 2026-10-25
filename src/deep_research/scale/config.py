@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field, SecretStr
@@ -23,6 +24,15 @@ class ScaleSettings(BaseSettings):
 
     # 2) Session storage (SQLAlchemy; postgresql://user:pass@host:5432/db). Unset = SQLite file.
     database_url: SecretStr | None = Field(default=None)
+
+    # 3) Artifact/object storage for saved exports. Unset bucket = local folder.
+    s3_bucket: str = Field(default="", max_length=63)
+    s3_endpoint: str = Field(default="", max_length=300, description="e.g. http://localhost:9000 for MinIO; empty = AWS")
+    s3_region: str = Field(default="us-east-1", max_length=40)
+    s3_prefix: str = Field(default="mdra", max_length=100)
+    s3_access_key: SecretStr | None = Field(default=None)
+    s3_secret_key: SecretStr | None = Field(default=None)
+    artifacts_dir: str = Field(default=str(Path("data") / "artifacts"))
 
     model_config = SettingsConfigDict(
         env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
@@ -75,9 +85,12 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
     is_pg = db_url.startswith(("postgres://", "postgresql"))
     rows.append(_entry("Session database", bool(db_url), ("sqlalchemy", "psycopg") if is_pg else ("sqlalchemy",),
                        "postgres", "SQLite file (data/research_memory.sqlite)", _db_label(db_url)))
+    rows.append(_entry("Artifact storage (S3/MinIO)", bool(s.s3_bucket), ("boto3",), "s3",
+                       f"local folder ({s.artifacts_dir})", f"bucket '{s.s3_bucket}'"))
     if probe:
         _probe(rows[0], lambda: queue.ping(s))
         _probe(rows[1], lambda: _db_ping(db_url))
+        _probe(rows[2], lambda: _s3_ping(s))
     return rows
 
 
@@ -103,3 +116,9 @@ def _db_ping(url: str) -> None:
             conn.execute(sa.text("SELECT 1"))
     finally:
         engine.dispose()
+
+
+def _s3_ping(scale: ScaleSettings) -> None:
+    from deep_research.scale.storage import S3ArtifactStore
+
+    S3ArtifactStore.from_settings(scale).ping()

@@ -142,6 +142,13 @@ class ControlClient:
     def revoke_share(self, share_id: str) -> dict[str, Any]:
         return dict(self._call("POST", f"/control/shares/{share_id}/revoke"))
 
+    def save_artifact(self, run_id: str, fmt: str, report: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Store an export in the artifact store (local folder, or S3/MinIO when MDRA_S3_* is set)."""
+        return dict(self._call("POST", f"/control/runs/{run_id}/artifacts", params={"format": fmt}, json={"report": report}))
+
+    def list_artifacts(self, run_id: str | None = None) -> list[dict[str, Any]]:
+        return list(self._call("GET", "/control/artifacts", params={"run_id": run_id} if run_id else None))
+
 
 # ----- attachments ---------------------------------------------------------------
 
