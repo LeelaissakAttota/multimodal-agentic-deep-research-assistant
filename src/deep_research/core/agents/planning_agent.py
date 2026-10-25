@@ -203,14 +203,14 @@ SOURCE_ROUTES: dict[str, tuple[tuple[str, ...], str, str]] = {
     "commons_image_search": (("image", "picture", "photo", "photograph", "diagram", "illustration", "look like", "looks like",
                               "map of", "visual", "chart"),
                              "Images", "Find freely licensed images of"),
-    "hackernews_search": (("hacker news", "hackernews", "hn", "show hn", "ask hn", "y combinator", "startup*",
+    "hackernews_search": (("hacker news", "hackernews", "show hn", "ask hn", "y combinator", "startup*",
                            "developer*", "programmer*", "engineers think"),
                           "Hacker News discussion", "Survey Hacker News discussion on"),
     "bluesky_search": (("bluesky", "bsky", "social media", "tweet*", "twitter", "trending", "reaction*",
                         "public reaction*", "posts about"),
                        "Bluesky posts", "Survey Bluesky posts on"),
     "stackexchange_search": (("stack overflow", "stackoverflow", "stack exchange", "stackexchange", "error message",
-                              "exception", "how do i", "how to fix", "bug", "compile*", "python", "javascript",
+                              "exception", "how do i", "how to fix", "bug@", "compile*", "python@", "javascript",
                               "sql", "p-value", "theorem", "black-scholes", "q&a"),
                              "Stack Exchange Q&A", "Find Stack Exchange questions and answers on"),
 }
@@ -221,8 +221,22 @@ def route_source_tools(question: str, enabled: Iterable[str]) -> list[str]:
     allowed = set(enabled)
     lowered = question.lower()
     picked = [tool for tool, (keys, _, _) in SOURCE_ROUTES.items()
-              if tool in allowed and any(re.search(_key_pattern(k), lowered) for k in keys)]
+              if tool in allowed and any(_key_matches(k, lowered) for k in keys)]
     return picked[:2]
+
+
+#: Programming-context words that must also appear for ambiguous keys marked with a trailing ``@``
+#: (e.g. ``python@``: "python snake habitat" and "bed bug infestation" are not coding questions).
+_CODE_CONTEXT = re.compile(
+    r"\b(code|coding|error|errors|exception|exceptions|traceback|stack ?trace|library|libraries|package|module|"
+    r"script|scripts|function|functions|api|apis|debug\w*|compil\w*|programming|programmer\w*|syntax|crash\w*|"
+    r"software|pip|numpy|pandas|django|flask|asyncio|regex|runtime|segfault|unit tests?)\b")
+
+
+def _key_matches(key: str, lowered: str) -> bool:
+    if key.endswith("@"):
+        return bool(re.search(_key_pattern(key[:-1]), lowered)) and bool(_CODE_CONTEXT.search(lowered))
+    return bool(re.search(_key_pattern(key), lowered))
 
 
 def _key_pattern(key: str) -> str:

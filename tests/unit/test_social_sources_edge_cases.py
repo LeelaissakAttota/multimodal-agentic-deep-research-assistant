@@ -133,11 +133,18 @@ def test_java_coffee_not_routed_to_stackexchange() -> None:
     assert "stackexchange_search" not in route_source_tools("java coffee production", ALL)
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: bare keyword 'python' routes the snake query to Stack Exchange")
 def test_python_snake_not_routed_to_stackexchange() -> None:
     assert "stackexchange_search" not in route_source_tools("python snake habitat", ALL)
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: bare keyword 'bug' routes insect queries to Stack Exchange")
 def test_bed_bug_not_routed_to_stackexchange() -> None:
     assert "stackexchange_search" not in route_source_tools("bed bug infestation", ALL)
+
+
+def test_programming_context_and_hn_phrases_still_route() -> None:
+    assert route_source_tools("python asyncio exception when awaiting", ALL) == ["stackexchange_search"]
+    assert route_source_tools("bug in my script crashes on startup", ALL)[0] in ("hackernews_search", "stackexchange_search")
+    assert "stackexchange_search" in route_source_tools("debugging a python bug", ALL)
+    assert "hackernews_search" in route_source_tools("Show HN launches this week", ALL)
+    assert "hackernews_search" not in route_source_tools("the hn ratio in chemistry", ALL)
+    assert "hackernews_search" not in route_source_tools("john smith", ALL)
