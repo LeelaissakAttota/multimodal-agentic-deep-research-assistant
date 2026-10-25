@@ -83,7 +83,7 @@ def test_control_uses_injected_queue_and_respects_approval_mode(tmp_path: Path) 
     run = control.manager.create({"objective": "Tea", "mode": "offline"})
     _wait(run)
     assert run.status == RunStatus.COMPLETED and run.result == {"status": "completed", "via": "queue"}
-    assert seen == [{"objective": "Tea", "mode": "offline", "attachments": []}]
+    assert seen == [{"objective": "Tea", "mode": "offline", "attachments": [], "run_id": run.run_id}]
     assert any("queued as job" in line["message"] for line in run.logs)
     control.manager.settings.update(approval_mode=True)
     run2 = control.manager.create({"objective": "Tea"})

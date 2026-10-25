@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     agent_max_plan_tasks: int = Field(default=4, ge=1, le=8)
     agent_tool_steps: int = Field(default=3, ge=0, le=6)
     agent_decision_budget_seconds: float = Field(default=40.0, gt=0, le=120)
+    # Planner prompt variant (A/B experiments): "default" keeps the prompt unchanged.
+    agent_plan_style: Literal["default", "broad", "focused"] = Field(default="default")
 
     # Long-term memory: "auto" = semantic (embeddings + vector store + rerank) when chromadb or
     # sentence-transformers is installed, lexical BoundedResearchMemory otherwise; "off" disables it.

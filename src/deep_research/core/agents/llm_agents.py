@@ -52,6 +52,13 @@ Research question: {question}
 Iteration: {iteration} of {max_iterations}
 {attachments}{history}{gaps}"""
 
+# Planner prompt variants for A/B experiments; "default" adds nothing.
+PLAN_STYLES = {
+    "default": "",
+    "broad": "Style: cover distinct angles of the question (background, evidence, counterpoints) with one task each.\n",
+    "focused": "Style: prefer fewer, very precise queries that target primary sources and hard numbers.\n",
+}
+
 _EVAL_PROMPT = """You are the evaluation (reflection) agent of a web research system.
 Judge whether the research gathered so far answers the question well enough to write a cited report.
 Score coverage (are all parts of the question answered), citation_sufficiency (are claims backed by several
@@ -82,6 +89,7 @@ class LlmPlanningAgent(PlanningAgent):
         source_tools: List[str] | None = None,
         preferred: List[str] | None = None,
         saved_topics: List[str] | None = None,
+        style: str = "default",
     ) -> None:
         if max_tasks < 1:
             raise ValueError("max_tasks must be at least 1")
@@ -92,6 +100,7 @@ class LlmPlanningAgent(PlanningAgent):
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
+        self.style = style if style in PLAN_STYLES else "default"
 
     async def create_plan(
         self,
@@ -143,7 +152,7 @@ class LlmPlanningAgent(PlanningAgent):
             attachments=attachments, history=history, gaps=gap_text,
             tool_field=', "tool": "web_search|' + "|".join(self.source_tools) + '"' if self.source_tools else "",
             tools=self._tools_text(),
-        )
+        ) + PLAN_STYLES[self.style]
 
     def _tools_text(self) -> str:
         if not self.source_tools:

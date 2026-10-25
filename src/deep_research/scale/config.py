@@ -10,7 +10,7 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-State = Literal["off", "missing-dependency", "configured", "ok", "unreachable"]
+State = Literal["off", "missing-dependency", "configured", "ok", "unreachable", "invalid"]
 
 
 class ScaleSettings(BaseSettings):
@@ -38,6 +38,8 @@ class ScaleSettings(BaseSettings):
     otel_exporter: Literal["off", "console", "otlp"] = Field(default="off")
     otel_endpoint: str = Field(default="http://localhost:4318/v1/traces", max_length=300)
     otel_service_name: str = Field(default="mdra", max_length=64)
+    # A/B experiments: inline JSON or a path to a JSON file (see deep_research.scale.experiments).
+    ab_config: str = Field(default="", max_length=20_000)
 
     model_config = SettingsConfigDict(
         env_file=os.environ.get("DEEP_RESEARCH_ENV_FILE") or ".env",
@@ -95,11 +97,26 @@ def backend_status(scale: ScaleSettings | None = None, *, probe: bool = False) -
     otel_deps = ("opentelemetry.sdk",) + (("opentelemetry.exporter.otlp",) if s.otel_exporter == "otlp" else ())
     rows.append(_entry("Tracing (OpenTelemetry)", s.otel_exporter != "off", otel_deps, "tracing", "no tracing",
                        "console exporter" if s.otel_exporter == "console" else f"OTLP to {_host(s.otel_endpoint)}"))
+    rows.append(_experiment_row(s))
     if probe:
         _probe(rows[0], lambda: queue.ping(s))
         _probe(rows[1], lambda: _db_ping(db_url))
         _probe(rows[2], lambda: _s3_ping(s))
     return rows
+
+
+def _experiment_row(s: ScaleSettings) -> dict[str, Any]:
+    row = _entry("A/B experiments", bool(s.ab_config.strip()), (), "", "default prompts and settings")
+    if row["configured"]:
+        from deep_research.scale.experiments import load_experiment
+
+        try:
+            exp = load_experiment(s.ab_config)
+        except ValueError as exc:
+            row.update(state="invalid", detail=f"invalid experiment config: {str(exc)[:160]}")
+        else:
+            row["detail"] = f"experiment '{exp.name}': " + ", ".join(f"{v.name} ({v.weight:g})" for v in exp.variants)
+    return row
 
 
 def _db_label(url: str) -> str:

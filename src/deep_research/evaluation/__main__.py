@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from deep_research.evaluation.offline_eval import case_from_run, run_suite, scorecard_table
+from deep_research.evaluation.offline_eval import case_from_run, compare_variants, run_suite, scorecard_table, variant_table
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,6 +15,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("runs", nargs="*", type=Path, help="saved run JSON files to score (default: bundled cases)")
     parser.add_argument("--json", action="store_true", help="print the scorecard as JSON")
     parser.add_argument("--min-overall", type=float, default=None, help="exit 1 if the mean overall score is below")
+    parser.add_argument("--by-variant", action="store_true", help="compare mean scores per A/B variant")
     args = parser.parse_args(argv)
     cases = None
     if args.runs:
@@ -26,7 +27,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 cases.append(case)
     cards = run_suite(cases)
-    if args.json:
+    if args.by_variant:
+        comparison = compare_variants(cards)
+        print(json.dumps(comparison, indent=2) if args.json else variant_table(comparison))
+    elif args.json:
         print(json.dumps([c.as_dict() for c in cards], indent=2))
     else:
         print(scorecard_table(cards))

@@ -154,6 +154,7 @@ class ResearchApplication:
                 timeout_seconds=self.settings.agent_llm_timeout_seconds,
                 source_tools=sources, preferred=self.settings.preferred_sources(),
                 saved_topics=self.settings.saved_topic_list(),
+                style=self.settings.agent_plan_style,
             )
             evaluation_agent = LlmEvaluationAgent(
                 gateway, max_iterations=limits.max_research_iterations,

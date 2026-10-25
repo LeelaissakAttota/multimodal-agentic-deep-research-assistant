@@ -14,7 +14,7 @@ def run_research_job(payload: dict[str, Any]) -> dict[str, Any]:
     import asyncio
 
     from deep_research.api.research_service import ResearchApplication, ResearchSubmission
-    from deep_research.control.service import DeepResearchControl, _attachments
+    from deep_research.control.service import DeepResearchControl, _attachments, run_variant
     from deep_research.core.config import Settings
 
     objective = str(payload.get("objective") or "").strip()
@@ -22,7 +22,15 @@ def run_research_job(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("objective is required")
     mode = payload.get("mode")
     control = DeepResearchControl(Settings(), with_queue=False)
-    application = ResearchApplication(control.settings_with_keys(mode if isinstance(mode, str) else None))
+    settings = control.settings_with_keys(mode if isinstance(mode, str) else None)
+    run_id = str(payload.get("run_id") or "")
+    assignment = None
+    if run_id:
+        settings, assignment = run_variant(settings, run_id)
+    application = ResearchApplication(settings)
     response = asyncio.run(application.submit(
         ResearchSubmission(objective=objective, attachments=_attachments(payload.get("attachments")))))
-    return response.model_dump(mode="json")
+    result = response.model_dump(mode="json")
+    if assignment:
+        result["experiment"] = assignment
+    return result

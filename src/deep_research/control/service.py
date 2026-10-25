@@ -110,7 +110,10 @@ class DeepResearchControl:
             if not run.approval_mode:
                 return self._run_queued(run, self.queue, objective)
             run.log("approval mode needs the in-process runner; this run is not sent to the job queue")
-        application = ResearchApplication(self.settings_with_keys(mode if isinstance(mode, str) else None))
+        settings, assignment = run_variant(self.settings_with_keys(mode if isinstance(mode, str) else None), run.run_id)
+        if assignment:
+            run.log(f"A/B experiment {assignment['experiment']}: variant {assignment['variant']}")
+        application = ResearchApplication(settings)
         run.log(f"objective: {objective[:200]} (mode={application.settings.research_mode})")
         response = asyncio.run(
             application.submit(
@@ -118,15 +121,17 @@ class DeepResearchControl:
                 step_gate=ControlGate(run),
             )
         )
-        if run.stopped:
-            return response.model_dump(mode="json")
-        if response.status not in ("completed",):
+        if response.status not in ("completed",) and not run.stopped:
             run.log(f"research ended with status {response.status}: {response.error}", level="warning")
-        return response.model_dump(mode="json")
+        result = response.model_dump(mode="json")
+        if assignment:
+            result["experiment"] = assignment
+        return result
 
     def _run_queued(self, run: ControlRun, queue: JobQueue, objective: str) -> dict[str, Any]:
         """Enqueue the run for a worker and poll it; stop requests cancel the job."""
-        payload = {"objective": objective, "mode": run.params.get("mode"), "attachments": run.params.get("attachments") or []}
+        payload = {"objective": objective, "mode": run.params.get("mode"), "attachments": run.params.get("attachments") or [],
+                   "run_id": run.run_id}
         _attachments(payload["attachments"])  # validate before queueing
         job_id = queue.submit(payload)
         run.log(f"queued as job {job_id} on the {queue.name} queue", job_id=job_id)
@@ -165,6 +170,13 @@ class DeepResearchControl:
         result = asyncio.run(agent.execute_task(task))
         output = result.output if isinstance(result.output, dict) else {}
         return bool(result.success), output.get("summary"), result.error
+
+
+def run_variant(settings: Settings, run_id: str) -> tuple[Settings, dict[str, Any] | None]:
+    """Apply the configured A/B variant for ``run_id`` (no-op without ``MDRA_AB_CONFIG``)."""
+    from deep_research.scale.experiments import active_experiment, apply_variant
+
+    return apply_variant(settings, run_id, active_experiment())
 
 
 def _attachments(raw: Any) -> list[ResearchAttachment]:

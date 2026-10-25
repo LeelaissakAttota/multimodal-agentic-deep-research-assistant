@@ -34,6 +34,7 @@ class EvalCase:
     excerpts: dict[int, str]
     expected_points: list[str] = field(default_factory=list)
     expect: str = ""  # free-text note on what the case exercises
+    variant: str = ""  # A/B variant the run was assigned to ("" = no experiment)
 
 
 @dataclass
@@ -44,6 +45,7 @@ class Scorecard:
     coverage: float
     claims: int
     details: dict[str, Any] = field(default_factory=dict)
+    variant: str = ""
 
     @property
     def overall(self) -> float:
@@ -125,8 +127,31 @@ def run_suite(cases: Sequence[EvalCase] | None = None) -> list[Scorecard]:
         from deep_research.evaluation.cases import CASES
 
         cases = CASES
-    return [score_report(c.objective, c.report, c.excerpts, expected_points=c.expected_points, name=c.name)
-            for c in cases]
+    cards = [score_report(c.objective, c.report, c.excerpts, expected_points=c.expected_points, name=c.name)
+             for c in cases]
+    for card, case in zip(cards, cases):
+        card.variant = case.variant
+    return cards
+
+
+def compare_variants(cards: Sequence[Scorecard]) -> dict[str, dict[str, float]]:
+    """Mean scores per A/B variant (cards without a variant are grouped as "(none)")."""
+    groups: dict[str, list[Scorecard]] = {}
+    for card in cards:
+        groups.setdefault(card.variant or "(none)", []).append(card)
+    out: dict[str, dict[str, float]] = {}
+    for name, group in sorted(groups.items()):
+        n = len(group)
+        out[name] = {"runs": n, **{metric: round(sum(getattr(c, metric) for c in group) / n, 3)
+                                   for metric in ("faithfulness", "relevance", "coverage", "overall")}}
+    return out
+
+
+def variant_table(comparison: Mapping[str, Mapping[str, float]]) -> str:
+    header = f"{'variant':<20} {'runs':>5} {'faithful':>8} {'relevant':>8} {'coverage':>8} {'overall':>8}"
+    rows = [f"{name[:20]:<20} {int(m['runs']):>5} {m['faithfulness']:>8.2f} {m['relevance']:>8.2f} "
+            f"{m['coverage']:>8.2f} {m['overall']:>8.2f}" for name, m in comparison.items()]
+    return "\n".join([header, "-" * len(header), *rows])
 
 
 def scorecard_table(cards: Sequence[Scorecard]) -> str:
@@ -153,5 +178,7 @@ def case_from_run(run: Mapping[str, Any], *, name: str | None = None) -> EvalCas
     objective = str(params.get("objective") or report.get("title") or "")
     excerpts = {int(c["number"]): str(c.get("excerpt") or "") for c in report.get("citations") or []
                 if isinstance(c, Mapping) and isinstance(c.get("number"), int)}
+    experiment = result.get("experiment") if isinstance(result, Mapping) else None
+    variant = str(experiment.get("variant") or "") if isinstance(experiment, Mapping) else ""
     return EvalCase(name=name or str(run.get("run_id") or "run"), objective=objective,
-                    report=str(report.get("content") or ""), excerpts=excerpts)
+                    report=str(report.get("content") or ""), excerpts=excerpts, variant=variant)
