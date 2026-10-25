@@ -86,8 +86,9 @@ def test_default_import_needs_no_optional_backends() -> None:
 
 @pytest.mark.parametrize("value", [
     f"postgresql://user:{SECRET}@db:5432/x", f"https://u:{SECRET}@h/p",
-    pytest.param(f"redis://:{SECRET}@redis:6379/0", marks=pytest.mark.xfail(
-        strict=True, reason="BUG: tracing._URL_CREDENTIALS needs a non-empty user; redis://:pw@ leaks password")),
+    f"redis://:{SECRET}@redis:6379/0", f"rediss://{SECRET}@redis:6380", f"amqp+ssl://u:{SECRET}@mq/v",
+    f"bolt://neo4j:{SECRET}@neo:7687", f"mongodb+srv://u:p@{SECRET}@c/x", f"postgresql://:{SECRET}@db/x?sslmode=require",
+    f"see redis://:{SECRET}@a:1/0 and https://u:{SECRET}@b/c",
 ])
 def test_span_attributes_redact_url_passwords(value: str) -> None:
     out = safe_attributes({"mdra.url": value, "items": [value]})

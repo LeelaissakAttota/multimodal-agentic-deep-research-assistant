@@ -91,3 +91,14 @@ def test_exception_recorded_by_type_only() -> None:
             raise ValueError(f"leak {SECRETS[0]}")
     finished: Any = exporter.get_finished_spans()[0]
     assert finished.attributes["error.type"] == "ValueError" and SECRETS[0] not in str(finished.to_json())
+
+
+def test_redis_style_url_password_never_in_spans() -> None:
+    exporter = InMemorySpanExporter()
+    configure_tracing(exporter=exporter, force=True)
+    pw = "Redis-Pw-123456"
+    with span("db", **{"mdra.target": f"redis://:{pw}@cache:6379/0", "mdra.user_only": f"ftp://{pw}@h/x"}):
+        pass
+    attrs = dict(exporter.get_finished_spans()[0].attributes or {})
+    assert pw not in json.dumps(attrs) and attrs["mdra.target"] == "redis://[REDACTED]@cache:6379/0"
+    assert safe_attributes({"u": "https://example.org/a@b"})["u"] == "https://example.org/a@b"  # '@' in path kept

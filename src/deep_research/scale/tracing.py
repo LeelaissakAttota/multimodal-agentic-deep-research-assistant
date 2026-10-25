@@ -19,7 +19,9 @@ from deep_research.observability.redaction import is_sensitive_key, redact_text
 if TYPE_CHECKING:
     from deep_research.tools.tool import Tool, ToolRequest, ToolResult
 
-_URL_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+(?::[^/\s@]*)?@")
+# Any scheme; userinfo may be "user:pw", ":pw" (e.g. redis://:pw@host) or "user". Greedy up to the last "@"
+# of the authority so passwords containing "@" or ":" are removed too.
+_URL_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]*@")
 _MAX_VALUE = 256
 _lock = threading.Lock()
 _state: dict[str, Any] = {"configured": False, "tracer": None, "provider": None}
