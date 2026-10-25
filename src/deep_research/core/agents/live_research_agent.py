@@ -221,7 +221,8 @@ class LiveResearchAgent(ResearchAgent):
             host = (urlparse(url).hostname or "").lower().rstrip(".").removeprefix("www.")
         except ValueError:
             return False
-        return any(host == d or host.endswith("." + d) for d in self.blocked_domains)
+        domains = [d.rstrip(".") for d in self.blocked_domains]
+        return any(d and (host == d or host.endswith("." + d)) for d in domains)
 
     async def _search(self, run: "_ToolRun", query: str) -> None:
         result = await self.search_tool.execute(
