@@ -24,6 +24,19 @@ Every endpoint except `GET /control/health` requires `Authorization: Bearer <tok
 | `GET /control/runs/{id}/logs?after=N` / `logs/stream` | polling / SSE log stream |
 | `GET /control/approvals`, `/control/audit` | approval feed and audit log |
 | `GET /control/keys`, `PUT /control/keys/{NAME}` | masked view (last 4) / write-only update |
+| `GET /control/runs/{id}/export?format=html` | self-contained static HTML (also `pdf`, `docx`, `pptx`, `json`, `md`) |
+| `POST /control/runs/{id}/shares` | create a read-only share link (`{"report": {...}}` optional, for runs only saved by the dashboard); returns `path` with the token **once** |
+| `GET /control/shares[?run_id=]` | list shares (id, run, created, active; never tokens) |
+| `POST /control/shares/{share_id}/revoke` | revoke a share (kept as revoked; the link stops working) |
+| `GET /share/{share_id}?token=...` | **no bearer token**: the share token alone gives read-only access to that one HTML snapshot |
+
+Share links: the token (32 random bytes) is returned once; only its SHA-256 hash is stored in
+`data/assistant.db` and it is compared with `hmac.compare_digest`. Unknown, wrong or revoked tokens all
+return the same 404. The page is served with `Content-Security-Policy: default-src 'none'`, `Cache-Control:
+no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`. Share routes exist only when the
+server is started with the assistant store (`deep-research-control` does this). The server runs with
+access logging off, so URLs carrying tokens are not logged; share create/revoke events are audited
+without the token.
 
 ## Gates
 

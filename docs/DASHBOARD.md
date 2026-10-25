@@ -11,15 +11,15 @@ The script creates a control token for the session if `DEEP_RESEARCH_CONTROL_TOK
 
 | Page | What it does |
 |---|---|
-| Dashboard | Welcome banner, four stat tiles (total, completed, in progress, average completion time), recent researches, capabilities, quick actions, source types |
+| Dashboard | Welcome banner, four stat tiles (total, completed, in progress, average completion time), recent researches, upcoming reminders, capabilities, quick actions, source types |
 | New Research | Ask a Question / Upload Files (PDF, DOCX, PPTX, TXT, MD, images) / From URL (any public web page, read as a cited source in live mode, or a direct PDF/document/image link; every hop is SSRF-checked), Web Search toggle (= live mode), step-by-step approval. Starting a run opens the live run view with Approve / Reject, Pause / Resume / Stop |
-| My Researches | Searchable, filterable list with tags and status; opens the report (Markdown, per-claim confidence, numbered citations with credibility badges, PDF / DOCX / PPTX / JSON / Markdown download) or the live run |
+| My Researches | Searchable, filterable list with tags and status; opens the report (Markdown, per-claim confidence, numbered citations with credibility badges, PDF / DOCX / PPTX / JSON / Markdown download) or the live run. The report page has **Ask this report** (grounded follow-up chat), **Notes & reminders** and **Share** (static HTML, revocable read-only link) tabs |
 | Knowledge Base | Reports, claims and uploaded files from all runs |
 | Sources | Source types and every cited source with its credibility badge, de-duplicated across reports |
 | Tools & Integration | The engine's real tools with their current state, plus Provider Health |
-| Settings | General (saved to `dashboard_runs/prefs.json`), Research (approval policy, engine limits), Notifications (coming soon), Account (masked API keys) |
+| Settings | General (saved to `dashboard_runs/prefs.json`), Research (approval policy, engine limits), Profile & Preferences (saved topics, preferred/blocked sources and domains, default depth), Reminders (local only), Account (masked API keys) |
 
-All counts come from the control API and the runs saved under `dashboard_runs/`. Features the engine does not support yet (video, audio, notifications) are shown as "coming soon".
+All counts come from the control API and the runs saved under `dashboard_runs/`. Features the engine does not support yet (video, audio) are shown as "coming soon". Chat history, profile, notes, reminders and shares are stored in `data/assistant.db` (see [ASSISTANT.md](ASSISTANT.md)).
 
 Credibility badges (High / Medium / Unverified / Low, or Provided for your own files) come from a domain heuristic; hover for the reason. Claim confidence scores each cited statement by the number of distinct sources and their credibility, lowered for hedged wording. Times are shown in IST (`DEEP_RESEARCH_DISPLAY_TZ` to change).
 ## Live Research View

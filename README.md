@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 655 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 690 passing | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -50,11 +50,12 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **Public discussion and research sources (keyless, live mode):** arXiv / Semantic Scholar / OpenAlex papers, YouTube transcripts, Reddit, Hacker News (Algolia API), Stack Exchange Q&A (Stack Overflow, stats, math, physics, quant, money), Bluesky posts (public AppView, optional app-password login) and Wikimedia Commons images, routed by the planner with web-search fallback. See [docs/LIVE_MODE.md](docs/LIVE_MODE.md).
 - **Multimodal inputs:** PDF text extraction with pypdf; DOCX, PPTX, TXT and Markdown parsing (stdlib, zip-bomb and XML-entity safe, page/slide citations); local OCR for images and scanned PDFs with RapidOCR (tesseract fallback, skipped cleanly when neither is installed); image description with a free vision model; web page URLs read through the SSRF-guarded fetcher (live mode); and an audio transcription tool with a free speech-to-text router. Attachments are cited first, as primary sources. Video and audio uploads in the dashboard are still coming soon.
 - **Trust signals:** every cited source gets a heuristic credibility score (government, academic and journal domains high; major news high; Wikipedia medium; blogs and user-generated platforms low; unknown domains "unverified"), and every cited statement in a report gets a confidence score from how many distinct sources back it, how credible they are, and whether the wording is hedged. Both are heuristics, not fact checks.
-- **Exports and CLI:** reports download as PDF, DOCX, PPTX, JSON or Markdown from the dashboard and `GET /control/runs/{id}/export`, and a `deep-research` CLI runs one question end to end.
+- **Exports and CLI:** reports download as PDF, DOCX, PPTX, JSON, Markdown or self-contained HTML from the dashboard and `GET /control/runs/{id}/export`, and a `deep-research` CLI runs one question end to end.
+- **Assistant features (local):** follow-up chat on a finished report that answers only from that report's text, claims and cited sources (with `[n]` citations, refusing unsupported questions; free model optional, offline extractive fallback), a user profile (saved topics, preferred/blocked sources and domains, default depth) that the planner applies to every run, notes and due-date reminders per report, and revocable token-protected read-only share links plus self-contained HTML export. Stored in SQLite under the git-ignored `data/`. See [docs/ASSISTANT.md](docs/ASSISTANT.md).
 - **Supervised-control API:** a local, token-protected API to start, pause, resume and stop runs and to approve, reject or retry steps. Low-risk steps can be auto-approved, and every decision goes to an audit log. Keys are write-only and shown masked.
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 655 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 690 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -131,7 +132,7 @@ deep-research run "How do SMRs compare on cost?" --mode live \
 
 ### Exports
 
-Finished runs export as `pdf`, `docx`, `pptx`, `json` or `md`: from the report page in the dashboard, with `GET /control/runs/{id}/export?format=pdf` on the control API, or with `deep-research run ... --export pdf`. Exports include the report body and tables, numbered sources with credibility, and claim confidence. A missing optional library returns 501 with the pip command.
+Finished runs export as `pdf`, `docx`, `pptx`, `json`, `md` or `html` (self-contained, inline CSS, no scripts): from the report page in the dashboard, with `GET /control/runs/{id}/export?format=pdf` on the control API, or with `deep-research run ... --export pdf`. Exports include the report body and tables, numbered sources with credibility, and claim confidence. A missing optional library returns 501 with the pip command.
 
 ### Supervised control
 
@@ -141,6 +142,10 @@ deep-research-control --port 8711     # binds to 127.0.0.1 only
 ```
 
 See [docs/CONTROL_API.md](docs/CONTROL_API.md) for the endpoints, approval gates and key handling.
+
+### Assistant: follow-up chat, profile, notes, reminders, sharing
+
+On a report page in the dashboard: **Ask this report** (grounded Q&A with citations; unsupported questions are refused), **Notes & reminders**, and **Share** (HTML download, or a read-only link `http://127.0.0.1:8711/share/<id>?token=...` that you can revoke). **Settings → Profile & Preferences** sets saved topics, preferred/blocked sources, blocked domains and default depth (quick / standard / deep) for every new run; **Dashboard** lists upcoming reminders. Reminders are local only: nothing is emailed or pushed. Data lives in `data/assistant.db` (override with `DEEP_RESEARCH_ASSISTANT_DB`). Details: [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
 ### Docker
 
@@ -176,7 +181,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 655 tests, offline, $0
+pytest          # 690 tests, offline, $0
 ruff check .
 mypy src
 ```
@@ -189,7 +194,8 @@ mypy src
 | `src/deep_research/core` | agents, orchestrator, step gate, config, free-model guard |
 | `src/deep_research/control` | supervised-control API, run manager, risk rules, secret store |
 | `src/deep_research/tools` | web search and fetch, web page reader, PDF, document, image, OCR, audio tools, registry and selector |
-| `src/deep_research/export`, `src/deep_research/cli.py` | PDF/DOCX/PPTX/JSON/Markdown report export, `deep-research` CLI |
+| `src/deep_research/export`, `src/deep_research/cli.py` | PDF/DOCX/PPTX/JSON/Markdown/HTML report export, `deep-research` CLI |
+| `src/deep_research/assistant` | report follow-up chat, profile and preferences, notes and reminders, share links (local SQLite) |
 | `src/deep_research/models` | OpenRouter gateway, catalog, routing, speech-to-text router |
 | `src/deep_research/{evidence (incl. credibility and claim scoring),domain,persistence,runtime,memory,context,observability,security}` | contracts, storage, budgets, logging and redaction |
 | `tests/unit`, `tests/integration` | offline tests |
