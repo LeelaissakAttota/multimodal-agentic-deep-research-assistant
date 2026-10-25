@@ -113,6 +113,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         env_prefix="DEEP_RESEARCH_",
+        # The shared .env also holds MDRA_* (ScaleSettings) and other tools' keys; never crash on them.
+        extra="ignore",
     )
 
     def enabled_source_tools(self) -> list[str]:
