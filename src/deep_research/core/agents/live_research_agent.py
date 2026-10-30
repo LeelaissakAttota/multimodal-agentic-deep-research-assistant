@@ -89,7 +89,9 @@ class LiveResearchAgent(ResearchAgent):
         budget_hook: Callable[[str], None] | None = None,
         source_tools: dict[str, Tool] | None = None,
         blocked_domains: list[str] | None = None,
+        preamble: str = "",
     ) -> None:
+        self.preamble = preamble  # writer identity + lessons, prepended to the synthesis prompt
         self.source_tools: dict[str, Tool] = dict(source_tools or {})
         self.blocked_domains = [n for n in (normalize_domain(d) for d in blocked_domains or []) if n]
         self.tool_gateway = tool_gateway
@@ -385,7 +387,7 @@ class LiveResearchAgent(ResearchAgent):
         if self.gateway is None:
             return fallback, None, None
         request = ModelRequest(
-            prompt=_SYNTH_PROMPT.format(objective=objective, sources=numbered,
+            prompt=self.preamble + _SYNTH_PROMPT.format(objective=objective, sources=numbered,
                                         focus=f"Focus for this section: {focus}\n" if focus else "",
                                         attachment_note=_ATTACHMENT_NOTE if has_attachments else ""),
             parameters={"max_tokens": self.max_tokens,

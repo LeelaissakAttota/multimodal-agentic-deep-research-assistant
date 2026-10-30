@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     # sentence-transformers is installed, lexical BoundedResearchMemory otherwise; "off" disables it.
     long_term_memory: Literal["auto", "semantic", "lexical", "off"] = Field(default="auto")
     memory_dir: str = Field(default="data")
+    # Self-improvement: after each run a reflection step writes lessons + tool reliability stats to
+    # <memory_dir>/learning.db; the next runs retrieve relevant lessons into the planner prompt.
+    self_improvement: bool = Field(default=True)
+    self_improvement_top_k: int = Field(default=3, ge=0, le=10)
+    self_improvement_max_lessons: int = Field(default=50, ge=1, le=500)
 
     @field_validator("long_term_memory", mode="before")
     @classmethod

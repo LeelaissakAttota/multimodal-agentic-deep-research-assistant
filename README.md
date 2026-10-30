@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1220 tests (1208 passing, 12 skipped without optional services) | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1242 tests (1230 passing, 12 skipped without optional services) | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -56,7 +56,7 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 - **Optional scale backends (all off by default, all free/local):** RQ job queue on Redis with a Windows-safe worker, Postgres session storage with a migration tool, MinIO/S3 artifact storage, OpenTelemetry tracing with secret-free spans, deterministic A/B experiments on planner/prompt variants compared in the evaluation suite, a claims-and-sources knowledge graph (local, optional Neo4j sync) and a Chrome MV3 extension that sends pages to the local control API. The dashboard shows each backend's real status. See [docs/SCALE.md](docs/SCALE.md).
 - **Safe operations:** structured or plain-text logs with secret redaction, 422 responses that never echo the submitted input, HTTP and crash context in logs, and research lifecycle events.
 - **Reliability:** transactional SQLite session persistence and recovery, retries, timeouts, budgets, an emergency stop, and ordered model fallback.
-- **Repeatable validation:** 1207 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
+- **Repeatable validation:** 1230 offline tests (unit, integration and adversarial), Ruff, strict MyPy, and a GitHub Actions matrix on Python 3.11, 3.12 and 3.13. There is also a Dockerfile.
 
 ## How it works
 
@@ -159,6 +159,37 @@ On a report page in the dashboard: **Ask this report** (grounded Q&A with citati
 
 Speed: when step-by-step approval is off, a plan's independent research tasks run concurrently (about 4x faster per iteration in live tests), and if another iteration would exhaust the time budget the report is written from the evidence already gathered. Linux/macOS: `scripts/start-dashboard.sh` starts the control API and dashboard.
 
+### Agent identity and self-improvement (on by default, fully local)
+
+The agent has a versioned identity in [`config/agent_identity.yaml`](config/agent_identity.yaml): name, role, mission,
+core principles (cite every claim, prefer authoritative evidence, flag uncertainty) and style. It is injected at the
+top of the planner, analysis and writer prompts. The core is human-owned: the agent cannot edit it, and every
+version/core hash it runs with is logged (identity changelog). Only *lessons* and *tool reliability stats* evolve.
+
+How the agent improves itself after every run, with no human in the loop (`src/deep_research/learning/`):
+
+1. **Score.** A reflection step scores the run 0-100 from signals it already has: citation count and claim coverage,
+   source credibility, failed or slow tools, run time, the evaluator's quality scores and user feedback when present.
+2. **Reflect.** The configured LLM writes 1-3 short, reusable lessons ("for finance questions, prefer SEC filings and
+   central-bank data"; "tool X timed out, lower its priority"). Without a model, deterministic rules write them.
+3. **Validate and store.** Lessons go to a local SQLite store (`data/learning.db`) with evidence, run id, timestamp,
+   confidence and usage count. Secrets and personal data are rejected, near-duplicates reinforce the existing lesson,
+   a contradicting lesson lowers the old one, confidence decays when a lesson is not used, and low-confidence lessons
+   are pruned under a hard cap (`DEEP_RESEARCH_SELF_IMPROVEMENT_MAX_LESSONS`, default 50).
+4. **Apply.** Before planning, the top-k relevant lessons (keyword + topic match weighted by confidence, optional
+   embedding re-score) are injected into the planner prompt, and live source tools are re-ranked by measured success
+   rate and latency; a tool under 25% success after 3+ calls is skipped.
+5. **Show.** The dashboard's *Identity & Learning* page has the identity card, the lessons (with evidence, confidence,
+   on/off toggle and delete), the tool reliability table and the run-score chart (before vs after lessons).
+
+Turn it off with `DEEP_RESEARCH_SELF_IMPROVEMENT=false`; `DEEP_RESEARCH_SELF_IMPROVEMENT_TOP_K` (3) sets how many
+lessons a run uses.
+
+**In one interview sentence:** every run is graded on evidence the system already measures, a reflection agent turns
+that grade into a few validated lessons in a local memory, and the next similar question retrieves those lessons
+(the same RAG idea used for documents) and steers planning and tool choice, while the core identity stays fixed and
+auditable.
+
 ### Docker
 
 ```bash
@@ -197,7 +228,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 1220 tests: 1208 passing + 12 optional-service skips, offline, $0
+pytest          # 1242 tests: 1230 passing + 12 optional-service skips, offline, $0
 ruff check .
 mypy src
 ```

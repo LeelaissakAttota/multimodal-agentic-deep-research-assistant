@@ -89,7 +89,9 @@ class LiveAnalysisAgent(AnalysisAgent):
         timeout_seconds: float = 30.0,
         max_claims: int = 8,
         budget_hook: Callable[[str], None] | None = None,
+        preamble: str = "",
     ) -> None:
+        self.preamble = preamble
         self.gateway = gateway
         self.timeout_seconds = timeout_seconds
         self.max_claims = max_claims
@@ -127,7 +129,7 @@ class LiveAnalysisAgent(AnalysisAgent):
         excerpts = "\n\n".join(
             f"[{i}] {s['title']}\n{s['excerpt'][:EXCERPT_CHARS]}" for i, s in enumerate(sources, start=1)
         )
-        prompt = PROMPT.format(objective=plan.objective, excerpts=excerpts, max_claims=self.max_claims)
+        prompt = self.preamble + PROMPT.format(objective=plan.objective, excerpts=excerpts, max_claims=self.max_claims)
         if self.budget_hook is not None:
             self.budget_hook("analysis")
         reply, model_id = await ask_json(self.gateway, prompt, max_tokens=900,

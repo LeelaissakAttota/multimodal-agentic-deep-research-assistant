@@ -97,11 +97,16 @@ class ResearchApplication:
         self._run_budget_hook: Callable[[str], None] | None = None
         self._memory: LongTermMemory | None = None
         self._memory_built = False
+        self._learning: Any = None
+        self._learning_run: Any = None
 
     async def submit(
         self, submission: ResearchSubmission, *, step_gate: StepGate | None = None, run_id: str | None = None
     ) -> ResearchRunResponse:
         """Run one research. ``run_id`` (the control run id) tags every span for the local trace timeline."""
+        learning = self.learning
+        sources = self.settings.enabled_source_tools() if self.settings.research_mode == "live" else []
+        self._learning_run = learning.before_run(submission.objective, sources) if learning else None
         orchestrator = self._build_orchestrator()
         orchestrator.step_gate = step_gate
         request = ResearchRequest(
@@ -121,6 +126,15 @@ class ResearchApplication:
         report = state.metadata.get("report")
         if isinstance(report, dict):
             report["agent_mode"] = "llm_with_fallback" if self.agentic else "deterministic"
+        if learning is not None and self._learning_run is not None:
+            summary = await learning.after_run(
+                self._learning_run, run_id=run_id or str(state.id), objective=request.objective,
+                status=str(state.status), report=report if isinstance(report, dict) else None,
+                runtime=state.metadata.get("runtime"), metadata=state.metadata, gateway=self._run_gateway,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds)
+            state.metadata["learning"] = summary
+            if isinstance(report, dict):
+                report["learning"] = summary
         self._states[state.id] = state.model_copy(deep=True)
         while len(self._states) > self.max_sessions:
             oldest_session_id = next(iter(self._states))
@@ -145,6 +159,10 @@ class ResearchApplication:
         )
         gateway = self._agent_gateway()
         sources = self.settings.enabled_source_tools() if self.settings.research_mode == "live" else []
+        run = self._learning_run
+        if run is not None:  # learned tool reliability: reorder, and skip tools that keep failing
+            sources = [t for t in run.tool_order if t in sources]
+        preamble = run.preamble if run is not None else ""
         planning_agent: PlanningAgent = DeterministicPlanningAgent(sources, self.settings.preferred_sources(),
                                                                     self.settings.saved_topic_list())
         evaluation_agent: EvaluationAgent = DeterministicEvaluationAgent()
@@ -158,6 +176,7 @@ class ResearchApplication:
                 source_tools=sources, preferred=self.settings.preferred_sources(),
                 saved_topics=self.settings.saved_topic_list(),
                 style=self.settings.agent_plan_style,
+                preamble=preamble,
             )
             evaluation_agent = LlmEvaluationAgent(
                 gateway, max_iterations=limits.max_research_iterations,
@@ -172,8 +191,8 @@ class ResearchApplication:
 
         return MasterResearchOrchestrator(
             planning_agent=planning_agent,
-            research_agent=self._build_research_agent(),
-            analysis_agent=self._analysis_agent(gateway, charge_model_call),
+            research_agent=self._wrap_research_agent(self._build_research_agent()),
+            analysis_agent=self._analysis_agent(gateway, charge_model_call, preamble),
             evaluation_agent=evaluation_agent,
             report_agent=DeterministicReportAgent(
                 verifier=ClaimVerifier(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
@@ -185,14 +204,31 @@ class ResearchApplication:
             context_builder=ResearchContextBuilder(memory.memory) if memory else None,
         )
 
-    def _analysis_agent(self, gateway: Any, charge: Any) -> AnalysisAgent:
+    def _wrap_research_agent(self, agent: ResearchAgent) -> ResearchAgent:
+        learning, run = self.learning, self._learning_run
+        return learning.wrap(agent, run) if learning is not None and run is not None else agent
+
+    @property
+    def learning(self) -> Any:
+        """Lazily built self-improvement loop (``None`` when ``self_improvement`` is off)."""
+        if self._learning is None and self.settings.self_improvement:
+            from pathlib import Path
+
+            from deep_research.learning import SelfImprovement
+
+            self._learning = SelfImprovement(Path(self.settings.memory_dir) / "learning.db",
+                                             top_k=self.settings.self_improvement_top_k,
+                                             max_lessons=self.settings.self_improvement_max_lessons)
+        return self._learning
+
+    def _analysis_agent(self, gateway: Any, charge: Any, preamble: str = "") -> AnalysisAgent:
         """Live runs get source-grounded claims (LLM when configured, extractive otherwise)."""
         if self.settings.research_mode != "live":
             return DeterministicAnalysisAgent()
         from deep_research.core.agents.live_analysis_agent import LiveAnalysisAgent
 
         return LiveAnalysisAgent(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
-                                 budget_hook=charge if gateway is not None else None)
+                                 budget_hook=charge if gateway is not None else None, preamble=preamble)
 
     @property
     def long_term_memory(self) -> LongTermMemory | None:
@@ -243,6 +279,10 @@ class ResearchApplication:
         from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
 
         vision = build_provider_gateway(self.settings, capability=ModelCapability.VISION)
+        run = self._learning_run  # learned tool order/skips and identity preamble, when self-improvement is on
+        sources = self.settings.enabled_source_tools()
+        sources = [t for t in run.tool_order if t in sources] if run is not None else sources
+        preamble = run.preamble if run is not None else ""
 
         return LiveResearchAgent(
             search_tool=WebSearchTool(
@@ -266,8 +306,9 @@ class ResearchApplication:
             max_searches=2,
             decision_budget_seconds=self.settings.agent_decision_budget_seconds,
             budget_hook=self._run_budget_hook,
-            source_tools=build_source_tools(self.settings.enabled_source_tools()),
+            source_tools=build_source_tools(sources),
             blocked_domains=self.settings.blocked_domain_list(),
+            preamble=preamble,
         )
 
     @staticmethod

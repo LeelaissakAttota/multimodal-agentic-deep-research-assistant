@@ -2,6 +2,17 @@
 
 ## [Unreleased] - feat/phase7
 
+### Added: agent identity and self-improvement (2026-10-30)
+- `config/agent_identity.yaml` + `deep_research.learning.identity`: versioned, human-owned identity (name, role,
+  mission, principles, style, changelog) injected into the planner, analysis and writer prompts.
+- `deep_research.learning`: post-run reflection (LLM with deterministic fallback) scores each run and writes 1-3
+  lessons to a local SQLite lesson store (evidence, run id, confidence, usage count) with secret/PII rejection,
+  dedupe, contradiction handling, decay and pruning; tool reliability stats (success rate, latency) re-rank and skip
+  live source tools; top-k relevant lessons are injected into the planner prompt. Settings:
+  `DEEP_RESEARCH_SELF_IMPROVEMENT`, `..._TOP_K`, `..._MAX_LESSONS`.
+- Dashboard: *Identity & Learning* page (identity card, lessons with toggle/delete, tool reliability, run-score chart).
+- 22 new tests (`tests/unit/test_learning.py`).
+
 ### Fixed and improved (box review, 2026-10-30)
 - Independent research tasks run concurrently when step-by-step approval is off (sequential with approval on).
 - When another iteration would exhaust the wall-clock budget, the report is written from the evidence gathered so

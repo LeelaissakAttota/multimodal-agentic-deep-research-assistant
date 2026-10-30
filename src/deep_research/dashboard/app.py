@@ -36,7 +36,7 @@ from deep_research.dashboard.core import (
 
 NAV = [("dashboard", "Dashboard", "▦"), ("new", "New Research", "＋"), ("researches", "My Researches", "☰"),
        ("knowledge", "Knowledge Base", "◈"), ("sources", "Sources", "⌘"), ("tools", "Tools & Integration", "⚙"),
-       ("settings", "Settings", "⚒")]
+       ("learning", "Identity & Learning", "✦"), ("settings", "Settings", "⚒")]
 ROOT = Path(os.environ.get("DEEP_RESEARCH_DASHBOARD_DIR") or Path.cwd() / "dashboard_runs")
 EXAMPLES = [
     ("⚛️", "Small modular reactors", "Benefits, risks and costs of SMRs",
@@ -363,6 +363,87 @@ with st.sidebar:
         f"<div>{shipped} of {len(tools_now)} capabilities shipped</div>"
         f"<div style='margin-top:10px'>Project repository<br><a href='{REPO_URL}' target='_blank' style='color:#c2593a'>"
         f"View on GitHub ↗</a></div></div>", unsafe_allow_html=True)
+
+
+# ----- Agent Identity & Learning -------------------------------------------------------------------
+def _learning_store() -> Any:
+    from deep_research.learning import LessonStore
+
+    s = Settings()
+    return LessonStore(Path(s.memory_dir) / "learning.db", max_lessons=s.self_improvement_max_lessons)
+
+
+def page_learning() -> None:  # noqa: C901 - one screen of layout
+    from deep_research.learning import load_identity
+
+    head("Agent Identity & Learning", "Who the agent is, what it has learned from past runs, and whether it is getting better.")
+    ident, s = load_identity(), Settings()
+    store = _learning_store()
+    lessons, tools, runs = store.all_lessons(), store.tool_stats(), store.runs()
+    before = [r["score"] for r in runs if not r["lessons_applied"]]
+    after = [r["score"] for r in runs if r["lessons_applied"]]
+
+    def avg(xs: list[float]) -> str:
+        return f"{sum(xs) / len(xs):.0f}" if xs else "–"
+
+    tiles([("✦", "c1", "Identity version", f"v{ident.version}", "core values are human-owned", True),
+           ("💡", "c2", "Learned lessons", str(sum(x.enabled for x in lessons)),
+            f"{len(lessons)} stored · max {s.self_improvement_max_lessons}", True),
+           ("📈", "c3", "Avg score before → after", f"{avg(before)} → {avg(after)}", "runs without vs with lessons", True),
+           ("⚙", "c4", "Self-improvement", "On" if s.self_improvement else "Off", "DEEP_RESEARCH_SELF_IMPROVEMENT",
+            s.self_improvement)])
+    left, right = st.columns([1, 1.4], gap="medium")
+    with left:
+        st.markdown(
+            f"<div class='panel'><div class='ph'>Identity <span class='muted'>v{e(ident.version)} · core {e(ident.core_hash)}</span></div>"
+            f"<div style='display:flex;gap:10px;align-items:center'><div class='sq c1' style='width:40px;height:40px'>🔬</div>"
+            f"<div><b>{e(ident.name)}</b><div class='muted'>{e(ident.role)}</div></div></div>"
+            f"<div style='margin-top:8px'>{e(ident.mission)}</div><div class='ph' style='margin-top:10px'>Principles</div>"
+            + "".join(f"<div style='margin:4px 0'>• {e(v)}</div>" for v in ident.values)
+            + f"<div class='muted' style='margin-top:8px'>Style: {e(ident.style)}</div>"
+            + "<div class='ph' style='margin-top:10px'>Identity changelog</div>"
+            + "".join(f"<div class='kv'><span>v{e(c.get('version', ''))} · {e(c.get('date', ''))}</span>"
+                      f"<span title='{e(c.get('change', ''))}'>{e(c.get('change', ''))}</span></div>" for c in ident.changelog)
+            + "</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<div class='ph'>Tool reliability</div>", unsafe_allow_html=True)
+            if tools:
+                st.dataframe([{"tool": t["tool"], "calls": t["calls"], "success %": round(100 * t["success_rate"]),
+                               "avg latency ms": round(t["avg_latency_ms"]), "last error": t["last_error"] or ""}
+                              for t in tools], hide_index=True, width="stretch")
+            else:
+                st.markdown("<div class='muted'>No tool calls recorded yet.</div>", unsafe_allow_html=True)
+            st.markdown("<div class='muted'>Tools are ranked by smoothed success rate, then latency; a tool under 25% "
+                        "success after 3+ calls is skipped.</div>", unsafe_allow_html=True)
+    with right:
+        with st.container(border=True):
+            st.markdown("<div class='ph'>Improvement across runs <span class='muted'>run score 0-100</span></div>", unsafe_allow_html=True)
+            if runs:
+                st.line_chart({"run": list(range(1, len(runs) + 1)), "score": [r["score"] for r in runs]},
+                              x="run", y="score", color="#c2593a", height=220)
+                st.markdown("<div class='muted'>" + " · ".join(
+                    f"#{i}: {r['score']:.0f} ({r['lessons_applied']} lesson{'s' if r['lessons_applied'] != 1 else ''} used)"
+                    for i, r in enumerate(runs[-8:], start=max(1, len(runs) - 7))) + "</div>", unsafe_allow_html=True)
+            else:
+                st.markdown("<div class='muted'>No scored runs yet. Every finished run is scored and reflected on.</div>",
+                            unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(f"<div class='ph'>Learned lessons ({len(lessons)})</div>", unsafe_allow_html=True)
+            if not lessons:
+                st.markdown("<div class='muted'>No lessons yet. They appear after the first run.</div>", unsafe_allow_html=True)
+            for x in lessons:
+                a, b, c = st.columns([5, 1.1, 0.7], vertical_alignment="center")
+                a.markdown(f"<div style='min-width:0'><b>{e(x.text)}</b><div class='muted'>{e(x.topic)} · confidence "
+                           f"{store.effective_confidence(x):.2f} · used {x.usage_count}× · {e(x.source)}</div>"
+                           f"<div class='muted ellipsis' title='{e(x.evidence)}'>evidence: {e(x.evidence)}</div></div>",
+                           unsafe_allow_html=True)
+                on = b.toggle("On", value=x.enabled, key=f"lesson-on-{x.id}")
+                if on != x.enabled:
+                    store.set_enabled(x.id, on)
+                    st.rerun()
+                if c.button("🗑", key=f"lesson-del-{x.id}", help="Delete this lesson"):
+                    store.delete(x.id)
+                    st.rerun()
 
 
 # ----- Dashboard -----------------------------------------------------------------------------------
@@ -1228,6 +1309,6 @@ try:
         (live_view if view == "live" else report_view)(rid)
     else:
         {"dashboard": page_dashboard, "new": page_new, "researches": page_researches, "knowledge": page_knowledge,
-         "sources": page_sources, "tools": page_tools, "settings": page_settings}[page]()
+         "sources": page_sources, "tools": page_tools, "learning": page_learning, "settings": page_settings}[page]()
 finally:
     _loader.empty()

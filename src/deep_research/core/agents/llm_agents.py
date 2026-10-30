@@ -90,6 +90,7 @@ class LlmPlanningAgent(PlanningAgent):
         preferred: List[str] | None = None,
         saved_topics: List[str] | None = None,
         style: str = "default",
+        preamble: str = "",
     ) -> None:
         if max_tasks < 1:
             raise ValueError("max_tasks must be at least 1")
@@ -101,6 +102,7 @@ class LlmPlanningAgent(PlanningAgent):
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
         self.style = style if style in PLAN_STYLES else "default"
+        self.preamble = preamble  # agent identity + retrieved lessons (deep_research.learning)
 
     async def create_plan(
         self,
@@ -146,7 +148,7 @@ class LlmPlanningAgent(PlanningAgent):
             "The evaluator found these gaps; plan tasks that close them:\n"
             + "\n".join(f"- {g}" for g in gaps) + "\n"
         ) if gaps else ""
-        return _PLAN_PROMPT.format(
+        return self.preamble + _PLAN_PROMPT.format(
             max_tasks=self.max_tasks, question=request.objective,
             iteration=state.iteration_number + 1, max_iterations=self.max_iterations,
             attachments=attachments, history=history, gaps=gap_text,
