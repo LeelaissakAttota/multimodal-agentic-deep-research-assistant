@@ -1050,7 +1050,7 @@ def page_tools() -> None:
         scale_backends_panel()
 
 
-@st.cache_data(ttl=60, show_spinner="Checking backends…")
+@st.cache_data(ttl=60, show_spinner=False)
 def _backend_rows() -> list[dict[str, Any]]:
     from deep_research.scale import backend_status
 
@@ -1179,9 +1179,23 @@ def page_settings() -> None:
                     unsafe_allow_html=True)
 
 
+LOADER_HTML = ("<style>@keyframes mdra-spin{to{transform:rotate(360deg)}}"
+               ".mdra-loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;"
+               "z-index:9999;pointer-events:none}"
+               ".mdra-loader .ring{width:64px;height:64px;border:6px solid rgba(255,255,255,.15);border-top-color:#3b82f6;"
+               "border-radius:50%;animation:mdra-spin .9s linear infinite}"
+               ".mdra-loader .lt{margin-top:14px;color:#c3cdea;font-size:1.05rem}"
+               "[data-testid='stStatusWidget']{visibility:hidden}</style>"
+               "<div class='mdra-loader'><div class='ring'></div><div class='lt'>Loading…</div></div>")
+
 view, rid = Q.get("view"), Q.get("run")
-if view in ("live", "report") and rid:
-    (live_view if view == "live" else report_view)(rid)
-else:
-    {"dashboard": page_dashboard, "new": page_new, "researches": page_researches, "knowledge": page_knowledge,
-     "sources": page_sources, "tools": page_tools, "settings": page_settings}[page]()
+_loader = st.empty()
+_loader.markdown(LOADER_HTML, unsafe_allow_html=True)
+try:
+    if view in ("live", "report") and rid:
+        (live_view if view == "live" else report_view)(rid)
+    else:
+        {"dashboard": page_dashboard, "new": page_new, "researches": page_researches, "knowledge": page_knowledge,
+         "sources": page_sources, "tools": page_tools, "settings": page_settings}[page]()
+finally:
+    _loader.empty()
