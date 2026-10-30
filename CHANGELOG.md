@@ -2,6 +2,18 @@
 
 ## [Unreleased] - feat/phase7
 
+### Fixed and improved (box review, 2026-10-30)
+- Independent research tasks run concurrently when step-by-step approval is off (sequential with approval on).
+- When another iteration would exhaust the wall-clock budget, the report is written from the evidence gathered so
+  far instead of the run failing with no report.
+- A research that ends with status `failed` now marks the control run Failed instead of Completed.
+- The pgvector probe falls back to the local index when `sqlalchemy` is not installed.
+- Start scripts run Python with `-P` so a stale top-level `deep_research/` folder cannot shadow `src/`;
+  new `scripts/start-dashboard.sh` for Linux/macOS.
+- Dashboard: page switches show one centered spinner with "Loading…"; placeholder
+  "Claim based on evidence <id>" rows are hidden.
+- Tests: 1190 passing, 15 skipped (optional services).
+
 ### Fixed (phase 7 C follow-up)
 - Span store: span names and error descriptions are redacted like attributes (URL credentials, keys, tokens).
 - Span store retention: `MDRA_TRACE_MAX_AGE_DAYS` (14), `MDRA_TRACE_MAX_RUNS` (500) and

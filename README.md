@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1207 passing | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1190 passing (15 skipped without optional services) | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -148,6 +148,17 @@ See [docs/CONTROL_API.md](docs/CONTROL_API.md) for the endpoints, approval gates
 
 On a report page in the dashboard: **Ask this report** (grounded Q&A with citations; unsupported questions are refused), **Notes & reminders**, and **Share** (HTML download, or a read-only link `http://127.0.0.1:8711/share/<id>?token=...` that you can revoke). **Settings → Profile & Preferences** sets saved topics, preferred/blocked sources, blocked domains and default depth (quick / standard / deep) for every new run; **Dashboard** lists upcoming reminders. Reminders are local only: nothing is emailed or pushed. Data lives in `data/assistant.db` (override with `DEEP_RESEARCH_ASSISTANT_DB`). Details: [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
+### Phase 7: RAG chat, media, GraphRAG and run traces (all opt-in)
+
+| Feature | Turn it on | What you get |
+|---|---|---|
+| Hybrid RAG chat | `MDRA_RAG_ENABLED=true`, `rag` extra, `deep-research rag-backfill` | BM25 + vector retrieval (local FAISS/numpy or pgvector) for "Ask this report" and the Knowledge Base, with `[n]` citations |
+| Audio / video / YouTube | `MDRA_MEDIA_ENABLED=true`, `media` extra | faster-whisper transcripts or YouTube captions, keyframes captioned by a free vision model, cited by `mm:ss` |
+| GraphRAG | `MDRA_GRAPH_RAG=true` (Neo4j optional via `MDRA_NEO4J_URI`, `graph` extra) | chat hits expanded through contradicting, shared-source and shared-entity claims; local graph fallback |
+| Trace timeline | `MDRA_TRACE_STORE=sqlite` (`tracing` extra) | a **⏱ Trace** waterfall tab per run with redacted spans |
+
+Speed: when step-by-step approval is off, a plan's independent research tasks run concurrently (about 4x faster per iteration in live tests), and if another iteration would exhaust the time budget the report is written from the evidence already gathered. Linux/macOS: `scripts/start-dashboard.sh` starts the control API and dashboard.
+
 ### Docker
 
 ```bash
@@ -186,7 +197,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 1207 tests, offline, $0
+pytest          # 1190 passing + 15 optional-service skips, offline, $0
 ruff check .
 mypy src
 ```
