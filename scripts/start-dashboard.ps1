@@ -34,7 +34,7 @@ if (-not $busy) {
 } else { Write-Host "Control API already listening on $ApiPort (it must use the same token)." }
 if (Test-Port $DashPort) { Write-Host "Dashboard already running on $DashPort."; exit 0 }
 Start-Process -FilePath $Py -ArgumentList "-P","-m","streamlit","run","src\deep_research\dashboard\app.py",`
-  "--server.address","127.0.0.1","--server.port",$DashPort,"--server.headless","true","--theme.base","dark" `
+  "--server.address","127.0.0.1","--server.port",$DashPort,"--server.headless","true","--theme.base","light" `
   -WorkingDirectory $Root -WindowStyle Hidden `
   -RedirectStandardOutput "$logs\dashboard.out.log" -RedirectStandardError "$logs\dashboard.err.log"
 Start-Sleep -Seconds 4

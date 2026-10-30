@@ -18,6 +18,6 @@ export DEEP_RESEARCH_CONTROL_TOKEN DEEP_RESEARCH_CONTROL_URL="http://127.0.0.1:$
 mkdir -p logs
 nohup "$PY" -P -m deep_research.control.server --port "$API_PORT" > logs/control.out.log 2> logs/control.err.log &
 nohup "$PY" -P -m streamlit run src/deep_research/dashboard/app.py --server.address 127.0.0.1 --server.port "$DASH_PORT" \
-  --server.headless true --theme.base dark > logs/dashboard.out.log 2> logs/dashboard.err.log &
+  --server.headless true --theme.base light > logs/dashboard.out.log 2> logs/dashboard.err.log &
 sleep 4
 echo "Dashboard: http://127.0.0.1:$DASH_PORT  (control API on $API_PORT)"

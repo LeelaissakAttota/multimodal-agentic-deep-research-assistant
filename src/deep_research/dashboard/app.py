@@ -51,24 +51,24 @@ EXAMPLES = [
 
 st.set_page_config(page_title=APP_TITLE, page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
 
-LOGO = ("<svg width='30' height='30' viewBox='0 0 32 32' fill='none'><circle cx='16' cy='16' r='3' fill='#60a5fa'/>"
-        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#60a5fa' stroke-width='1.6'/>"
-        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#60a5fa' stroke-width='1.6' transform='rotate(60 16 16)'/>"
-        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#60a5fa' stroke-width='1.6' transform='rotate(120 16 16)'/></svg>")
+LOGO = ("<svg width='30' height='30' viewBox='0 0 32 32' fill='none'><circle cx='16' cy='16' r='3' fill='#c2593a'/>"
+        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#c2593a' stroke-width='1.6'/>"
+        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#c2593a' stroke-width='1.6' transform='rotate(60 16 16)'/>"
+        "<ellipse cx='16' cy='16' rx='13' ry='5' stroke='#c2593a' stroke-width='1.6' transform='rotate(120 16 16)'/></svg>")
 
 CSS = """
 <style>
-:root { --bg:#0a1228; --panel:#0f1a36; --panel2:#13214a; --line:#1f3266; --text:#e6ecff; --mut:#8fa0c8; --blue:#2f6bff; }
+:root { --bg:#faf5ee; --panel:#fffaf3; --panel2:#f5ebdd; --line:#e6d5bf; --text:#3b2a20; --mut:#8a7360; --blue:#c2593a; }
 html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { background:var(--bg) !important; color:var(--text); }
 header[data-testid="stHeader"] { display:none; }
-[data-testid="stSidebar"] { background:#0b1530 !important; border-right:1px solid var(--line); top:58px !important; height:calc(100vh - 58px) !important; }
+[data-testid="stSidebar"] { background:#f3eadc !important; border-right:1px solid var(--line); top:58px !important; height:calc(100vh - 58px) !important; }
 [data-testid="stSidebar"] > div:first-child { padding-top:0; }
 [data-testid="stSidebarHeader"], [data-testid="stSidebarCollapseButton"] { display:none; }
 [data-testid="stSidebarUserContent"] { padding:14px 12px 16px 12px; }
 .block-container { padding:76px 28px 40px 28px !important; max-width:1600px; }
 * { overflow-wrap:anywhere; box-sizing:border-box; }
 a { text-decoration:none !important; }
-.topbar { position:fixed; top:0; left:0; right:0; height:58px; z-index:999990; background:#0b1530; border-bottom:1px solid var(--line);
+.topbar { position:fixed; top:0; left:0; right:0; height:58px; z-index:999990; background:#f3eadc; border-bottom:1px solid var(--line);
           display:flex; align-items:center; gap:12px; padding:0 22px; }
 .topbar .t { font-weight:700; font-size:1.08rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1; }
 .topbar .r { display:flex; align-items:center; gap:18px; color:var(--mut); font-size:.8rem; white-space:nowrap; flex:none; }
@@ -77,26 +77,26 @@ a { text-decoration:none !important; }
 .ico { width:30px; height:30px; border-radius:50%; background:var(--panel2); display:inline-flex; align-items:center; justify-content:center;
        color:var(--text); position:relative; font-size:.9rem; }
 .ico .n { position:absolute; top:-4px; right:-4px; background:#ef4444; color:#fff; border-radius:9px; font-size:.6rem; padding:0 5px; }
-.nav a { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; color:#c3cdea !important; font-size:.88rem; margin-bottom:3px; }
+.nav a { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; color:#5c4636 !important; font-size:.88rem; margin-bottom:3px; }
 .nav a:hover { background:var(--panel2); }
 .nav a.act { background:var(--blue); color:#fff !important; font-weight:600; }
 .nav .i { width:18px; text-align:center; opacity:.9; }
 .proj { border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:12px; margin-top:22px; font-size:.78rem; color:var(--mut); }
 .proj b { color:var(--text); font-size:.82rem; }
-.bar { height:6px; background:#1b2a55; border-radius:4px; overflow:hidden; margin:6px 0 4px 0; }
-.bar > div { height:100%; background:linear-gradient(90deg,#2f6bff,#60a5fa); }
+.bar { height:6px; background:#ecd9c3; border-radius:4px; overflow:hidden; margin:6px 0 4px 0; }
+.bar > div { height:100%; background:linear-gradient(90deg,#c2593a,#d9774f); }
 h1.pt { font-size:1.45rem !important; margin:0 0 2px 0 !important; padding:0 !important; color:var(--text); }
 .sub { color:var(--mut); margin:0 0 18px 0; font-size:.88rem; }
 .panel { border:1px solid var(--line); background:var(--panel); border-radius:12px; padding:16px 18px; margin-bottom:16px; min-width:0; }
 .panel h4, .ph { margin:0 0 12px 0; font-size:.98rem; color:var(--text); font-weight:650; display:flex; justify-content:space-between; align-items:center; }
-.ph a { font-size:.75rem; color:#60a5fa !important; font-weight:500; }
-.banner { border:1px solid #2a4aa0; background:linear-gradient(110deg,#11245a 0%,#0f1a36 60%,#132a66 100%); border-radius:12px;
+.ph a { font-size:.75rem; color:#d9774f !important; font-weight:500; }
+.banner { border:1px solid #e3b49a; background:linear-gradient(110deg,#fbe9da 0%,#fffaf3 60%,#f6dcc8 100%); border-radius:12px;
           padding:20px 22px; display:flex; gap:18px; align-items:center; margin-bottom:16px; min-height:112px; }
 .banner .bt { font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:4px; }
-.banner .bs { color:#b7c4e8; font-size:.86rem; max-width:620px; }
-.banner .side { margin-left:auto; border:1px solid #2a4aa0; background:#0d1a40; border-radius:10px; padding:12px 14px; width:260px; flex:none; font-size:.78rem; color:var(--mut); }
+.banner .bs { color:#5c4636; font-size:.86rem; max-width:620px; }
+.banner .side { margin-left:auto; border:1px solid #e3b49a; background:#f8ede0; border-radius:10px; padding:12px 14px; width:260px; flex:none; font-size:.78rem; color:var(--mut); }
 .btn { display:inline-block; background:var(--blue); color:#fff !important; padding:7px 14px; border-radius:8px; font-size:.8rem; font-weight:600; margin-top:8px; }
-.btn.g { background:transparent; border:1px solid var(--line); color:#c3cdea !important; }
+.btn.g { background:transparent; border:1px solid var(--line); color:#5c4636 !important; }
 .tiles { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-bottom:16px; }
 .tile { border:1px solid var(--line); background:var(--panel); border-radius:12px; padding:14px 16px; height:104px; display:flex; gap:14px; align-items:center; min-width:0; }
 .tile .tx { min-width:0; flex:1; }
@@ -105,9 +105,9 @@ h1.pt { font-size:1.45rem !important; margin:0 0 2px 0 !important; padding:0 !im
 .tile .s { font-size:.74rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#4ade80; }
 .tile .s.m { color:var(--mut); }
 .sq { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex:none; }
-.c1 { background:#1d3b8f; } .c2 { background:#14532d; } .c3 { background:#7c2d12; } .c4 { background:#4c1d95; } .c5 { background:#164e63; } .c6 { background:#7f1d1d; }
-.row { display:flex; gap:12px; align-items:center; padding:10px 4px; border-bottom:1px solid #1a2a57; min-width:0; color:var(--text) !important; }
-a.row:hover { background:#13214a; border-radius:8px; }
+.c1 { background:#f6dccd; } .c2 { background:#14532d; } .c3 { background:#7c2d12; } .c4 { background:#4c1d95; } .c5 { background:#164e63; } .c6 { background:#7f1d1d; }
+.row { display:flex; gap:12px; align-items:center; padding:10px 4px; border-bottom:1px solid #efe2d0; min-width:0; color:var(--text) !important; }
+a.row:hover { background:#f5ebdd; border-radius:8px; }
 .row:last-child { border-bottom:none; }
 .row .tx { min-width:0; flex:1; }
 .row .tt { font-weight:600; font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -115,8 +115,8 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .row .rt { text-align:right; flex:none; font-size:.72rem; color:var(--mut); white-space:nowrap; }
 .badge { display:inline-block; padding:2px 9px; border-radius:6px; font-size:.7rem; font-weight:650; white-space:nowrap; }
 .b-ok { background:#14532d; color:#4ade80; } .b-bad { background:#7f1d1d; color:#fca5a5; } .b-wait { background:#78350f; color:#fbbf24; }
-.b-run { background:#1e3a8a; color:#93c5fd; } .b-off { background:#1b2a55; color:var(--mut); } .b-soon { background:#3b2a5c; color:#c4b5fd; }
-.tag { display:inline-block; padding:1px 8px; border-radius:5px; font-size:.68rem; background:#1b2a55; color:#a9b8e0; margin:3px 4px 0 0; white-space:nowrap; }
+.b-run { background:#f6dccd; color:#a8452a; } .b-off { background:#ecd9c3; color:var(--mut); } .b-soon { background:#3b2a5c; color:#c4b5fd; }
+.tag { display:inline-block; padding:1px 8px; border-radius:5px; font-size:.68rem; background:#ecd9c3; color:#5c4636; margin:3px 4px 0 0; white-space:nowrap; }
 .grid { display:grid; gap:10px; }
 .g2 { grid-template-columns:repeat(2,minmax(0,1fr)); } .g3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .g4 { grid-template-columns:repeat(4,minmax(0,1fr)); } .g6 { grid-template-columns:repeat(6,minmax(0,1fr)); }
@@ -126,16 +126,16 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .cap.dis { opacity:.55; }
 .qa { display:flex; gap:12px; align-items:center; border:1px solid var(--line); background:var(--panel2); border-radius:10px; padding:11px 12px; margin-bottom:9px; color:var(--text) !important; min-width:0; }
 .qa.p { background:var(--blue); border-color:var(--blue); }
-.qa .tt { font-weight:600; font-size:.85rem; } .qa .ts { font-size:.72rem; color:#c3cdea; }
-.st-row { display:flex; gap:12px; align-items:center; padding:9px 0; border-bottom:1px solid #1a2a57; min-width:0; }
+.qa .tt { font-weight:600; font-size:.85rem; } .qa .ts { font-size:.72rem; color:#5c4636; }
+.st-row { display:flex; gap:12px; align-items:center; padding:9px 0; border-bottom:1px solid #efe2d0; min-width:0; }
 .dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; flex:none; }
 .d-ok { background:#14532d; color:#4ade80; } .d-wait { background:#78350f; color:#fbbf24; } .d-bad { background:#7f1d1d; color:#fca5a5; }
-.d-idle { background:#1b2a55; color:var(--mut); } .d-run { background:#1e3a8a; color:#93c5fd; }
+.d-idle { background:#ecd9c3; color:var(--mut); } .d-run { background:#f6dccd; color:#a8452a; }
 .muted { color:var(--mut); font-size:.8rem; }
-.cit { color:#93c5fd; font-weight:600; white-space:nowrap; flex:none; min-width:2.2em; }
-.note { border-left:3px solid var(--blue); background:#0d1a40; padding:10px 14px; border-radius:6px; color:#c3cdea; font-size:.84rem; margin:4px 0 14px 0; }
+.cit { color:#a8452a; font-weight:600; white-space:nowrap; flex:none; min-width:2.2em; }
+.note { border-left:3px solid var(--blue); background:#f8ede0; padding:10px 14px; border-radius:6px; color:#5c4636; font-size:.84rem; margin:4px 0 14px 0; }
 .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.kv { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid #1a2a57; font-size:.85rem; }
+.kv { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid #efe2d0; font-size:.85rem; }
 .kv span:last-child { color:var(--text); text-align:right; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .kv span:first-child { color:var(--mut); flex:none; }
 [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line) !important; background:var(--panel); border-radius:12px !important; }
@@ -143,14 +143,14 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .stTabs [data-baseweb="tab"] { background:var(--panel2); border-radius:8px; padding:6px 14px; height:auto; }
 .stTabs [aria-selected="true"] { background:var(--blue) !important; color:#fff !important; }
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display:none; }
-[data-testid="stFileUploaderDropzone"] { background:#0d1a40; border:1.5px dashed #2a4aa0; }
+[data-testid="stFileUploaderDropzone"] { background:#f8ede0; border:1.5px dashed #e3b49a; }
 .st-key-report h1, .st-key-report h2 { font-size:1.2rem !important; } .st-key-report h3 { font-size:1.02rem !important; }
 .lucy { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:14px; height:360px; margin-bottom:16px; }
-.stack { position:relative; border:1px solid var(--line); background:radial-gradient(circle at 30% 20%,#13244f,#08101f 70%); border-radius:12px; overflow:hidden; min-width:0; }
-.stack .hd, .term .hd { position:absolute; top:0; left:0; right:0; padding:8px 12px; font-size:.72rem; color:var(--mut); background:rgba(8,16,31,.85); z-index:50; display:flex; justify-content:space-between; }
+.stack { position:relative; border:1px solid var(--line); background:radial-gradient(circle at 30% 20%,#fbe9da,#faf5ee 70%); border-radius:12px; overflow:hidden; min-width:0; }
+.stack .hd, .term .hd { position:absolute; top:0; left:0; right:0; padding:8px 12px; font-size:.72rem; color:var(--mut); background:#fffaf3; z-index:50; display:flex; justify-content:space-between; }
 .wcard { position:absolute; left:6%; width:80%; background:#f4f7ff; color:#111827; border-radius:8px; padding:10px 12px; box-shadow:0 -6px 18px rgba(0,0,0,.45); min-width:0; overflow:hidden; height:96px; }
 .wcard .bar2 { display:flex; gap:4px; margin-bottom:6px; } .wcard .bar2 i { width:7px; height:7px; border-radius:50%; background:#cbd5e1; display:block; }
-.wcard .d { font-size:.66rem; color:#2563eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcard .d { font-size:.66rem; color:#c2593a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wcard .t { font-size:.8rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wcard .s { font-size:.68rem; color:#475569; line-height:1.3; max-height:2.6em; overflow:hidden; }
 .wcard.new { animation:slidein .45s cubic-bezier(.2,.9,.3,1.2) both; }
@@ -163,7 +163,39 @@ a.row:hover { background:#13214a; border-radius:8px; }
 .term .ln.new { animation:typein .35s ease-out both; } @keyframes typein { from { opacity:0; transform:translateY(6px); } to { opacity:1; } }
 .term .cur { display:inline-block; width:7px; height:12px; background:#4ade80; animation:blink 1s steps(1) infinite; vertical-align:middle; }
 @keyframes blink { 50% { opacity:0; } }
-.lucy .empty { position:absolute; top:46%; left:0; right:0; text-align:center; color:var(--mut); font-size:.8rem; }
+
+/* --- theme extras --- */
+[data-testid="stAppViewContainer"] p,[data-testid="stAppViewContainer"] li,[data-testid="stAppViewContainer"] label,[data-testid="stMarkdownContainer"],h1,h2,h3,h4 { color:#3b2a20; }
+.stTabs [data-baseweb="tab"] { color:#5c4636; }
+input,textarea,[data-baseweb="select"]>div,[data-baseweb="input"],[data-baseweb="textarea"] { background:#f5ebdd !important; color:#3b2a20 !important; border-color:#e6d5bf !important; }
+.stButton button,.stFormSubmitButton button { background:#f5ebdd; color:#3b2a20; border:1px solid #e6d5bf; }
+.stButton button[kind="primary"],.stFormSubmitButton button[kind="primary"] { background:#c2593a; border:none; color:#fff; }
+.sq[style*="#1d4ed8"] { background:#c2593a !important; }
+a[style*="#60a5fa"],.proj a { color:#d9774f !important; }
+.c1 { background:#f6dccd; }
+.banner .side b,.banner .side strong { color:#3b2a20 !important; }
+.qa.p .sq { background:rgba(255,255,255,.22) !important; }
+
+.b-ok,.d-ok { background:#dcfce7; color:#15803d; } .b-bad,.d-bad { background:#fee2e2; color:#b91c1c; }
+.b-wait,.d-wait { background:#fef3c7; color:#b45309; } .b-run,.d-run { background:#f6dccd; color:#a8452a; }
+.b-soon { background:#ede9fe; color:#6d28d9; } .tile .s { color:#15803d; }
+.c2 { background:#dcfce7; } .c3 { background:#ffedd5; } .c4 { background:#ede9fe; } .c5 { background:#cffafe; } .c6 { background:#fee2e2; }
+.nav a { color:#5c4636 !important; } .qa .ts { color:#8a7360; } .qa.p .tt,.qa.p .ts { color:#fff; }
+.panel,.tile,.banner { box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.stack { background:radial-gradient(circle at 30% 20%,#f6dcc8,#f5ebdd 70%); }
+/* light-theme polish */
+[data-testid="stDownloadButton"] button,[data-testid="stBaseButton-secondary"] { background:#fffaf3 !important; color:#3b2a20 !important; border:1px solid #e6d5bf !important; }
+[data-testid="stDownloadButton"] button:hover,.stButton button:hover { border-color:#c2593a !important; color:#c2593a !important; }
+[data-testid="stExpander"] details { background:#fffaf3; border:1px solid #e6d5bf !important; border-radius:10px; }
+[data-testid="stExpander"] summary { color:#3b2a20; }
+[data-testid="stDataFrame"],[data-testid="stTable"] { border:1px solid #e6d5bf; border-radius:8px; }
+[data-testid="stTable"] th,.stMarkdown table th { background:#f5ebdd; color:#3b2a20; }
+.stMarkdown table td,.stMarkdown table th { border-color:#e6d5bf !important; }
+[data-testid="stVegaLiteChart"],[data-testid="stArrowVegaLiteChart"] { background:#fffaf3; border-radius:8px; }
+code { background:#f5ebdd !important; color:#a8452a !important; }
+[data-testid="stAlert"] { color:#3b2a20; }
+.wcard { background:#ffffff; box-shadow:0 -4px 14px rgba(59,42,32,.18); }
+.st-key-report a { color:#a8452a; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -329,7 +361,7 @@ with st.sidebar:
         f"<div style='margin-top:10px;display:flex;justify-content:space-between'><span>Overall progress</span><b>{pct}%</b></div>"
         f"<div class='bar'><div style='width:{pct}%'></div></div>"
         f"<div>{shipped} of {len(tools_now)} capabilities shipped</div>"
-        f"<div style='margin-top:10px'>Project repository<br><a href='{REPO_URL}' target='_blank' style='color:#60a5fa'>"
+        f"<div style='margin-top:10px'>Project repository<br><a href='{REPO_URL}' target='_blank' style='color:#c2593a'>"
         f"View on GitHub ↗</a></div></div>", unsafe_allow_html=True)
 
 
@@ -342,7 +374,7 @@ def page_dashboard() -> None:
         f"<div class='bt'>Welcome to your Deep Research Assistant</div><div class='bs'>Plan, search, read PDFs and images, "
         f"and get cited reports. Every step can wait for your approval, and only free models are used.</div>"
         f"<a class='btn' target='_self' href='{link('new')}'>＋ Start new research</a></div>"
-        f"<div class='side'><b style='color:#e6ecff'>Supervised control</b><br>Control API "
+        f"<div class='side'><b style='color:#3b2a20'>Supervised control</b><br>Control API "
         f"{'online on :8711' if ok else 'offline'}<br>{s['awaiting']} run(s) waiting for approval<br>"
         f"Free-model guard: on</div></div>", unsafe_allow_html=True)
     tiles([("📊", "c1", "Total Researches", str(s["total"]), f"{s['failed']} failed or stopped", False),
@@ -373,7 +405,7 @@ def page_dashboard() -> None:
                     f"<div class='grid g3'>{cells}</div></div>", unsafe_allow_html=True)
         st.markdown(
             f"<div class='panel'><div class='ph'>Quick Actions</div>"
-            f"<a class='qa p' target='_self' href='{link('new')}'><div class='sq' style='background:#1d4ed8'>＋</div><div><div class='tt'>Start New Research</div>"
+            f"<a class='qa p' target='_self' href='{link('new')}'><div class='sq' style='background:rgba(255,255,255,.22)'>＋</div><div><div class='tt'>Start New Research</div>"
             f"<div class='ts'>Ask a question, step-by-step approval</div></div></a>"
             f"<a class='qa' target='_self' href='{link('new', tab='upload')}'><div class='sq c3'>⤒</div><div><div class='tt'>Upload Document</div>"
             f"<div class='ts'>PDF or image (max 20 MB)</div></div></a>"
@@ -530,7 +562,7 @@ def live_view(run_id: str) -> None:  # noqa: C901 - one screen of layout
         report = report_of(run)
         if report:
             text = preview_text(str(report.get("content", ""))) or f"{len(claims(report))} claims. Open the full report."
-            st.markdown(f"<div style='color:#c3cdea;line-height:1.6'>{e(text)}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:#5c4636;line-height:1.6'>{e(text)}</div>", unsafe_allow_html=True)
             st.write("")
             cits(report, limit=6)
             st.markdown(f"<a class='btn' target='_self' href='{link('researches', run=run_id, view='report')}'>Open full report →</a>",
@@ -582,8 +614,8 @@ def research_view(run_id: str, status: str) -> None:
         unsafe_allow_html=True)
 
 
-_CRED_COLORS = {"High": ("#065f46", "#a7f3d0"), "Provided": ("#1e3a8a", "#bfdbfe"), "Medium": ("#78350f", "#fde68a"),
-                "Unverified": ("#374151", "#e5e7eb"), "Low": ("#7f1d1d", "#fecaca")}
+_CRED_COLORS = {"High": ("#dcfce7", "#15803d"), "Provided": ("#e0e7ff", "#3730a3"), "Medium": ("#fef3c7", "#b45309"),
+                "Unverified": ("#efe2d0", "#5c4636"), "Low": ("#fee2e2", "#b91c1c")}
 
 
 def cred_badge(cred: Any) -> str:
@@ -610,7 +642,7 @@ def cits(report: dict[str, Any], limit: int | None = None) -> None:
     for c in rows[:limit] if limit else rows:
         title = e(str(c["title"]))
         url = str(c.get("url") or "")
-        name = f"<a href='{e(url)}' target='_blank' style='color:#c3cdea'>{title}</a>" if url.startswith("http") else title
+        name = f"<a href='{e(url)}' target='_blank' style='color:#3b2a20;font-weight:600'>{title}</a>" if url.startswith("http") else title
         where = e(url.split('/')[2]) if url.startswith("http") else e(f"{c['kind']}{page_label(c.get('page'))}")
         out.append(f"<div class='row'><span class='cit'>[{e(str(c['number']))}]</span><div class='tx'>"
                    f"<div class='tt' style='font-weight:500' title='{title}'>{name}</div><div class='ts'>{where} "
@@ -650,7 +682,7 @@ def report_view(run_id: str) -> None:
         st.markdown(md_safe(strip_section(body, "Charts") if charts else body))
         for chart in charts:
             st.markdown(f"#### {e(chart['title'])}")
-            st.bar_chart(_chart_frame(chart), x="label", y="value", horizontal=True, height=60 + 28 * len(chart["values"]))
+            st.bar_chart(_chart_frame(chart), x="label", y="value", horizontal=True, color="#c2593a", height=60 + 28 * len(chart["values"]))
         ver = verification_rows(report)
         if ver["rows"]:
             st.markdown(f"#### Fact check · support {e(ver['score'])} · {e(', '.join(ver['methods']))}")
@@ -918,7 +950,7 @@ def page_knowledge() -> None:
             or "<div class='muted'>No reports yet.</div>") + "</div>", unsafe_allow_html=True)
     with t2:
         st.markdown("<div class='panel'>" + ("".join(
-            f"<div class='row'><div class='sq c2'>💡</div><div class='tx'><div class='ts' style='white-space:normal;color:#e6ecff;font-size:.84rem'>"
+            f"<div class='row'><div class='sq c2'>💡</div><div class='tx'><div class='ts' style='white-space:normal;color:#3b2a20;font-size:.84rem'>"
             f"{e(c['text'])}</div></div><div class='rt'>"
             + (conf_badge(c) if c.get("label") else f"<span class='badge b-ok'>{e(c['confidence'])}</span>") + "</div></div>"
             for c in kb["claims"][:60]) or "<div class='muted'>No claims yet.</div>") + "</div>", unsafe_allow_html=True)
@@ -982,7 +1014,7 @@ def page_sources() -> None:
         body = "".join(f"<div class='row'><div class='sq {KIND_ICONS.get(source_kind(r), KIND_ICONS['Other'])[1]}'>"
                        f"{KIND_ICONS.get(source_kind(r), KIND_ICONS['Other'])[0]}</div>"
                        f"<div class='tx'><div class='tt' title='{e(str(r['title']))}'>"
-                       + (f"<a href='{e(str(r['url']))}' target='_blank' style='color:#e6ecff'>{e(str(r['title']))}</a>" if r.get('url') else e(str(r['title'])))
+                       + (f"<a href='{e(str(r['url']))}' target='_blank' style='color:#3b2a20'>{e(str(r['title']))}</a>" if r.get('url') else e(str(r['title'])))
                        + f"</div><div class='ts'>{e(source_kind(r))} · {e(r['domain'])} {cred_badge(r.get('credibility'))}</div></div><div class='rt'>used in {len(r['runs'])} run(s)"
                        + (f"<br><span title='claims citing this source: supported / partial / unsupported / contradicted'>"
                           f"{e(verdict_label(r.get('verdicts')))}</span>" if verdict_label(r.get('verdicts')) else "")
@@ -1015,7 +1047,7 @@ def clipped_panel() -> None:
     else:
         body = "".join(
             f"<div class='row'><div class='sq c5'>📎</div><div class='tx'><div class='tt'>"
-            f"<a href='{e(c['url'])}' target='_blank' style='color:#e6ecff'>{e(c.get('title') or c['url'])}</a></div>"
+            f"<a href='{e(c['url'])}' target='_blank' style='color:#3b2a20'>{e(c.get('title') or c['url'])}</a></div>"
             f"<div class='ts' style='white-space:normal'>{e(str(c.get('selection') or '')[:200])}</div></div>"
             f"<div class='rt'>{e(local_time(c.get('created_at')))}</div></div>" for c in items[:20]
         ) or "<div class='muted'>Nothing clipped yet. Use the browser extension (extensions/mdra-chrome) to send a page here.</div>"
@@ -1182,9 +1214,9 @@ def page_settings() -> None:
 LOADER_HTML = ("<style>@keyframes mdra-spin{to{transform:rotate(360deg)}}"
                ".mdra-loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;"
                "z-index:9999;pointer-events:none}"
-               ".mdra-loader .ring{width:64px;height:64px;border:6px solid rgba(255,255,255,.15);border-top-color:#3b82f6;"
+               ".mdra-loader .ring{width:64px;height:64px;border:6px solid rgba(194,89,58,.18);border-top-color:#c2593a;"
                "border-radius:50%;animation:mdra-spin .9s linear infinite}"
-               ".mdra-loader .lt{margin-top:14px;color:#c3cdea;font-size:1.05rem}"
+               ".mdra-loader .lt{margin-top:14px;color:#5c4636;font-size:1.05rem}"
                "[data-testid='stStatusWidget']{visibility:hidden}</style>"
                "<div class='mdra-loader'><div class='ring'></div><div class='lt'>Loading…</div></div>")
 
