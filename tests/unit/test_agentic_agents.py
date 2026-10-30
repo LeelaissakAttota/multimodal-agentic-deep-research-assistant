@@ -60,6 +60,8 @@ class ScriptedLLM(ModelGateway):
             return "eval"
         if "choosing which tool" in prompt:
             return "tool"
+        if "claim extraction" in prompt:
+            return "analysis"
         return "synth"
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
@@ -302,7 +304,7 @@ def test_end_to_end_llm_plan_evaluate_replan(monkeypatch: pytest.MonkeyPatch) ->
     report = resp.report or {}
     assert report["agent_mode"] == "llm_with_fallback"
     decisions = report["agent_decisions"]
-    assert [(d["agent"], d["source"]) for d in decisions if d["agent"] != "researcher"] == [
+    assert [(d["agent"], d["source"]) for d in decisions if d["agent"] not in ("researcher", "analysis")] == [
         ("planner", "llm"), ("evaluator", "llm"), ("planner", "llm"), ("evaluator", "llm")]
     planners = [d for d in decisions if d["agent"] == "planner"]
     assert planners[1]["replan"] is True and planners[1]["iteration"] == 1
@@ -313,7 +315,7 @@ def test_end_to_end_llm_plan_evaluate_replan(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_end_to_end_everything_rate_limited_still_completes(monkeypatch: pytest.MonkeyPatch) -> None:
-    llm = ScriptedLLM(plan=[rate_limited()], eval=[rate_limited()], tool=[rate_limited()])
+    llm = ScriptedLLM(plan=[rate_limited()], eval=[rate_limited()], tool=[rate_limited()], analysis=[rate_limited()])
     app = _agentic_app(monkeypatch, llm)
     resp = asyncio.run(app.submit(ResearchSubmission(objective="What is alpha?")))
     assert resp.status == "completed", resp.error
