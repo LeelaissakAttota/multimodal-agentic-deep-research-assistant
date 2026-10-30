@@ -81,7 +81,7 @@ def test_default_import_needs_no_optional_backends() -> None:
     )
     env = minimal_env({"PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT)]),
                        "DEEP_RESEARCH_ENV_FILE": str(ROOT / "nonexistent.env")})
-    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+    proc = subprocess.run([sys.executable, "-P", "-c", code], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     assert proc.returncode == 0 and "OK" in proc.stdout, proc.stderr[-2000:]
 
 

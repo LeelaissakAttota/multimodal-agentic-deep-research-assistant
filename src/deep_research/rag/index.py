@@ -168,8 +168,10 @@ class PgVectorIndex:
     @staticmethod
     def available(engine: Any) -> bool:
         """True when the ``vector`` extension exists or could be created by this user."""
-        import sqlalchemy as sa
-
+        try:
+            import sqlalchemy as sa
+        except ImportError:  # postgres extra not installed
+            return False
         try:
             with engine.begin() as conn:
                 try:
