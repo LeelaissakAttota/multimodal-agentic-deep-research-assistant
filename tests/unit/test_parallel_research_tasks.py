@@ -26,8 +26,7 @@ class SlowAgent:
         self.peak = max(self.peak, self.active)
         await asyncio.sleep(0.2)
         self.active -= 1
-        return ToolResult(success=True, output={"summary": task.objective, "evidence_ids": [], "source_ids": []},
-                          tool_name="web_search")
+        return ToolResult(success=True, output={"summary": task.objective, "evidence_ids": [], "source_ids": []}, tool_name="web_search")
 
 
 class Gate:
@@ -79,8 +78,14 @@ def test_reports_early_when_next_iteration_would_exhaust_budget() -> None:
     clock = [0.0]
     harness = ExecutionHarness(RuntimeLimits(max_research_time_seconds=300), monotonic=lambda: clock[0])
     harness.start_session()
-    orch = MasterResearchOrchestrator(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(),  # type: ignore[arg-type]
-                                      execution_harness=harness)
+    orch = MasterResearchOrchestrator(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),  # type: ignore[arg-type]
+        execution_harness=harness,
+    )
     orch.research_state.status = "evaluating"
     orch._analysis_result = {"summary": "x"}
     assert orch._should_report_early(100) is False  # no evidence yet: keep researching
@@ -94,7 +99,10 @@ def test_reports_early_when_next_iteration_would_exhaust_budget() -> None:
 def test_dashboard_hides_placeholder_engine_claims() -> None:
     from deep_research.dashboard.core import claims
 
-    report = {"claims": [{"text": "Claim based on evidence b75ef18b-9e71-4131-ae0d-2a10726b9d4e", "evidence_ids": ["x"],
-                          "confidence": 0.8},
-                         {"text": "UPI settles payments in real time", "evidence_ids": ["y"], "confidence": 0.7}]}
+    report = {
+        "claims": [
+            {"text": "Claim based on evidence b75ef18b-9e71-4131-ae0d-2a10726b9d4e", "evidence_ids": ["x"], "confidence": 0.8},
+            {"text": "UPI settles payments in real time", "evidence_ids": ["y"], "confidence": 0.7},
+        ]
+    }
     assert [c["text"] for c in claims(report)] == ["UPI settles payments in real time"]

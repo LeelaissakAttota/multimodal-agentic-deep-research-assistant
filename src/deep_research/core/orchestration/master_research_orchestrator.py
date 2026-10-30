@@ -119,23 +119,26 @@ class MasterResearchOrchestrator:
         remaining = self.execution_harness.budget.remaining_seconds()
         return remaining < 1.25 * last_iteration_seconds + self.REPORT_RESERVE_SECONDS
 
+    async def _report_early(self) -> None:
+        self.research_state.metadata["early_report"] = (
+            "time budget nearly used: reported the evidence gathered so far instead of another iteration")
+        try:
+            self._transition_to("reporting")
+            await self._reporting_phase()
+            self._attach_runtime_report()
+            self._persist_checkpoint()
+        except RuntimeControlError as exc:
+            self._terminate_for_runtime_failure(exc)
+            self._attach_runtime_report()
+            self._checkpoint_after_runtime_failure()
+        except PersistenceError as exc:
+            self._terminate_for_persistence_failure(exc)
+
     async def _run_research_loop(self) -> None:
         last_iteration_seconds = 0.0
         for iteration in range(self.max_iterations):
             if iteration > 0 and self._should_report_early(last_iteration_seconds):
-                self.research_state.metadata["early_report"] = (
-                    "time budget nearly used: reported the evidence gathered so far instead of another iteration")
-                try:
-                    self._transition_to("reporting")
-                    await self._reporting_phase()
-                    self._attach_runtime_report()
-                    self._persist_checkpoint()
-                except RuntimeControlError as exc:
-                    self._terminate_for_runtime_failure(exc)
-                    self._attach_runtime_report()
-                    self._checkpoint_after_runtime_failure()
-                except PersistenceError as exc:
-                    self._terminate_for_persistence_failure(exc)
+                await self._report_early()
                 break
             started = time.monotonic()
             self.research_state.iteration_number = iteration
