@@ -4,7 +4,7 @@
 
 You give it a research question, and optionally a PDF or an image. It plans the research, runs the right tools, collects evidence, writes a Markdown report with numbered citations, and then judges whether the report is good enough. If the report is not good enough, it replans and goes again, within strict budgets. Offline mode needs no keys and makes no network calls. Live mode uses free OpenRouter models and free search sources.
 
-**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1190 passing (15 skipped without optional services) | **License:** MIT | **Cost to run tests:** $0
+**Version:** v1.0.0 | **Python:** 3.11–3.13 | **Tests:** 1220 tests (1208 passing, 12 skipped without optional services) | **License:** MIT | **Cost to run tests:** $0
 
 [![quality](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml/badge.svg)](https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant/actions/workflows/quality.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
@@ -197,7 +197,7 @@ These are set with `DEEP_RESEARCH_*` environment variables. The defaults are:
 ## Validate
 
 ```bash
-pytest          # 1190 passing + 15 optional-service skips, offline, $0
+pytest          # 1220 tests: 1208 passing + 12 optional-service skips, offline, $0
 ruff check .
 mypy src
 ```

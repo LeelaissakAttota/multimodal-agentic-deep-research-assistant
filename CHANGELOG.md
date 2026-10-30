@@ -12,7 +12,8 @@
   new `scripts/start-dashboard.sh` for Linux/macOS.
 - Dashboard: page switches show one centered spinner with "Loading…"; placeholder
   "Claim based on evidence <id>" rows are hidden.
-- Tests: 1190 passing, 15 skipped (optional services).
+- Live-mode analysis agent: claims are built from the excerpts actually read (free LLM with validated citations, extractive fallback); no more placeholder claims.
+- Tests: 1220 tests (1208 passing, 12 skipped without optional services).
 
 ### Fixed (phase 7 C follow-up)
 - Span store: span names and error descriptions are redacted like attributes (URL credentials, keys, tokens).

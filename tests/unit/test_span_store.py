@@ -117,11 +117,13 @@ def test_full_offline_run_records_timeline(tmp_path: Path, monkeypatch: pytest.M
     settings = Settings(_env_file=None, research_mode="offline")
     response = asyncio.run(ResearchApplication(settings).submit(
         ResearchSubmission(objective="What are the health benefits of green tea?"), run_id="ctl-1"))
-    assert response.status == "completed"
+    assert response.status == "completed", response.error
     rows = waterfall(load_spans("ctl-1"))
     names = {r["name"] for r in rows}
-    assert {"mdra.run", "mdra.agent", "mdra.tool"} <= names and rows[0]["name"] == "mdra.run" and rows[0]["depth"] == 0
-    assert {"planning", "reporting"} <= {r["label"] for r in rows}
+    detail = [(r["name"], r["label"], r["depth"]) for r in rows]
+    assert {"mdra.run", "mdra.agent", "mdra.tool"} <= names, detail
+    assert rows[0]["name"] == "mdra.run" and rows[0]["depth"] == 0, detail
+    assert {"planning", "reporting"} <= {r["label"] for r in rows}, detail
 
 
 def test_dashboard_trace_tab(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
