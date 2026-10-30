@@ -28,12 +28,12 @@ function Test-Port([int]$Port) {
 }
 $busy = Test-Port $ApiPort
 if (-not $busy) {
-  Start-Process -FilePath $Py -ArgumentList "-m","deep_research.control.server","--port",$ApiPort `
+  Start-Process -FilePath $Py -ArgumentList "-P","-m","deep_research.control.server","--port",$ApiPort `
     -WorkingDirectory $Root -WindowStyle Hidden `
     -RedirectStandardOutput "$logs\control.out.log" -RedirectStandardError "$logs\control.err.log"
 } else { Write-Host "Control API already listening on $ApiPort (it must use the same token)." }
 if (Test-Port $DashPort) { Write-Host "Dashboard already running on $DashPort."; exit 0 }
-Start-Process -FilePath $Py -ArgumentList "-m","streamlit","run","src\deep_research\dashboard\app.py",`
+Start-Process -FilePath $Py -ArgumentList "-P","-m","streamlit","run","src\deep_research\dashboard\app.py",`
   "--server.address","127.0.0.1","--server.port",$DashPort,"--server.headless","true","--theme.base","dark" `
   -WorkingDirectory $Root -WindowStyle Hidden `
   -RedirectStandardOutput "$logs\dashboard.out.log" -RedirectStandardError "$logs\dashboard.err.log"
