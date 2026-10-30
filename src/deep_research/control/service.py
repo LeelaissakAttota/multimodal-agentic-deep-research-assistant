@@ -41,6 +41,11 @@ class ControlGate:
     def __init__(self, run: ControlRun) -> None:
         self._run = run
 
+    @property
+    def parallel_safe(self) -> bool:
+        """Independent research tasks may run concurrently only when no human approves each step."""
+        return not self._run.approval_mode
+
     async def before(self, kind: str, name: str, inputs: dict[str, Any]) -> GateOutcome:
         step, decision = await asyncio.to_thread(self._run.gate, kind, name, inputs)
         if decision.approved:

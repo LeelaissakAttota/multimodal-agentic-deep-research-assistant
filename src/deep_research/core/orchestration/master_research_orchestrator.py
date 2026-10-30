@@ -1,5 +1,6 @@
 """Master Research Orchestrator for coordinating the research workflow."""
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -228,52 +229,92 @@ class MasterResearchOrchestrator:
         """
         Execute a list of research tasks using the research agent.
         Returns the list of tasks with updated status and results.
+
+        Without a step gate (no operator approvals), attachment tasks run first (their output is
+        injected into the others) and the remaining independent tasks run concurrently; results are
+        applied in plan order so state updates stay deterministic. With a gate, tasks run one by one.
         """
+        parallel = self.step_gate is None or getattr(self.step_gate, "parallel_safe", False) is True
+        if parallel and len(tasks) > 1:
+            first = [t for t in tasks if t.assigned_tool in ATTACHMENT_TOOL_KINDS]
+            rest = [t for t in tasks if t.assigned_tool not in ATTACHMENT_TOOL_KINDS]
+            for task in first:
+                await self._run_one_task(task)
+            prepared = []
+            for task in rest:
+                outcome = await self._gate_task(task)
+                if outcome is not None and not outcome.approved:
+                    task.status = "failed"
+                    task.error = "rejected by operator"
+                    continue
+                self._inject_attachment_context(task)
+                prepared.append((task, self._build_context(task.objective), outcome))
+            try:
+                results = await asyncio.gather(*(self._invoke_research_agent(t, c) for t, c, _ in prepared),
+                                               return_exceptions=True)
+            finally:
+                for task in rest:
+                    task.metadata.pop("attachment_context", None)
+            error: BaseException | None = None
+            for (task, _, outcome), result in zip(prepared, results):
+                if isinstance(result, BaseException):
+                    await self._gate_after(outcome, ok=False, error=str(result))
+                    error = error or result
+                    continue
+                await self._apply_task_result(task, result, outcome)
+            if error is not None:
+                raise error
+            return list(tasks)
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
-            context = self._build_context(task.objective)
-            outcome = await self._gate_task(task)
-            if outcome is not None and not outcome.approved:
-                task.status = "failed"
-                task.error = "rejected by operator"
-                completed_tasks.append(task)
-                continue
-            self._inject_attachment_context(task)
-            try:
-                tool_result = await self._invoke_research_agent(task, context)
-            except Exception as exc:
-                await self._gate_after(outcome, ok=False, error=str(exc))
-                raise
-            finally:
-                task.metadata.pop("attachment_context", None)
-            await self._gate_after(
-                outcome,
-                ok=tool_result.success,
-                output=self._normalize_tool_output(tool_result.output).get("summary") if tool_result.success else None,
-                error=None if tool_result.success else (tool_result.error or "Unknown error"),
-            )
-            self._trace(self._source_events(tool_result))
-            if tool_result.success:
-                task.status = "completed"
-                output = self._normalize_tool_output(tool_result.output)
-                summary = output.get("summary")
-                task.result = summary if isinstance(summary, str) else ""
-
-                evidence_ids = output.get("evidence_ids")
-                if isinstance(evidence_ids, list):
-                    self._extend_unique(task.evidence_gathered, evidence_ids)
-
-                source_ids = output.get("source_ids")
-                if isinstance(source_ids, list):
-                    self._extend_unique(task.sources_consulted, source_ids)
-                self._record_attachment(task, output)
-                self._record_live_finding(task, output, tool_result.metadata)
-            else:
-                task.status = "failed"
-                task.error = tool_result.error or "Unknown error"
-            self._record_tool_decision(task, tool_result.metadata)
+            await self._run_one_task(task)
             completed_tasks.append(task)
         return completed_tasks
+
+    async def _run_one_task(self, task: ResearchTask) -> None:
+        context = self._build_context(task.objective)
+        outcome = await self._gate_task(task)
+        if outcome is not None and not outcome.approved:
+            task.status = "failed"
+            task.error = "rejected by operator"
+            return
+        self._inject_attachment_context(task)
+        try:
+            tool_result = await self._invoke_research_agent(task, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        finally:
+            task.metadata.pop("attachment_context", None)
+        await self._apply_task_result(task, tool_result, outcome)
+
+    async def _apply_task_result(self, task: ResearchTask, tool_result: ToolResult, outcome: GateOutcome | None) -> None:
+        await self._gate_after(
+            outcome,
+            ok=tool_result.success,
+            output=self._normalize_tool_output(tool_result.output).get("summary") if tool_result.success else None,
+            error=None if tool_result.success else (tool_result.error or "Unknown error"),
+        )
+        self._trace(self._source_events(tool_result))
+        if tool_result.success:
+            task.status = "completed"
+            output = self._normalize_tool_output(tool_result.output)
+            summary = output.get("summary")
+            task.result = summary if isinstance(summary, str) else ""
+
+            evidence_ids = output.get("evidence_ids")
+            if isinstance(evidence_ids, list):
+                self._extend_unique(task.evidence_gathered, evidence_ids)
+
+            source_ids = output.get("source_ids")
+            if isinstance(source_ids, list):
+                self._extend_unique(task.sources_consulted, source_ids)
+            self._record_attachment(task, output)
+            self._record_live_finding(task, output, tool_result.metadata)
+        else:
+            task.status = "failed"
+            task.error = tool_result.error or "Unknown error"
+        self._record_tool_decision(task, tool_result.metadata)
 
     def _record_tool_decision(self, task: ResearchTask, metadata: Mapping[str, Any]) -> None:
         """Log who chose the task's tool calls (only for agents that report a tool policy)."""

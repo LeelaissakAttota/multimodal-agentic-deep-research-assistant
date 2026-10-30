@@ -518,7 +518,8 @@ class RunManager:
         except Exception as exc:  # surfaced to the dashboard, never re-raised
             run.finish(error=f"{type(exc).__name__}: {exc}")
         else:
-            run.finish(result=result)
+            failed = isinstance(result, dict) and result.get("status") == "failed"
+            run.finish(result=result, error=str(result.get("error") or "research failed") if failed else None)
 
     def get(self, run_id: str) -> ControlRun:
         return self._runs[run_id]
