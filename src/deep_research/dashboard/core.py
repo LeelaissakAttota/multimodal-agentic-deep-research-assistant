@@ -360,6 +360,10 @@ def provider_health(settings: Any, masked_keys: dict[str, Any] | None, api_ok: b
     return rows
 
 
+#: Engine fallback claims that only name an evidence id (deterministic analysis); not worth showing.
+_PLACEHOLDER_CLAIM = re.compile(r"^Claim based on evidence [0-9a-f-]{8,}$", re.I)
+
+
 def claims(report: dict[str, Any]) -> list[dict[str, Any]]:
     """Per-claim confidence rows: scored cited statements when the report has citations, else engine claims."""
 
@@ -376,7 +380,7 @@ def claims(report: dict[str, Any]) -> list[dict[str, Any]]:
                 for c in scored if isinstance(c, dict) and c.get("text")]
     out = []
     for c in report.get("claims") or []:
-        if isinstance(c, dict) and c.get("text"):
+        if isinstance(c, dict) and c.get("text") and not _PLACEHOLDER_CLAIM.match(str(c["text"])):
             conf = c.get("confidence")
             out.append({"text": shorten(str(c["text"]), 240), "evidence": len(c.get("evidence_ids") or []),
                         "confidence": f"{float(conf):.0%}" if isinstance(conf, (int, float)) else "–"})

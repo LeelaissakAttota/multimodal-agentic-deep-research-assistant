@@ -89,3 +89,12 @@ def test_reports_early_when_next_iteration_would_exhaust_budget() -> None:
     assert orch._should_report_early(100) is False
     clock[0] = 130.0  # 170 s left < 1.25 * 100 + 60
     assert orch._should_report_early(100) is True
+
+
+def test_dashboard_hides_placeholder_engine_claims() -> None:
+    from deep_research.dashboard.core import claims
+
+    report = {"claims": [{"text": "Claim based on evidence b75ef18b-9e71-4131-ae0d-2a10726b9d4e", "evidence_ids": ["x"],
+                          "confidence": 0.8},
+                         {"text": "UPI settles payments in real time", "evidence_ids": ["y"], "confidence": 0.7}]}
+    assert [c["text"] for c in claims(report)] == ["UPI settles payments in real time"]
