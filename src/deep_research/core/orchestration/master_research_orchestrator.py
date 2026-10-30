@@ -1,6 +1,7 @@
 """Master Research Orchestrator for coordinating the research workflow."""
 
 import asyncio
+import time
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -103,8 +104,40 @@ class MasterResearchOrchestrator:
         await self._run_research_loop()
         return self.research_state
 
+    #: Seconds kept back for the report agent when deciding whether another research iteration fits.
+    REPORT_RESERVE_SECONDS = 60.0
+
+    def _should_report_early(self, last_iteration_seconds: float) -> bool:
+        """True when another iteration would likely exhaust the wall-clock budget before a report is written.
+
+        Only applies after a CONTINUE verdict with evidence in hand; then the best report so far beats none.
+        """
+        if self.execution_harness is None or self._analysis_result is None:
+            return False
+        if self.research_state.status != "evaluating" or not self.research_state.gathered_evidence:
+            return False
+        remaining = self.execution_harness.budget.remaining_seconds()
+        return remaining < 1.25 * last_iteration_seconds + self.REPORT_RESERVE_SECONDS
+
     async def _run_research_loop(self) -> None:
+        last_iteration_seconds = 0.0
         for iteration in range(self.max_iterations):
+            if iteration > 0 and self._should_report_early(last_iteration_seconds):
+                self.research_state.metadata["early_report"] = (
+                    "time budget nearly used: reported the evidence gathered so far instead of another iteration")
+                try:
+                    self._transition_to("reporting")
+                    await self._reporting_phase()
+                    self._attach_runtime_report()
+                    self._persist_checkpoint()
+                except RuntimeControlError as exc:
+                    self._terminate_for_runtime_failure(exc)
+                    self._attach_runtime_report()
+                    self._checkpoint_after_runtime_failure()
+                except PersistenceError as exc:
+                    self._terminate_for_persistence_failure(exc)
+                break
+            started = time.monotonic()
             self.research_state.iteration_number = iteration
             try:
                 if self.execution_harness is not None:
@@ -120,6 +153,7 @@ class MasterResearchOrchestrator:
             except PersistenceError as exc:
                 self._terminate_for_persistence_failure(exc)
                 break
+            last_iteration_seconds = time.monotonic() - started
             if self._is_terminal_state():
                 break
         if not self._is_terminal_state():

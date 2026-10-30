@@ -68,3 +68,24 @@ async def test_tasks_run_one_by_one_with_step_approval() -> None:
     agent = SlowAgent()
     done = await orchestrator(agent, Gate(False))._execute_research_tasks(tasks())
     assert agent.peak == 1 and all(t.status == "completed" for t in done)
+
+
+def test_reports_early_when_next_iteration_would_exhaust_budget() -> None:
+    from uuid import uuid4
+
+    from deep_research.runtime.contracts import RuntimeLimits
+    from deep_research.runtime.harness import ExecutionHarness
+
+    clock = [0.0]
+    harness = ExecutionHarness(RuntimeLimits(max_research_time_seconds=300), monotonic=lambda: clock[0])
+    harness.start_session()
+    orch = MasterResearchOrchestrator(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(),  # type: ignore[arg-type]
+                                      execution_harness=harness)
+    orch.research_state.status = "evaluating"
+    orch._analysis_result = {"summary": "x"}
+    assert orch._should_report_early(100) is False  # no evidence yet: keep researching
+    orch.research_state.gathered_evidence = [uuid4()]
+    clock[0] = 100.0  # 200 s left: an iteration of 100 s plus the report reserve fits
+    assert orch._should_report_early(100) is False
+    clock[0] = 130.0  # 170 s left < 1.25 * 100 + 60
+    assert orch._should_report_early(100) is True
