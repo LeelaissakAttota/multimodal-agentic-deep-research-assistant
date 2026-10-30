@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from deep_research.core.agents.analysis_agent import DeterministicAnalysisAgent
+from deep_research.core.agents.analysis_agent import AnalysisAgent, DeterministicAnalysisAgent
 from deep_research.core.agents.deterministic_research_agent import (
     DeterministicResearchAgent,
 )
@@ -172,7 +173,7 @@ class ResearchApplication:
         return MasterResearchOrchestrator(
             planning_agent=planning_agent,
             research_agent=self._build_research_agent(),
-            analysis_agent=DeterministicAnalysisAgent(),
+            analysis_agent=self._analysis_agent(gateway, charge_model_call),
             evaluation_agent=evaluation_agent,
             report_agent=DeterministicReportAgent(
                 verifier=ClaimVerifier(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
@@ -183,6 +184,15 @@ class ResearchApplication:
             session_repository=memory.repository if memory else None,
             context_builder=ResearchContextBuilder(memory.memory) if memory else None,
         )
+
+    def _analysis_agent(self, gateway: Any, charge: Any) -> AnalysisAgent:
+        """Live runs get source-grounded claims (LLM when configured, extractive otherwise)."""
+        if self.settings.research_mode != "live":
+            return DeterministicAnalysisAgent()
+        from deep_research.core.agents.live_analysis_agent import LiveAnalysisAgent
+
+        return LiveAnalysisAgent(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
+                                 budget_hook=charge if gateway is not None else None)
 
     @property
     def long_term_memory(self) -> LongTermMemory | None:
