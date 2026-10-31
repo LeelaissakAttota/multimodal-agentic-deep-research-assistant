@@ -96,7 +96,7 @@ def _pyav_frames(path: Path, times: list[float]) -> list[tuple[float, bytes]]:
         for t in times:
             try:
                 container.seek(int(t * 1_000_000), any_frame=False, backward=True)
-                frame = next(container.decode(stream))
+                frame: Any = next(container.decode(stream))  # PyAV frames are untyped
                 image = frame.to_image()
                 image.thumbnail((FRAME_WIDTH, FRAME_WIDTH))
                 buf = io.BytesIO()

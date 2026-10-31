@@ -93,7 +93,8 @@ class ChromaVectorStore:
 
             directory.mkdir(parents=True, exist_ok=True)
             client = chromadb.PersistentClient(path=str(directory))
-        self._collection = client.get_or_create_collection(name=collection, metadata={"hnsw:space": "cosine"})
+        self._collection: Any = client.get_or_create_collection(  # chromadb stubs are stricter than its runtime
+            name=collection, metadata={"hnsw:space": "cosine"})
 
     def upsert(self, ids: list[str], vectors: list[list[float]], texts: list[str], metadatas: list[Metadata]) -> None:
         if ids:

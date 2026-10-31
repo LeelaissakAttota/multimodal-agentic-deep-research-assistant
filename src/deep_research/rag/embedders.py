@@ -44,7 +44,7 @@ class LocalSTEmbedder:
             model = SentenceTransformer(model_name)
         self._model = model
         self.name = model_name
-        self.dimension = int(model.get_sentence_embedding_dimension())
+        self.dimension = int(model.get_sentence_embedding_dimension() or 0)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
