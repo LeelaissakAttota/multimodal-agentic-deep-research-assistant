@@ -32,7 +32,7 @@ services:
     environment:
       POSTGRES_DB: mdra
       POSTGRES_USER: mdra
-      POSTGRES_PASSWORD: ${MDRA_PG_PASSWORD:?set MDRA_PG_PASSWORD in .env (see .env.example)}
+      POSTGRES_PASSWORD: ${MDRA_PG_PASSWORD:?}
     volumes: ["postgres-data:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mdra -d mdra"]
@@ -47,7 +47,7 @@ services:
     ports: ["127.0.0.1:${MDRA_MINIO_PORT:-9000}:9000", "127.0.0.1:${MDRA_MINIO_CONSOLE_PORT:-9001}:9001"]
     environment:
       MINIO_ROOT_USER: ${MDRA_MINIO_USER:-mdra-local}
-      MINIO_ROOT_PASSWORD: ${MDRA_MINIO_PASSWORD:?set MDRA_MINIO_PASSWORD in .env (see .env.example)}
+      MINIO_ROOT_PASSWORD: ${MDRA_MINIO_PASSWORD:?}
     volumes: ["minio-data:/data"]
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -60,7 +60,7 @@ services:
       minio: {condition: service_healthy}
     environment:
       MC_USER: ${MDRA_MINIO_USER:-mdra-local}
-      MC_PASSWORD: ${MDRA_MINIO_PASSWORD:?set MDRA_MINIO_PASSWORD in .env (see .env.example)}
+      MC_PASSWORD: ${MDRA_MINIO_PASSWORD:?}
     entrypoint: ["/usr/bin/sh", "-c", "mc alias set local http://minio:9000 \"$$MC_USER\" \"$$MC_PASSWORD\" >/dev/null && mc mb --ignore-existing local/mdra-artifacts"]
     restart: "no"
 
@@ -77,7 +77,7 @@ services:
     # 5.23+ is required by the GraphRAG neighbour query (CALL (s) { ... }); 5.26 LTS is pinned.
     # Then: MDRA_NEO4J_URI=bolt://localhost:7687, MDRA_NEO4J_PASSWORD=<same as below>, deep-research graph-sync.
     environment:
-      NEO4J_AUTH: neo4j/${MDRA_NEO4J_PASSWORD:?set MDRA_NEO4J_PASSWORD in .env (see .env.example)}
+      NEO4J_AUTH: neo4j/${MDRA_NEO4J_PASSWORD:?}
       NEO4J_server_memory_heap_max__size: ${MDRA_NEO4J_HEAP:-512m}
       NEO4J_server_memory_pagecache_size: ${MDRA_NEO4J_PAGECACHE:-256m}
     volumes: ["neo4j-data:/data"]

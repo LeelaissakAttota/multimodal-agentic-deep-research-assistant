@@ -132,6 +132,7 @@ class LiveAnalysisAgent(AnalysisAgent):
         prompt = self.preamble + PROMPT.format(objective=plan.objective, excerpts=excerpts, max_claims=self.max_claims)
         if self.budget_hook is not None:
             self.budget_hook("analysis")
+        assert self.gateway is not None  # _llm is only called when a model gateway is configured
         reply, model_id = await ask_json(self.gateway, prompt, max_tokens=900,
                                          timeout_seconds=self.timeout_seconds)
         return self._validate(reply, state, sources), model_id

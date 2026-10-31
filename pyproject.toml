@@ -126,8 +126,16 @@ exclude = ["tests", ".git", "__pycache__", "build", "dist"]
 [[tool.mypy.overrides]]
 module = ["numpy", "streamlit", "streamlit.*", "fpdf", "fpdf.*", "docx", "docx.*", "pptx", "pptx.*", "rapidocr_onnxruntime", "pytesseract", "chromadb", "sentence_transformers",
           "rq", "rq.*", "boto3", "botocore", "botocore.*", "networkx", "networkx.*", "faiss",
-          "faster_whisper", "faster_whisper.*", "yt_dlp", "yt_dlp.*", "av", "av.*"]
+          "faster_whisper", "faster_whisper.*", "yt_dlp", "yt_dlp.*", "av", "av.*",
+          "neo4j", "neo4j.*", "redis", "redis.*", "sqlalchemy", "sqlalchemy.*", "opentelemetry", "opentelemetry.*"]
 ignore_missing_imports = true
+
+# Optional extras (streamlit, opentelemetry) are not installed in CI, so their types resolve to Any there.
+[[tool.mypy.overrides]]
+module = ["deep_research.dashboard.app", "deep_research.scale.spanstore"]
+disallow_untyped_decorators = false
+disallow_subclassing_any = false
+warn_return_any = false
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
