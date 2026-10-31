@@ -308,7 +308,7 @@ mypy src
 
 | Run | Result |
 | --- | --- |
-| Full run: all extras + live Neo4j, Postgres, Redis, MinIO/S3, YouTube (`MDRA_LIVE_TESTS=1`) | **1250 passed**, 3 skipped (node not installed, a POSIX-only check, fakeredis not installed) |
+| Full run: all extras + live Neo4j, Postgres, Redis, MinIO/S3, YouTube (`MDRA_LIVE_TESTS=1`) | 1253 tests: **1250 passed**, 3 skipped (node not installed, a POSIX-only check, fakeredis not installed) |
 | Minimal install (`.[test]`, like CI) | 1194 passed, 50 skipped |
 | CI (GitHub Actions) | Ruff + strict mypy + pytest on Python 3.11, 3.12 and 3.13 |
 
