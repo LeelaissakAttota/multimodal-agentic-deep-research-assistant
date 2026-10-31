@@ -41,6 +41,18 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 | ![Fetching a finished session](docs/images/get-research.png) | ![Empty objective rejected with 422](docs/images/validation-422.png) |
 | Fetch the finished result of a session by its ID. | Invalid input is rejected, and the submitted value is never echoed back. |
 
+### Dashboard
+
+| Dashboard | Report view |
+| --- | --- |
+| ![Dashboard home with recent researches, sources and capabilities](docs/images/dashboard.png) | ![A finished report with claims, citations and charts](docs/images/dashboard-report.png) |
+| Recent runs, sources, capabilities and quick actions. | Report, claims linked to evidence, verification and exports. |
+
+![Identity & Learning page: identity card, average score before vs after lessons, run-score chart and learned lessons](docs/images/identity-learning.png)
+
+*Identity & Learning:* the agent's fixed identity, the lessons it learned from earlier runs, and the score of completed
+runs without vs with those lessons (failed runs are listed but not averaged).
+
 ## What I built
 
 - **Agent pipeline:** separate planning, research, analysis, evaluation and report agents, coordinated by an explicit state machine. The evaluator returns COMPLETE, CONTINUE or FAILED, plus the gaps it found. CONTINUE triggers a bounded replan.
@@ -97,13 +109,17 @@ Research iterations, tool retries, model fallback and recovery are separate loop
 ```bash
 git clone https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant.git
 cd multimodal-agentic-deep-research-assistant
-python -m pip install -e ".[test]"          # add ,export,ocr for report exports and local OCR
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+python -m pip install -e ".[test,dashboard]"   # add ,export,ocr for report exports and local OCR
 cp .env.example .env          # optional; offline mode needs no keys
 
 deep-research-demo            # offline, deterministic demo (JSON output)
 uvicorn deep_research.api.main:app --host 127.0.0.1 --port 8000
 # open http://127.0.0.1:8000/docs
 curl -X POST http://127.0.0.1:8000/research -H "Content-Type: application/json" -d @examples/sample_request.json
+
+# Dashboard: control API on :8711 + Streamlit UI on :8502 (Windows: scripts\start-dashboard.ps1)
+scripts/start-dashboard.sh    # then open http://127.0.0.1:8502
 ```
 
 ### Live mode (free)
@@ -185,7 +201,7 @@ How the agent improves itself after every run, with no human in the loop (`src/d
 Turn it off with `DEEP_RESEARCH_SELF_IMPROVEMENT=false`; `DEEP_RESEARCH_SELF_IMPROVEMENT_TOP_K` (3) sets how many
 lessons a run uses.
 
-**In one interview sentence:** every run is graded on evidence the system already measures, a reflection agent turns
+**In one sentence:** every run is graded on evidence the system already measures, a reflection agent turns
 that grade into a few validated lessons in a local memory, and the next similar question retrieves those lessons
 (the same RAG idea used for documents) and steers planning and tool choice, while the core identity stays fixed and
 auditable.

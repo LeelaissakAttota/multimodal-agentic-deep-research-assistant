@@ -242,7 +242,9 @@ def waterfall(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return d
 
     rows = []
-    for s in sorted(spans, key=lambda x: (int(x["start_ns"]), x["span_id"])):
+    # Parents before children on equal start times: Windows clocks tick in ~15 ms steps, so a run span and its first
+    # child often share start_ns, and the random span id alone would order them arbitrarily.
+    for s in sorted(spans, key=lambda x: (int(x["start_ns"]), depth(x), x["span_id"])):
         start, end = int(s["start_ns"]), max(int(s["end_ns"]), int(s["start_ns"]))
         attrs = {k: v for k, v in (s.get("attrs") or {}).items() if k != RUN_ATTR}
         label = str(attrs.get("mdra.agent") or attrs.get("mdra.tool") or "")

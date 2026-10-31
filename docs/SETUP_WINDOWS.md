@@ -1,17 +1,17 @@
 # Setup on Windows (PowerShell)
 
-Project folder used below:
-`C:\Users\leela\Desktop\My Projects\multimodal-agentic-deep-research-assistant-main`
-(it already has `.venv` and a `.env`).
+Project folder used below: wherever you cloned the repository, for example
+`C:\Projects\multimodal-agentic-deep-research-assistant`. Create the venv once with `python -m venv .venv`
+and copy `.env.example` to `.env`.
 
 ## 1. Open the project and activate the venv
 
 ```powershell
-cd "C:\Users\leela\Desktop\My Projects\multimodal-agentic-deep-research-assistant-main"
+cd "C:\Projects\multimodal-agentic-deep-research-assistant"
 .\.venv\Scripts\Activate.ps1
 # If you see "running scripts is disabled", run this once, then activate again:
 #   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,dashboard]"
 ```
 
 Re-run the `pip install` after you pull this update, so the renamed demo
@@ -88,7 +88,7 @@ Swagger needs the PDF as base64 text. Building the request in PowerShell is
 easiest:
 
 ```powershell
-$pdf  = "C:\Users\leela\Desktop\report.pdf"          # your PDF
+$pdf  = "$HOME\Desktop\report.pdf"          # your PDF
 $b64  = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pdf))
 $body = @{
   objective   = "Using the attached report and the web, what are the key risks?"
@@ -115,7 +115,7 @@ The JSON shape is the same in Swagger:
 | What | Where |
 |---|---|
 | Run results | In memory on the server: the POST response and `GET /research/{session_id}`. They are lost when the server stops, so save them as shown above (`research-run.json`, `research-report.md`) |
-| Free-model cache (chosen models + ranking + timestamp, **no API key**) | `%LOCALAPPDATA%\deep_research\openrouter_free_models.json`, i.e. `C:\Users\leela\AppData\Local\deep_research\` (refreshed automatically after 6h) |
+| Free-model cache (chosen models + ranking + timestamp, **no API key**) | `%LOCALAPPDATA%\deep_research\openrouter_free_models.json`, i.e. `C:\Users\<you>\AppData\Local\deep_research\` (refreshed automatically after 6h) |
 | Change or disable the cache | `DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH=C:\path\file.json` or `=off` |
 | Logs | The terminal running uvicorn |
 

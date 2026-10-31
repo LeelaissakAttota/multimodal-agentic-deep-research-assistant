@@ -27,7 +27,7 @@ def test_settings_loaded():
     assert settings.max_model_calls_total == 45
     assert settings.max_tokens_per_call == 4000
     assert settings.max_tokens_total == 50000
-    assert settings.max_research_time_seconds == 300
+    assert settings.max_research_time_seconds == 420
     assert settings.max_tool_call_time_seconds == 30
     assert settings.max_external_api_calls == 10
     assert settings.max_tool_retry_attempts == 2

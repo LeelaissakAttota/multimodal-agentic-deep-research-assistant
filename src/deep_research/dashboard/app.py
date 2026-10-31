@@ -380,8 +380,9 @@ def page_learning() -> None:  # noqa: C901 - one screen of layout
     ident, s = load_identity(), Settings()
     store = _learning_store()
     lessons, tools, runs = store.all_lessons(), store.tool_stats(), store.runs()
-    before = [r["score"] for r in runs if not r["lessons_applied"]]
-    after = [r["score"] for r in runs if r["lessons_applied"]]
+    done = [r for r in runs if r["metrics"].get("status", "completed") == "completed"]  # failed runs would skew the average
+    before = [r["score"] for r in done if not r["lessons_applied"]]
+    after = [r["score"] for r in done if r["lessons_applied"]]
 
     def avg(xs: list[float]) -> str:
         return f"{sum(xs) / len(xs):.0f}" if xs else "–"
@@ -389,7 +390,8 @@ def page_learning() -> None:  # noqa: C901 - one screen of layout
     tiles([("✦", "c1", "Identity version", f"v{ident.version}", "core values are human-owned", True),
            ("💡", "c2", "Learned lessons", str(sum(x.enabled for x in lessons)),
             f"{len(lessons)} stored · max {s.self_improvement_max_lessons}", True),
-           ("📈", "c3", "Avg score before → after", f"{avg(before)} → {avg(after)}", "runs without vs with lessons", True),
+           ("📈", "c3", "Avg score before → after", f"{avg(before)} → {avg(after)}",
+            f"completed runs without vs with lessons · {len(runs) - len(done)} failed excluded", True),
            ("⚙", "c4", "Self-improvement", "On" if s.self_improvement else "Off", "DEEP_RESEARCH_SELF_IMPROVEMENT",
             s.self_improvement)])
     left, right = st.columns([1, 1.4], gap="medium")
@@ -419,10 +421,12 @@ def page_learning() -> None:  # noqa: C901 - one screen of layout
         with st.container(border=True):
             st.markdown("<div class='ph'>Improvement across runs <span class='muted'>run score 0-100</span></div>", unsafe_allow_html=True)
             if runs:
-                st.line_chart({"run": list(range(1, len(runs) + 1)), "score": [r["score"] for r in runs]},
+                st.line_chart({"run": [i for i, r in enumerate(runs, start=1) if r in done],
+                               "score": [r["score"] for r in done]},
                               x="run", y="score", color="#c2593a", height=220)
                 st.markdown("<div class='muted'>" + " · ".join(
-                    f"#{i}: {r['score']:.0f} ({r['lessons_applied']} lesson{'s' if r['lessons_applied'] != 1 else ''} used)"
+                    (f"#{i}: failed ({e(r['metrics'].get('failure_reason') or 'not scored')})" if r["metrics"].get("status", "completed") != "completed" else
+                     f"#{i}: {r['score']:.0f} ({r['lessons_applied']} lesson{'s' if r['lessons_applied'] != 1 else ''} used)")
                     for i, r in enumerate(runs[-8:], start=max(1, len(runs) - 7))) + "</div>", unsafe_allow_html=True)
             else:
                 st.markdown("<div class='muted'>No scored runs yet. Every finished run is scored and reflected on.</div>",

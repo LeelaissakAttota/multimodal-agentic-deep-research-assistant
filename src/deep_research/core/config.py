@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     max_model_calls_total: int = Field(default=45, ge=1)
     max_tokens_per_call: int = Field(default=4_000, ge=1)
     max_tokens_total: int = Field(default=50_000, ge=1)
-    max_research_time_seconds: float = Field(default=300.0, gt=0)
+    max_research_time_seconds: float = Field(default=420.0, gt=0)  # live agentic runs take ~3-4 min; leaves room for the report
     max_tool_call_time_seconds: float = Field(default=30.0, gt=0)
     max_model_call_time_seconds: float = Field(default=60.0, gt=0)
     max_external_api_calls: int = Field(default=10, ge=0)

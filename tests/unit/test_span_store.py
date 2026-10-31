@@ -114,7 +114,7 @@ def test_full_offline_run_records_timeline(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setenv("MDRA_TRACE_STORE", "sqlite")
     monkeypatch.setenv("MDRA_TRACE_DIR", str(tmp_path))
-    settings = Settings(_env_file=None, research_mode="offline")
+    settings = Settings(_env_file=None, research_mode="offline", memory_dir=str(tmp_path / "mem"))
     response = asyncio.run(ResearchApplication(settings).submit(
         ResearchSubmission(objective="What are the health benefits of green tea?"), run_id="ctl-1"))
     assert response.status == "completed", response.error
@@ -147,3 +147,10 @@ def test_dashboard_trace_tab(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert not at.exception
     text = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
     assert "2 spans" in text and "1 with errors" in text and "mdra.tool · web" in text and "TimeoutError" in text
+
+
+def test_waterfall_puts_parent_first_on_equal_start_times() -> None:
+    # Windows clocks tick in ~15 ms steps, so a run span and its first child can share a start time.
+    for child_id in ("0", "f" * 16):  # child id sorts before and after the parent id
+        rows = waterfall([_row("r", child_id, "8", 5, 9, "mdra.agent"), _row("r", "8", "", 5, 10, "mdra.run")])
+        assert [(r["name"], r["depth"]) for r in rows] == [("mdra.run", 0), ("mdra.agent", 1)]

@@ -22,7 +22,7 @@ The following limits will be configurable via environment variables or configura
 - `DEEP_RESEARCH_MAX_TOKENS_TOTAL`: Maximum tokens per research session (default: 50000).
 
 ### Time Budgets
-- `DEEP_RESEARCH_MAX_RESEARCH_TIME_SECONDS`: Maximum wall-clock time for a research session (default: 300 seconds = 5 minutes).
+- `DEEP_RESEARCH_MAX_RESEARCH_TIME_SECONDS`: Maximum wall-clock time for a research session (default: 420 seconds = 7 minutes; live agentic runs usually take 3-4 minutes and the last 60 seconds are kept for writing the report).
 - `DEEP_RESEARCH_MAX_TOOL_CALL_TIME_SECONDS`: Maximum time per tool call (default: 30 seconds).
 
 ### External API Limits

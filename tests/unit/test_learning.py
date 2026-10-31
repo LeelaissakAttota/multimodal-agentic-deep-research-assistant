@@ -222,3 +222,29 @@ def test_service_learns_then_applies_lessons(tmp_path: Path) -> None:
     assert applied and applied[0]["id"] in {x["id"] for x in learned["new_lessons"]}
     store = LessonStore(tmp_path / "learning.db")
     assert len(store.runs()) == 2 and store.tool_stats()
+
+
+def test_identity_page_excludes_failed_runs_from_average(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    testing = pytest.importorskip("streamlit.testing.v1")
+    from tests.unit.test_dashboard_assistant import APP, _setup
+
+    _setup(tmp_path, monkeypatch)
+    monkeypatch.setenv("DEEP_RESEARCH_MEMORY_DIR", str(tmp_path / "mem"))
+    store = LessonStore(tmp_path / "mem" / "learning.db")
+    for rid, score, applied, status in [("r1", 80.0, 0, "completed"), ("r2", 90.0, 3, "completed"),
+                                        ("r3", 0.0, 3, "failed")]:
+        store.record_run(rid, topic="finance", score=score, lessons_applied=applied, metrics={"status": status})
+    at = testing.AppTest.from_file(APP, default_timeout=30)
+    at.query_params.update({"page": "learning"})
+    at.run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "80 → 90" in text and "1 failed excluded" in text and "#3: failed (not scored)" in text
+
+
+def test_failed_run_records_failure_reason_without_user_text() -> None:
+    meta = {"runtime_failure": {"error_code": "budget_exhausted", "failure_kind": "budget", "message": "secret objective"}}
+    sig = collect_signals("r", "How do rates move stocks?", "failed", None, None, [], meta, elapsed_seconds=239.0)
+    assert sig.as_dict()["failure_reason"] == "budget:budget_exhausted" and sig.score() == 0.0
+    ok = collect_signals("r", "q", "completed", None, None, [], meta)
+    assert "failure_reason" not in ok.as_dict()

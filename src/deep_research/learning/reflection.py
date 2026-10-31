@@ -60,6 +60,7 @@ class RunSignals:
     quality: float | None = None  # evaluator quality average, 0-5
     feedback: float | None = None  # user rating, 0-1
     lessons_applied: int = 0
+    failure_reason: str | None = None  # error code / kind only (never user text), for failed runs
 
     @property
     def coverage(self) -> float:
@@ -82,7 +83,8 @@ class RunSignals:
                 "citations": self.citations, "claims": self.claims, "claim_coverage": round(self.coverage, 2),
                 "credible_citations": self.credible_citations, "tool_calls": self.tool_calls,
                 "failed_tools": self.failed_tools, "slow_tools": self.slow_tools, "quality": self.quality,
-                "feedback": self.feedback, "lessons_applied": self.lessons_applied, "score": self.score()}
+                "feedback": self.feedback, "lessons_applied": self.lessons_applied, "score": self.score(),
+                **({"failure_reason": self.failure_reason} if self.failure_reason else {})}
 
 
 def collect_signals(run_id: str, objective: str, status: str, report: Mapping[str, Any] | None,
@@ -102,6 +104,12 @@ def collect_signals(run_id: str, objective: str, status: str, report: Mapping[st
             quality = round(sum(vals) / len(vals), 2) if vals else None
             break
     feedback = (metadata or {}).get("user_feedback")
+    failure = (metadata or {}).get("runtime_failure")
+    failure_reason = None
+    if str(status) == "failed":
+        if isinstance(failure, Mapping):
+            failure_reason = ":".join(str(failure.get(k)) for k in ("failure_kind", "error_code") if failure.get(k))[:80]
+        failure_reason = failure_reason or "failed"
     usage = (runtime or {}).get("usage") or {}
     return RunSignals(
         run_id=run_id, topic=classify_topic(objective), status=str(status), citations=len(citations),
@@ -111,6 +119,7 @@ def collect_signals(run_id: str, objective: str, status: str, report: Mapping[st
         failed_tools=sorted({str(e["tool"]) for e in tool_events if not e.get("success")}),
         slow_tools=sorted({str(e["tool"]) for e in tool_events if float(e.get("latency_ms") or 0) >= slow_ms}),
         quality=quality, feedback=float(feedback) if isinstance(feedback, (int, float)) else None,
+        failure_reason=failure_reason,
     )
 
 
