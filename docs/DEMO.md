@@ -44,7 +44,7 @@ Run these steps locally in a terminal:
 git clone https://github.com/LeelaissakAttota/multimodal-agentic-deep-research-assistant.git
 cd multimodal-agentic-deep-research-assistant
 python -m pip install -e ".[test]"
-madra-demo
+deep-research-demo
 ```
 
 Or run the FastAPI server and exercise the API:
@@ -92,13 +92,13 @@ curl -X POST "http://127.0.0.1:8000/research" -H "Content-Type: application/json
 
 16. Suggested 2-minute demo version
 ---------------------------------
-1. Run `madra-demo` and show printed JSON output (show `status: completed` and `report` evidence ids).
+1. Run `deep-research-demo` and show printed JSON output (show `status: completed` and `report` evidence ids).
 2. Start `uvicorn` and open `http://127.0.0.1:8000/docs` to show the API spec and a sample POST.
 
 17. Suggested 5-minute interview demo version
 ------------------------------------------
 1. Briefly explain architecture (30s).
-2. Run `madra-demo` and point to evidence ids in output (90s).
+2. Run `deep-research-demo` and point to evidence ids in output (90s).
 3. Start server and perform `POST /research` and `GET /research/{session_id}` showing request→response flow and error cases (2 min).
 
 End of playbook.

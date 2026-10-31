@@ -1,0 +1,10 @@
+{
+  "api": "research",
+  "method": "POST",
+  "path": "/research",
+  "expect_status": 200,
+  "auth": true,
+  "body": {
+    "objective": "What is sodium-ion battery technology and how does it compare to lithium-ion?"
+  }
+}

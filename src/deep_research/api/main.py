@@ -1,6 +1,7 @@
 """
 FastAPI application for the deep research assistant.
 """
+import time
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,7 @@ from deep_research.api.research_service import (
     ResearchRunResponse,
     ResearchSubmission,
 )
+from deep_research.api.error_handlers import install_error_handlers
 from deep_research.core.config import settings
 from deep_research.observability.logging import configure_logging, get_logger
 
@@ -23,6 +25,7 @@ app = FastAPI(
     version=settings.version,
     description="A multimodal agentic deep research assistant",
 )
+install_error_handlers(app)
 research_application = ResearchApplication(settings)
 
 
@@ -66,8 +69,21 @@ async def version_info() -> JSONResponse:
 @app.post("/research", tags=["research"], response_model=ResearchRunResponse)
 async def submit_research(submission: ResearchSubmission) -> ResearchRunResponse:
     """Execute one bounded, zero-network deterministic research run."""
-    logger.info("research_submitted")
-    return await research_application.submit(submission)
+    logger.info(
+        "research_submitted",
+        objective_chars=len(submission.objective),
+        attachments=len(submission.attachments),
+        metadata_keys=len(submission.metadata),
+    )
+    started = time.perf_counter()
+    result = await research_application.submit(submission)
+    logger.info(
+        "research_finished",
+        session_id=str(result.session_id),
+        status=result.status,
+        duration_ms=round((time.perf_counter() - started) * 1000, 1),
+    )
+    return result
 
 
 @app.get(
@@ -79,5 +95,6 @@ async def get_research(session_id: UUID) -> ResearchRunResponse:
     """Return a process-local research result without exposing agent internals."""
     result = research_application.get(session_id)
     if result is None:
+        logger.warning("research_session_not_found", session_id=str(session_id))
         raise HTTPException(status_code=404, detail="Research session not found")
     return result

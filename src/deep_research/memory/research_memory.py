@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -11,6 +12,9 @@ from pydantic import BaseModel, Field
 from deep_research.evidence.claim import Claim
 from deep_research.evidence.evidence import Evidence
 from deep_research.evidence.source import Source
+from deep_research.memory.embeddings import Embedder, HashingEmbedder
+from deep_research.memory.reranker import LexicalReranker, Reranker
+from deep_research.memory.vector_store import LocalVectorStore, VectorStore
 from deep_research.persistence.contracts import (
     ResearchSessionRepository,
     ResearchSessionSnapshot,
@@ -58,6 +62,42 @@ class ResearchMemory(Protocol):
         """Return bounded, relevant evidence with provenance."""
 
 
+def _claims_for(snapshot: ResearchSessionSnapshot, evidence: Evidence) -> list[Claim]:
+    return sorted(
+        (claim for claim in snapshot.claims if evidence.id in claim.supported_by),
+        key=lambda item: str(item.id),
+    )
+
+
+def searchable_text(snapshot: ResearchSessionSnapshot, evidence: Evidence) -> str:
+    """Evidence content plus source title/description and supported claim texts."""
+
+    source = next(s for s in snapshot.sources if s.id == evidence.source_id)
+    return " ".join(
+        [
+            evidence.content,
+            source.title or "",
+            source.description or "",
+            *(claim.text for claim in _claims_for(snapshot, evidence)),
+        ]
+    )
+
+
+def build_record(snapshot: ResearchSessionSnapshot, evidence: Evidence, score: int) -> MemoryRecord:
+    """Wrap one evidence item with its full provenance."""
+
+    source = next(s for s in snapshot.sources if s.id == evidence.source_id)
+    return MemoryRecord(
+        session_id=snapshot.state.id,
+        request_id=snapshot.request.id,
+        evidence=evidence,
+        source=source,
+        claims=_claims_for(snapshot, evidence),
+        task_ids=sorted(set(snapshot.evidence_task_links.get(evidence.id, [])), key=str),
+        relevance_score=score,
+    )
+
+
 class BoundedResearchMemory:
     """Repository-backed research memory with deterministic lexical retrieval."""
 
@@ -82,45 +122,13 @@ class BoundedResearchMemory:
         records: list[MemoryRecord] = []
 
         for snapshot in snapshots:
-            sources = {source.id: source for source in snapshot.sources}
             for evidence in snapshot.evidence:
-                source = sources[evidence.source_id]
-                claims = sorted(
-                    (
-                        claim
-                        for claim in snapshot.claims
-                        if evidence.id in claim.supported_by
-                    ),
-                    key=lambda item: str(item.id),
-                )
-                searchable = " ".join(
-                    [
-                        evidence.content,
-                        source.title or "",
-                        source.description or "",
-                        *(claim.text for claim in claims),
-                    ]
-                )
-                searchable_terms = self._terms(searchable)
+                searchable_terms = self._terms(searchable_text(snapshot, evidence))
                 score = len(objective_terms.intersection(searchable_terms))
                 score += 2 * len(task_terms.intersection(searchable_terms))
                 if has_filter and score == 0:
                     continue
-                task_ids = sorted(
-                    set(snapshot.evidence_task_links.get(evidence.id, [])),
-                    key=str,
-                )
-                records.append(
-                    MemoryRecord(
-                        session_id=snapshot.state.id,
-                        request_id=snapshot.request.id,
-                        evidence=evidence,
-                        source=source,
-                        claims=claims,
-                        task_ids=task_ids,
-                        relevance_score=score,
-                    )
-                )
+                records.append(build_record(snapshot, evidence, score))
 
         records.sort(
             key=lambda item: (
@@ -139,3 +147,89 @@ class BoundedResearchMemory:
             for word in (match.group(0).casefold() for match in _WORD_PATTERN.finditer(value))
             if word not in _STOP_WORDS and len(word) > 1
         }
+
+
+class SemanticResearchMemory(BoundedResearchMemory):
+    """Long-term memory: embeddings + vector store + reranker over every stored session.
+
+    Falls back to the deterministic lexical retrieval of :class:`BoundedResearchMemory`
+    when the query is empty or nothing relevant is indexed yet. ``relevance_score`` is the
+    final relevance scaled to an integer in ``0..1000``.
+    """
+
+    def __init__(
+        self,
+        repository: ResearchSessionRepository,
+        embedder: Embedder | None = None,
+        store: VectorStore | None = None,
+        reranker: Reranker | None = None,
+        min_similarity: float = 0.05,
+    ) -> None:
+        super().__init__(repository)
+        self.embedder: Embedder = embedder or HashingEmbedder()
+        self.vector_store: VectorStore = store or LocalVectorStore()
+        self.reranker: Reranker = reranker or LexicalReranker()
+        self.min_similarity = min_similarity
+
+    def store(self, snapshot: ResearchSessionSnapshot) -> None:
+        super().store(snapshot)
+        self.index(snapshot)
+
+    def index(self, snapshot: ResearchSessionSnapshot) -> int:
+        """Embed and upsert every evidence item of a session; returns the count."""
+
+        if not snapshot.evidence:
+            return 0
+        texts = [searchable_text(snapshot, ev) for ev in snapshot.evidence]
+        ids = [f"{snapshot.state.id}:{ev.id}" for ev in snapshot.evidence]
+        metas: list[dict[str, str | int | float | bool]] = [
+            {"session_id": str(snapshot.state.id), "evidence_id": str(ev.id)} for ev in snapshot.evidence
+        ]
+        self.vector_store.upsert(ids, self.embedder.embed(texts), texts, metas)
+        return len(ids)
+
+    def index_existing(self, max_sessions: int = 100) -> int:
+        """Backfill the index from sessions already in the repository."""
+
+        return sum(self.index(s) for s in self.repository.list_sessions(limit=max_sessions))
+
+    def query(self, query: MemoryQuery) -> list[MemoryRecord]:
+        text = " ".join(part for part in (query.objective, query.current_task or "") if part).strip()
+        if not text or self.vector_store.count() == 0:
+            return super().query(query)
+        hits = self.vector_store.search(self.embedder.embed([text])[0], query.limit * 4)
+        hits = [h for h in hits if h.score >= self.min_similarity]
+        if query.session_id is not None:
+            hits = [h for h in hits if h.metadata.get("session_id") == str(query.session_id)]
+        if not hits:
+            return super().query(query)
+        rerank_scores = self.reranker.score(text, [h.text for h in hits])
+        snapshots: dict[str, ResearchSessionSnapshot | None] = {}
+        scored: list[MemoryRecord] = []
+        for hit, rr in zip(hits, rerank_scores):
+            sid = str(hit.metadata.get("session_id", ""))
+            if sid not in snapshots:
+                try:
+                    snapshots[sid] = self.repository.load_session(UUID(sid))
+                except Exception:  # noqa: BLE001 - stale index entry
+                    snapshots[sid] = None
+            snap = snapshots[sid]
+            if snap is None:
+                continue
+            evidence = next((e for e in snap.evidence if str(e.id) == hit.metadata.get("evidence_id")), None)
+            if evidence is None:
+                continue
+            combined = 0.5 * max(hit.score, 0.0) + 0.5 * _squash(rr)
+            scored.append(build_record(snap, evidence, int(round(min(combined, 1.0) * 1000))))
+        if not scored:
+            return super().query(query)
+        scored.sort(key=lambda r: (-r.relevance_score, str(r.session_id), str(r.evidence.id)))
+        return scored[: query.limit]
+
+
+def _squash(value: float) -> float:
+    """Map any reranker score to 0..1 (identity for 0..1, logistic otherwise)."""
+
+    if 0.0 <= value <= 1.0:
+        return value
+    return 1.0 / (1.0 + math.exp(-value))

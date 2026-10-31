@@ -1,0 +1,7 @@
+{
+  "api": "control",
+  "method": "GET",
+  "path": "/control/runs",
+  "expect_status": 401,
+  "auth": false
+}

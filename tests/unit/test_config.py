@@ -14,7 +14,7 @@ def test_settings_loaded():
         del sys.modules["deep_research.core.config"]
     from deep_research.core.config import settings
     assert settings.app_name == "Multimodal Agentic Deep Research Assistant"
-    assert settings.version == "0.1.0"
+    assert settings.version == "1.0.0"
     assert settings.environment == "development"
     assert settings.debug is False
     assert settings.api_host == "0.0.0.0"
@@ -27,7 +27,7 @@ def test_settings_loaded():
     assert settings.max_model_calls_total == 45
     assert settings.max_tokens_per_call == 4000
     assert settings.max_tokens_total == 50000
-    assert settings.max_research_time_seconds == 300
+    assert settings.max_research_time_seconds == 420
     assert settings.max_tool_call_time_seconds == 30
     assert settings.max_external_api_calls == 10
     assert settings.max_tool_retry_attempts == 2
@@ -39,26 +39,26 @@ def test_settings_from_env(monkeypatch):
     """
     Test that settings can be overridden by environment variables.
     """
-    monkeypatch.setenv("MADRA_APP_NAME", "Test App")
-    monkeypatch.setenv("MADRA_VERSION", "1.0.0")
-    monkeypatch.setenv("MADRA_ENVIRONMENT", "testing")
-    monkeypatch.setenv("MADRA_DEBUG", "true")
-    monkeypatch.setenv("MADRA_API_HOST", "127.0.0.1")
-    monkeypatch.setenv("MADRA_API_PORT", "9000")
-    monkeypatch.setenv("MADRA_LOG_LEVEL", "DEBUG")
-    monkeypatch.setenv("MADRA_MAX_RESEARCH_ITERATIONS", "5")
-    monkeypatch.setenv("MADRA_MAX_TOOL_CALLS_PER_ITERATION", "10")
-    monkeypatch.setenv("MADRA_MAX_TOOL_CALLS_TOTAL", "20")
-    monkeypatch.setenv("MADRA_MAX_MODEL_CALLS_PER_ITERATION", "5")
-    monkeypatch.setenv("MADRA_MAX_MODEL_CALLS_TOTAL", "10")
-    monkeypatch.setenv("MADRA_MAX_TOKENS_PER_CALL", "100")
-    monkeypatch.setenv("MADRA_MAX_TOKENS_TOTAL", "1000")
-    monkeypatch.setenv("MADRA_MAX_RESEARCH_TIME_SECONDS", "600")
-    monkeypatch.setenv("MADRA_MAX_TOOL_CALL_TIME_SECONDS", "12")
-    monkeypatch.setenv("MADRA_MAX_EXTERNAL_API_CALLS", "3")
-    monkeypatch.setenv("MADRA_MAX_TOOL_RETRY_ATTEMPTS", "1")
-    monkeypatch.setenv("MADRA_MAX_MODEL_RETRY_ATTEMPTS", "0")
-    monkeypatch.setenv("MADRA_EMERGENCY_STOP", "true")
+    monkeypatch.setenv("DEEP_RESEARCH_APP_NAME", "Test App")
+    monkeypatch.setenv("DEEP_RESEARCH_VERSION", "1.0.0")
+    monkeypatch.setenv("DEEP_RESEARCH_ENVIRONMENT", "testing")
+    monkeypatch.setenv("DEEP_RESEARCH_DEBUG", "true")
+    monkeypatch.setenv("DEEP_RESEARCH_API_HOST", "127.0.0.1")
+    monkeypatch.setenv("DEEP_RESEARCH_API_PORT", "9000")
+    monkeypatch.setenv("DEEP_RESEARCH_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_RESEARCH_ITERATIONS", "5")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOOL_CALLS_PER_ITERATION", "10")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOOL_CALLS_TOTAL", "20")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_MODEL_CALLS_PER_ITERATION", "5")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_MODEL_CALLS_TOTAL", "10")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOKENS_PER_CALL", "100")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOKENS_TOTAL", "1000")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_RESEARCH_TIME_SECONDS", "600")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOOL_CALL_TIME_SECONDS", "12")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_EXTERNAL_API_CALLS", "3")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_TOOL_RETRY_ATTEMPTS", "1")
+    monkeypatch.setenv("DEEP_RESEARCH_MAX_MODEL_RETRY_ATTEMPTS", "0")
+    monkeypatch.setenv("DEEP_RESEARCH_EMERGENCY_STOP", "true")
 
     # Reload the module to pick up the new environment variables
     if "deep_research.core.config" in sys.modules:

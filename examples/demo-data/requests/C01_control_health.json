@@ -1,0 +1,7 @@
+{
+  "api": "control",
+  "method": "GET",
+  "path": "/control/health",
+  "expect_status": 200,
+  "auth": false
+}

@@ -1,0 +1,89 @@
+# Optional local backends for MDRA Phase 6 (all free, all bound to 127.0.0.1).
+# MDRA does not need any of these: with nothing configured it uses SQLite, local files and in-process runs.
+#
+#   docker compose up -d                      # redis, postgres, minio, otel-collector
+#   docker compose --profile graph up -d      # + neo4j
+#
+# Then set the matching MDRA_* variables in .env (see docs/SCALE.md). The passwords below are local
+# development defaults; override them with environment variables or a compose .env file.
+#
+# Host ports are configurable and always bound to 127.0.0.1 only. Postgres defaults to host port 5433 so it
+# does not clash with a locally installed PostgreSQL (5432), e.g. on Windows with Docker Desktop:
+#   MDRA_PG_PORT (5433)  MDRA_REDIS_PORT (6379)  MDRA_MINIO_PORT (9000)  MDRA_MINIO_CONSOLE_PORT (9001)
+#   MDRA_OTEL_PORT (4318)  MDRA_NEO4J_HTTP_PORT (7474)  MDRA_NEO4J_BOLT_PORT (7687)
+name: mdra-scale
+
+services:
+  redis:
+    image: docker.io/library/redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
+    ports: ["127.0.0.1:${MDRA_REDIS_PORT:-6379}:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  postgres:
+    # Keep major 16: the postgres-data volume is a PG16 cluster (a major upgrade needs dump/restore).
+    # pgvector 0.8.7 on PostgreSQL 16.15 (Debian bookworm) for optional RAG (MDRA_RAG_*); see docs/SCALE.md.
+    image: docker.io/pgvector/pgvector:0.8.7-pg16-bookworm@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    ports: ["127.0.0.1:${MDRA_PG_PORT:-5433}:5432"]
+    environment:
+      POSTGRES_DB: mdra
+      POSTGRES_USER: mdra
+      POSTGRES_PASSWORD: ${MDRA_PG_PASSWORD:?}
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdra -d mdra"]
+      interval: 10s
+      retries: 5
+
+  minio:
+    # Upstream minio/minio and quay.io/minio/minio images were removed (Sept 2026). Silo is the community-maintained
+    # MinIO fork (same S3 API, MINIO_* env, ports and data format). Pinned by release tag + multi-arch digest.
+    image: docker.io/pgsty/silo:RELEASE.2026-10-18T00-00-00Z@sha256:2636fc4155d9a7e41ff58cdb65ddd13ba9304e67184e13c25bc5cb34016269d7
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports: ["127.0.0.1:${MDRA_MINIO_PORT:-9000}:9000", "127.0.0.1:${MDRA_MINIO_CONSOLE_PORT:-9001}:9001"]
+    environment:
+      MINIO_ROOT_USER: ${MDRA_MINIO_USER:-mdra-local}
+      MINIO_ROOT_PASSWORD: ${MDRA_MINIO_PASSWORD:?}
+    volumes: ["minio-data:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      retries: 5
+
+  minio-init:
+    image: docker.io/pgsty/mc:RELEASE.2026-10-18T00-00-00Z@sha256:6ecdaec70bc5e8cf9d0e9a70c190f3beb1c83f11617ff4333f1fcd71ab1daf18
+    depends_on:
+      minio: {condition: service_healthy}
+    environment:
+      MC_USER: ${MDRA_MINIO_USER:-mdra-local}
+      MC_PASSWORD: ${MDRA_MINIO_PASSWORD:?}
+    entrypoint: ["/usr/bin/sh", "-c", "mc alias set local http://minio:9000 \"$$MC_USER\" \"$$MC_PASSWORD\" >/dev/null && mc mb --ignore-existing local/mdra-artifacts"]
+    restart: "no"
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector:0.163.2@sha256:63e5e8eccf4268be02388ba9f2dc36b80b5e47721291293411c0e83152d75bda
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports: ["127.0.0.1:${MDRA_OTEL_PORT:-4318}:4318"]
+    volumes: ["./deploy/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
+
+  neo4j:
+    image: docker.io/library/neo4j:5.26.32-community@sha256:adaa077a3ab023015143b8f73f7076a7d053f12985f5b06f4c6a128c3a2f7240
+    profiles: ["graph"]
+    ports: ["127.0.0.1:${MDRA_NEO4J_HTTP_PORT:-7474}:7474", "127.0.0.1:${MDRA_NEO4J_BOLT_PORT:-7687}:7687"]
+    # 5.23+ is required by the GraphRAG neighbour query (CALL (s) { ... }); 5.26 LTS is pinned.
+    # Then: MDRA_NEO4J_URI=bolt://localhost:7687, MDRA_NEO4J_PASSWORD=<same as below>, deep-research graph-sync.
+    environment:
+      NEO4J_AUTH: neo4j/${MDRA_NEO4J_PASSWORD:?}
+      NEO4J_server_memory_heap_max__size: ${MDRA_NEO4J_HEAP:-512m}
+      NEO4J_server_memory_pagecache_size: ${MDRA_NEO4J_PAGECACHE:-256m}
+    volumes: ["neo4j-data:/data"]
+
+volumes:
+  redis-data:
+  postgres-data:
+  minio-data:
+  neo4j-data:

@@ -1,5 +1,7 @@
 """Master Research Orchestrator for coordinating the research workflow."""
 
+import asyncio
+import time
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -7,8 +9,10 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from deep_research.context.context_builder import AgentContext, ResearchContextBuilder
+from deep_research.core.attachment_context import ATTACHMENT_TOOL_KINDS, attachment_entry
 from deep_research.core.agents.analysis_agent import AnalysisAgent
 from deep_research.core.agents.evaluation_agent import EvaluationAgent, EvaluationResult
+from deep_research.core.agents.llm_support import DECISIONS_KEY, record_decision
 from deep_research.core.agents.planning_agent import PlanningAgent
 from deep_research.core.agents.research_agent import ResearchAgent
 from deep_research.core.agents.report_agent import ReportAgent
@@ -22,9 +26,11 @@ from deep_research.persistence.contracts import (
     ResearchSessionRepository,
     ResearchSessionSnapshot,
 )
-from deep_research.runtime.contracts import RuntimeControlError
+from deep_research.runtime.contracts import FailureKind, RuntimeControlError
+from deep_research.core.orchestration.step_gate import GateOutcome, StepGate
 from deep_research.runtime.harness import ExecutionHarness
 from deep_research.tools.tool import ToolResult
+from deep_research.scale.tracing import aspan
 
 
 class MasterResearchOrchestrator:
@@ -55,6 +61,7 @@ class MasterResearchOrchestrator:
         session_repository: ResearchSessionRepository | None = None,
         context_builder: ResearchContextBuilder | None = None,
         execution_harness: ExecutionHarness | None = None,
+        step_gate: StepGate | None = None,
     ):
         if max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
@@ -68,6 +75,8 @@ class MasterResearchOrchestrator:
         self.session_repository = session_repository
         self.context_builder = context_builder
         self.execution_harness = execution_harness
+        # Optional human-in-the-loop gate; None keeps the original behaviour.
+        self.step_gate = step_gate
         # Initialize with a dummy state; will be replaced in _initialize
         self.research_state: ResearchState = ResearchState(
             request_id=UUID(int=0), status="dummy", status_history=["dummy"]
@@ -95,8 +104,43 @@ class MasterResearchOrchestrator:
         await self._run_research_loop()
         return self.research_state
 
+    #: Seconds kept back for the report agent when deciding whether another research iteration fits.
+    REPORT_RESERVE_SECONDS = 60.0
+
+    def _should_report_early(self, last_iteration_seconds: float) -> bool:
+        """True when another iteration would likely exhaust the wall-clock budget before a report is written.
+
+        Only applies after a CONTINUE verdict with evidence in hand; then the best report so far beats none.
+        """
+        if self.execution_harness is None or self._analysis_result is None:
+            return False
+        if self.research_state.status != "evaluating" or not self.research_state.gathered_evidence:
+            return False
+        remaining = self.execution_harness.budget.remaining_seconds()
+        return remaining < 1.25 * last_iteration_seconds + self.REPORT_RESERVE_SECONDS
+
+    async def _report_early(self) -> None:
+        self.research_state.metadata["early_report"] = (
+            "time budget nearly used: reported the evidence gathered so far instead of another iteration")
+        try:
+            self._transition_to("reporting")
+            await self._reporting_phase()
+            self._attach_runtime_report()
+            self._persist_checkpoint()
+        except RuntimeControlError as exc:
+            self._terminate_for_runtime_failure(exc)
+            self._attach_runtime_report()
+            self._checkpoint_after_runtime_failure()
+        except PersistenceError as exc:
+            self._terminate_for_persistence_failure(exc)
+
     async def _run_research_loop(self) -> None:
+        last_iteration_seconds = 0.0
         for iteration in range(self.max_iterations):
+            if iteration > 0 and self._should_report_early(last_iteration_seconds):
+                await self._report_early()
+                break
+            started = time.monotonic()
             self.research_state.iteration_number = iteration
             try:
                 if self.execution_harness is not None:
@@ -112,6 +156,7 @@ class MasterResearchOrchestrator:
             except PersistenceError as exc:
                 self._terminate_for_persistence_failure(exc)
                 break
+            last_iteration_seconds = time.monotonic() - started
             if self._is_terminal_state():
                 break
         if not self._is_terminal_state():
@@ -162,6 +207,7 @@ class MasterResearchOrchestrator:
             request_id=request.id,
             status="initialized",
             status_history=["initialized"],
+            metadata={"objective": request.objective},
         )
         self._plan = None
         self._plans = []
@@ -179,7 +225,15 @@ class MasterResearchOrchestrator:
         assert self._request is not None, "Request must be set before planning"
         self._transition_to("planning")
         context = self._build_context()
-        self._plan = await self._invoke_planning_agent(context)
+        outcome = await self._gate_phase("planning")
+        try:
+            self._plan = await self._invoke_planning_agent(context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
+        self._trace([{"event": "plan", "task": str(t.description)[:300], "tool": str(t.assigned_tool or "")}
+                     for t in self._plan.tasks])
         self._plans.append(self._plan)
         self.research_state.current_plan_id = self._plan.id
         self.research_state.plan_history.append(self._plan.id)
@@ -212,37 +266,168 @@ class MasterResearchOrchestrator:
         """
         Execute a list of research tasks using the research agent.
         Returns the list of tasks with updated status and results.
+
+        Without a step gate (no operator approvals), attachment tasks run first (their output is
+        injected into the others) and the remaining independent tasks run concurrently; results are
+        applied in plan order so state updates stay deterministic. With a gate, tasks run one by one.
         """
+        parallel = self.step_gate is None or getattr(self.step_gate, "parallel_safe", False) is True
+        if parallel and len(tasks) > 1:
+            first = [t for t in tasks if t.assigned_tool in ATTACHMENT_TOOL_KINDS]
+            rest = [t for t in tasks if t.assigned_tool not in ATTACHMENT_TOOL_KINDS]
+            for task in first:
+                await self._run_one_task(task)
+            prepared = []
+            for task in rest:
+                outcome = await self._gate_task(task)
+                if outcome is not None and not outcome.approved:
+                    task.status = "failed"
+                    task.error = "rejected by operator"
+                    continue
+                self._inject_attachment_context(task)
+                prepared.append((task, self._build_context(task.objective), outcome))
+            try:
+                results = await asyncio.gather(*(self._invoke_research_agent(t, c) for t, c, _ in prepared),
+                                               return_exceptions=True)
+            finally:
+                for task in rest:
+                    task.metadata.pop("attachment_context", None)
+            error: BaseException | None = None
+            for (task, _, outcome), result in zip(prepared, results):
+                if isinstance(result, BaseException):
+                    await self._gate_after(outcome, ok=False, error=str(result))
+                    error = error or result
+                    continue
+                await self._apply_task_result(task, result, outcome)
+            if error is not None:
+                raise error
+            return list(tasks)
         completed_tasks: List[ResearchTask] = []
         for task in tasks:
-            context = self._build_context(task.objective)
-            tool_result = await self._invoke_research_agent(task, context)
-            if tool_result.success:
-                task.status = "completed"
-                output = self._normalize_tool_output(tool_result.output)
-                summary = output.get("summary")
-                task.result = summary if isinstance(summary, str) else ""
-
-                evidence_ids = output.get("evidence_ids")
-                if isinstance(evidence_ids, list):
-                    self._extend_unique(task.evidence_gathered, evidence_ids)
-
-                source_ids = output.get("source_ids")
-                if isinstance(source_ids, list):
-                    self._extend_unique(task.sources_consulted, source_ids)
-            else:
-                task.status = "failed"
-                task.error = tool_result.error or "Unknown error"
+            await self._run_one_task(task)
             completed_tasks.append(task)
         return completed_tasks
+
+    async def _run_one_task(self, task: ResearchTask) -> None:
+        context = self._build_context(task.objective)
+        outcome = await self._gate_task(task)
+        if outcome is not None and not outcome.approved:
+            task.status = "failed"
+            task.error = "rejected by operator"
+            return
+        self._inject_attachment_context(task)
+        try:
+            tool_result = await self._invoke_research_agent(task, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        finally:
+            task.metadata.pop("attachment_context", None)
+        await self._apply_task_result(task, tool_result, outcome)
+
+    async def _apply_task_result(self, task: ResearchTask, tool_result: ToolResult, outcome: GateOutcome | None) -> None:
+        await self._gate_after(
+            outcome,
+            ok=tool_result.success,
+            output=self._normalize_tool_output(tool_result.output).get("summary") if tool_result.success else None,
+            error=None if tool_result.success else (tool_result.error or "Unknown error"),
+        )
+        self._trace(self._source_events(tool_result))
+        if tool_result.success:
+            task.status = "completed"
+            output = self._normalize_tool_output(tool_result.output)
+            summary = output.get("summary")
+            task.result = summary if isinstance(summary, str) else ""
+
+            evidence_ids = output.get("evidence_ids")
+            if isinstance(evidence_ids, list):
+                self._extend_unique(task.evidence_gathered, evidence_ids)
+
+            source_ids = output.get("source_ids")
+            if isinstance(source_ids, list):
+                self._extend_unique(task.sources_consulted, source_ids)
+            self._record_attachment(task, output)
+            self._record_live_finding(task, output, tool_result.metadata)
+        else:
+            task.status = "failed"
+            task.error = tool_result.error or "Unknown error"
+        self._record_tool_decision(task, tool_result.metadata)
+
+    def _record_tool_decision(self, task: ResearchTask, metadata: Mapping[str, Any]) -> None:
+        """Log who chose the task's tool calls (only for agents that report a tool policy)."""
+        policy = metadata.get("tool_policy") if isinstance(metadata, Mapping) else None
+        if policy not in ("llm", "deterministic", "llm_then_deterministic"):
+            return
+        record_decision(self.research_state, {
+            "agent": "researcher", "source": policy, "task": task.metadata.get("section") or task.objective,
+            "model_id": metadata.get("tool_model_id"), "fallback_reason": metadata.get("tool_fallback_reason"),
+            "status": task.status, "trace": metadata.get("tool_trace") or [],
+        })
+
+    def _inject_attachment_context(self, task: ResearchTask) -> None:
+        """Hand processed attachments to non-attachment tasks as primary sources (transient)."""
+        entries = self.research_state.metadata.get("attachment_context")
+        if isinstance(entries, list) and entries and task.assigned_tool not in ATTACHMENT_TOOL_KINDS:
+            task.metadata["attachment_context"] = list(entries)
+
+    def _record_attachment(self, task: ResearchTask, output: Mapping[str, Any]) -> None:
+        entry = attachment_entry(task.assigned_tool, output)
+        if entry is None:
+            return
+        entries = self.research_state.metadata.setdefault("attachment_context", [])
+        if isinstance(entries, list):
+            entries.append(entry)
+
+    def _record_live_finding(
+        self, task: ResearchTask, output: Mapping[str, Any], metadata: Mapping[str, Any]
+    ) -> None:
+        """Keep live-mode synthesis and real source metadata for the report.
+
+        Only populated when the research agent returns ``source_objects``
+        (live mode); offline/deterministic runs are unaffected.
+        """
+        source_objects = output.get("source_objects")
+        if not isinstance(source_objects, list) or not source_objects:
+            return
+        sources = [row for row in (_source_row(source) for source in source_objects) if row is not None]
+        if not sources:
+            return
+        excerpts = _evidence_excerpts(output.get("evidence_objects"))
+        for row in sources:
+            if row["source_id"] in excerpts:
+                row["excerpt"] = excerpts[row["source_id"]]
+        findings = self.research_state.metadata.setdefault("live_findings", [])
+        if isinstance(findings, list):
+            findings.append(
+                {
+                    "task_id": str(task.id),
+                    "objective": task.objective,
+                    "section": task.metadata.get("section"),
+                    "kind": "attachment" if task.assigned_tool in ATTACHMENT_TOOL_KINDS else "web",
+                    "query": metadata.get("query"),
+                    "summary": output.get("summary") if isinstance(output.get("summary"), str) else "",
+                    "attachment": {k: output.get(k) for k in ("page_count", "has_text", "note", "image_count", "ocr_engine")}
+                    if task.assigned_tool in ATTACHMENT_TOOL_KINDS else None,
+                    "model_id": metadata.get("model_id"),
+                    "synthesis": metadata.get("synthesis"),
+                    "synthesis_error": metadata.get("synthesis_error"),
+                    "sources": sources,
+                }
+            )
 
     async def _analysis_phase(self) -> None:
         assert self._plan is not None, "No plan available for analysis phase"
         self._transition_to("analyzing")
         context = self._build_context()
-        self._analysis_result = await self._invoke_analysis_agent(
-            self._plan, context
-        )
+        outcome = await self._gate_phase("analysis")
+        try:
+            self._analysis_result = await self._invoke_analysis_agent(
+                self._plan, context
+            )
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
 
     async def _evaluation_phase(self) -> EvaluationResult:
         assert self._plan is not None, "No plan available for evaluation phase"
@@ -251,9 +436,16 @@ class MasterResearchOrchestrator:
         )
         self._transition_to("evaluating")
         context = self._build_context()
-        return await self._invoke_evaluation_agent(
-            self._plan, self._analysis_result, context
-        )
+        outcome = await self._gate_phase("evaluation")
+        try:
+            evaluation = await self._invoke_evaluation_agent(self._plan, self._analysis_result, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True, output={"decision": evaluation.decision})
+        self._trace([{"event": "verdict", "decision": str(evaluation.decision),
+                      "gaps": [str(g)[:200] for g in (evaluation.gaps or [])[:5]]}])
+        return evaluation
 
     async def _handle_evaluation_result(self, evaluation_result: EvaluationResult) -> None:
         self.research_state.last_evaluation_gaps = list(evaluation_result.gaps)
@@ -283,9 +475,102 @@ class MasterResearchOrchestrator:
             "No analysis result available for reporting phase"
         )
         context = self._build_context()
-        report = await self._invoke_report_agent(self._analysis_result, context)
+        outcome = await self._gate_phase("reporting")
+        try:
+            report = await self._invoke_report_agent(self._analysis_result, context)
+        except Exception as exc:
+            await self._gate_after(outcome, ok=False, error=str(exc))
+            raise
+        await self._gate_after(outcome, ok=True)
+        decisions = self.research_state.metadata.get(DECISIONS_KEY)
+        if isinstance(decisions, list) and decisions and isinstance(report, dict):
+            report["agent_decisions"] = list(decisions)
+            report["agent_summary"] = _decision_summary(decisions)
+            if isinstance(report.get("content"), str) and report.get("citations") is not None:
+                report["content"] = report["content"] + "\n\n" + _decision_markdown(decisions)
         self.research_state.metadata["report"] = report
+        if self.research_state.error:  # a task failed earlier but the run recovered
+            self.research_state.metadata["last_task_error"] = self.research_state.error
+            self.research_state.error = None
         self._transition_to("completed")
+
+    async def _gate_phase(self, kind: str) -> GateOutcome | None:
+        if self.step_gate is None:
+            return None
+        outcome = await self.step_gate.before(
+            kind,
+            f"{kind} (iteration {self.research_state.iteration_number})",
+            {"iteration": self.research_state.iteration_number},
+        )
+        if not outcome.approved:
+            reason = "stopped by operator" if outcome.stopped else "rejected by operator"
+            raise RuntimeControlError(
+                f"{kind} {reason}",
+                failure_kind=FailureKind.EMERGENCY_STOP,
+                operation=kind,
+            )
+        return outcome
+
+    async def _gate_task(self, task: ResearchTask) -> GateOutcome | None:
+        if self.step_gate is None:
+            return None
+        outcome = await self.step_gate.before(
+            "research_task",
+            task.description[:120],
+            {"objective": task.objective, "description": task.description, "tool": task.assigned_tool},
+        )
+        if outcome.stopped:
+            raise RuntimeControlError(
+                "research stopped by operator",
+                failure_kind=FailureKind.EMERGENCY_STOP,
+                operation="research_task",
+            )
+        if outcome.approved:
+            objective = outcome.inputs.get("objective")
+            if isinstance(objective, str) and objective.strip():
+                task.objective = objective.strip()
+            description = outcome.inputs.get("description")
+            if isinstance(description, str) and description.strip():
+                task.description = description.strip()
+        return outcome
+
+    async def _gate_after(
+        self, outcome: GateOutcome | None, *, ok: bool, output: Any = None, error: str | None = None
+    ) -> None:
+        if self.step_gate is not None and outcome is not None:
+            await self.step_gate.after(outcome, ok=ok, output=output, error=error)
+
+    def _trace(self, events: List[Dict[str, Any]]) -> None:
+        """Hand real progress events (plan tasks, queries, sources, verdicts) to an optional gate ``trace``."""
+
+        trace = getattr(self.step_gate, "trace", None)
+        if callable(trace) and events:
+            try:
+                trace(events)
+            except Exception:  # noqa: BLE001 - tracing must never break research
+                pass
+
+    @staticmethod
+    def _source_events(tool_result: Any) -> List[Dict[str, Any]]:
+        meta = tool_result.metadata if isinstance(getattr(tool_result, "metadata", None), dict) else {}
+        out = tool_result.output if isinstance(getattr(tool_result, "output", None), dict) else {}
+        queries = meta.get("queries") or ([meta["query"]] if meta.get("query") else [])
+        events: List[Dict[str, Any]] = [{"event": "search", "query": str(q)[:300]} for q in queries if q]
+        seen: set[str] = set()
+
+        def _val(obj: Any, key: str) -> str:
+            raw = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+            return "" if raw is None else str(raw)
+
+        for item in [*(out.get("source_objects") or []), *(out.get("results") or [])][:20]:
+            url, title = _val(item, "url"), _val(item, "title")
+            key = url or title
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            snippet = _val(item, "snippet") or _val(item, "description") or ("" if url else "attached file")
+            events.append({"event": "source", "url": url[:500], "title": title[:200], "snippet": snippet[:240]})
+        return events
 
     def _is_terminal_state(self) -> bool:
         return self.research_state.status in ("completed", "failed", "blocked")
@@ -335,9 +620,10 @@ class MasterResearchOrchestrator:
                 context=context,
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("planning", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "planning"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("planning", operation)
 
     async def _invoke_research_agent(
         self, task: ResearchTask, context: AgentContext | None
@@ -347,13 +633,15 @@ class MasterResearchOrchestrator:
                 return await self.research_agent.execute_task(task)
             return await self.research_agent.execute_task(task, context=context)
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_tool(
-            f"research_task:{task.id}",
-            operation,
-            external_api=bool(task.metadata.get("external_api", False)),
-        )
+        async with aspan("mdra.agent", **{"mdra.agent": "research", "mdra.task.tool": task.assigned_tool,
+                                          "mdra.task.section": task.metadata.get("section")}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_tool(
+                f"research_task:{task.id}",
+                operation,
+                external_api=bool(task.metadata.get("external_api", False)),
+            )
 
     async def _invoke_analysis_agent(
         self, plan: ResearchPlan, context: AgentContext | None
@@ -365,9 +653,10 @@ class MasterResearchOrchestrator:
                 self.research_state, plan, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("analysis", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "analysis"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("analysis", operation)
 
     async def _invoke_evaluation_agent(
         self,
@@ -384,9 +673,10 @@ class MasterResearchOrchestrator:
                 self.research_state, plan, analysis_result, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("evaluation", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "evaluation"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("evaluation", operation)
 
     async def _invoke_report_agent(
         self, analysis_result: Dict[str, Any], context: AgentContext | None
@@ -400,9 +690,10 @@ class MasterResearchOrchestrator:
                 self.research_state, analysis_result, context=context
             )
 
-        if self.execution_harness is None:
-            return await operation()
-        return await self.execution_harness.execute_model("reporting", operation)
+        async with aspan("mdra.agent", **{"mdra.agent": "reporting"}):
+            if self.execution_harness is None:
+                return await operation()
+            return await self.execution_harness.execute_model("reporting", operation)
 
     def _persist_checkpoint(self) -> None:
         if self.session_repository is None:
@@ -486,3 +777,79 @@ class MasterResearchOrchestrator:
         if isinstance(output, Mapping):
             return output
         return {}
+
+
+def _source_row(source: Any) -> Optional[Dict[str, Any]]:
+    """JSON-safe citation row: web sources need a URL; attachment sources are labelled instead."""
+    source_id = getattr(source, "id", None)
+    if source_id is None:
+        return None
+    url = getattr(source, "url", None)
+    metadata = getattr(source, "metadata", None) or {}
+    is_attachment = bool(metadata.get("attachment")) if isinstance(metadata, dict) else False
+    if url is None and not is_attachment:
+        return None
+    title = getattr(source, "title", None) or (str(url) if url else "Attachment")
+    row: Dict[str, Any] = {"source_id": str(source_id), "url": str(url) if url else None, "title": title}
+    if is_attachment and isinstance(metadata, dict):
+        row["kind"] = "attachment"
+        row["page"] = metadata.get("page")
+    elif isinstance(metadata, dict) and metadata.get("source_type"):
+        # Public-source tools (academic / video / social / image): keep what the citation needs.
+        row["source_type"] = str(metadata["source_type"])
+        for key in ("tool_identifier", "provider", "authors", "year", "venue", "image_url", "license"):
+            if metadata.get(key):
+                row["tool" if key == "tool_identifier" else key] = str(metadata[key])
+    return row
+
+
+_EXCERPT_CHARS = 2000
+
+
+def _evidence_excerpts(evidence_objects: Any) -> Dict[str, str]:
+    """Source id -> concatenated evidence text (capped), so claims can be checked against what was read."""
+    out: Dict[str, str] = {}
+    if not isinstance(evidence_objects, list):
+        return out
+    for item in evidence_objects:
+        source_id, content = getattr(item, "source_id", None), getattr(item, "content", None)
+        if source_id is None or not isinstance(content, str) or not content.strip():
+            continue
+        key = str(source_id)
+        joined = (out.get(key, "") + "\n" + content.strip()).strip()
+        out[key] = joined[:_EXCERPT_CHARS]
+    return out
+
+
+def _decision_summary(decisions: List[Any]) -> Dict[str, Dict[str, int]]:
+    """Count decisions per agent and source, e.g. {"planner": {"llm": 2}}."""
+    summary: Dict[str, Dict[str, int]] = {}
+    for entry in decisions:
+        if isinstance(entry, dict):
+            per_agent = summary.setdefault(str(entry.get("agent")), {})
+            source = str(entry.get("source"))
+            per_agent[source] = per_agent.get(source, 0) + 1
+    return summary
+
+
+def _decision_markdown(decisions: List[Any]) -> str:
+    """Short, human-readable log of agent decisions for the report."""
+    lines = ["## How this research was run", ""]
+    for entry in decisions:
+        if not isinstance(entry, dict):
+            continue
+        label = f"Round {int(entry.get('iteration', 0)) + 1} - {entry.get('agent')} ({entry.get('source')})"
+        if entry.get("fallback_reason"):
+            label += f", fallback: {entry['fallback_reason']}"
+        agent = entry.get("agent")
+        if agent == "planner":
+            queries = [t.get("query") for t in entry.get("tasks") or [] if isinstance(t, dict) and t.get("query")]
+            detail = "; ".join(str(q) for q in queries)
+        elif agent == "evaluator":
+            detail = f"{entry.get('decision')}" + (f" - gaps: {'; '.join(entry.get('gaps') or [])}"
+                                                    if entry.get("gaps") else "")
+        else:
+            steps = [t for t in entry.get("trace") or [] if isinstance(t, dict)]
+            detail = " -> ".join(str(t.get("action")) for t in steps)
+        lines.append(f"- {label}: {detail}" if detail else f"- {label}")
+    return "\n".join(lines)

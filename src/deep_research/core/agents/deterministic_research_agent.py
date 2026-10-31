@@ -16,6 +16,7 @@ from deep_research.tools.registry import ToolRegistry
 from deep_research.tools.selector import ToolSelector
 from deep_research.tools.definition import ToolDefinition, ToolCapability, ToolInput, ToolOutput
 from deep_research.domain.modality import Modality
+from deep_research.scale.tracing import traced_tool
 
 
 class FakeWebSearchInput(ToolInput):
@@ -196,6 +197,20 @@ class DeterministicResearchAgent(ResearchAgent):
         self.registry.register(type(document_reader_tool))
         self._tools["document_reader"] = document_reader_tool
 
+        # Real offline multimodal tools (image description only when a free
+        # vision gateway is configured; metadata-only otherwise).
+        from deep_research.tools.document_tool import DocumentReaderTool
+        from deep_research.tools.image_tool import ImageAnalysisTool
+        from deep_research.tools.media_tool import MediaAnalysisTool
+        from deep_research.tools.pdf_tool import PdfReaderTool
+
+        from deep_research.tools.web_page_tool import WebPageReaderTool
+
+        for tool in (PdfReaderTool(), ImageAnalysisTool(), DocumentReaderTool(), WebPageReaderTool(offline=True),
+                     MediaAnalysisTool()):
+            self.registry.register(type(tool))
+            self._tools[tool.name] = tool
+
     async def execute_task(
         self, task: ResearchTask, context: AgentContext | None = None
     ) -> ToolResult:
@@ -245,8 +260,9 @@ class DeterministicResearchAgent(ResearchAgent):
                 execution_time_ms=0.0
             )
 
-        # Instantiate the tool (in a real implementation, we might cache instances)
-        tool_instance = tool_class()
+        # The web-page reader must keep its offline configuration; other tools are built fresh.
+        configured = self._tools.get(tool_definition.identifier)
+        tool_instance = configured if tool_definition.identifier == "web_page_reader" and configured else tool_class()
 
         # Create tool request from task
         tool_request = ToolRequest(
@@ -256,7 +272,7 @@ class DeterministicResearchAgent(ResearchAgent):
 
         # Execute the tool
         try:
-            result = await tool_instance.execute(tool_request)
+            result = await traced_tool(tool_instance, tool_request)
             return result
         except Exception as exc:
             failure_kind = (

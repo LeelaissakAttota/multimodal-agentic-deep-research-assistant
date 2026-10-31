@@ -1,0 +1,21 @@
+# Minimal OpenTelemetry Collector config: receive OTLP/HTTP from MDRA and print spans (debug exporter).
+# Add a free backend (e.g. Jaeger: exporters.otlp to jaeger:4317) if you want a trace UI.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

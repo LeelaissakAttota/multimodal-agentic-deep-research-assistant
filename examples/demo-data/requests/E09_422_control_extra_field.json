@@ -1,0 +1,11 @@
+{
+  "api": "control",
+  "method": "PUT",
+  "path": "/control/settings",
+  "expect_status": 422,
+  "auth": true,
+  "body": {
+    "approval_mode": false,
+    "hack": true
+  }
+}

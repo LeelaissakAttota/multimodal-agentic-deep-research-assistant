@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>MDRA extension options</title><link rel="stylesheet" href="ui.css"></head>
+<body class="options">
+  <h1>MDRA extension options</h1>
+  <p class="muted">The extension only talks to the MDRA control API on this computer.</p>
+  <label>Control API address <input id="baseUrl" type="url" placeholder="http://127.0.0.1:8711" autocomplete="off"></label>
+  <label>Control token <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="DEEP_RESEARCH_CONTROL_TOKEN"></label>
+  <p class="muted">Stored only in this browser profile (chrome.storage.local, not synced). It is never shown again or logged.
+    Leave empty to keep the saved token.</p>
+  <label>Research mode
+    <select id="mode"><option value="live">Live (web search)</option><option value="offline">Offline (no network)</option></select>
+  </label>
+  <button id="save">Save</button> <button id="test" class="secondary">Test connection</button> <button id="forget" class="secondary">Forget token</button>
+  <div id="status" role="status"></div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

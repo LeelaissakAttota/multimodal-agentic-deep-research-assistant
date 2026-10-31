@@ -1,0 +1,7 @@
+{
+  "api": "research",
+  "method": "GET",
+  "path": "/health",
+  "expect_status": 200,
+  "auth": true
+}

@@ -35,6 +35,9 @@ Architecture contract
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 from deep_research.core.config import Settings
 from deep_research.core.free_model_guard import FreeModelGuard, ModelCapability
 from deep_research.models.guarded_gateway import GuardedModelGateway
@@ -44,6 +47,12 @@ from deep_research.models.free_stt_router import (
     HuggingFaceTranscriptionProvider,
     NVIDIATranscriptionProvider,
     STTProvider,
+)
+from deep_research.models.openrouter_catalog import (
+    AUTO_GUARD_MODEL_ID,
+    AUTO_MODEL_ID,
+    OpenRouterFreeModelCatalog,
+    default_cache_path,
 )
 from deep_research.models.providers.openrouter_gateway import OpenRouterModelGateway
 
@@ -133,14 +142,25 @@ def build_provider_gateway(
         if not key_value.strip():
             return None
 
+        configured = (
+            settings.openrouter_vision_model
+            if capability == ModelCapability.VISION
+            else settings.openrouter_model
+        )
+        configured = (configured or AUTO_MODEL_ID).strip() or AUTO_MODEL_ID
+        kind = "vision" if capability == ModelCapability.VISION else "text"
         raw_gateway = OpenRouterModelGateway(
             api_key=settings.openrouter_api_key,
-            model=settings.openrouter_model,
+            model=configured,
             base_url=settings.openrouter_base_url,
+            catalog=_shared_catalog(settings),
+            kind=kind,  # type: ignore[arg-type]
         )
+        # Guard sees auto:free (or a pinned :free id); the concrete model is chosen at call time.
+        guard_model = AUTO_GUARD_MODEL_ID if configured == AUTO_MODEL_ID else configured
         return GuardedModelGateway(
             raw_gateway,
-            model_id=settings.openrouter_model,
+            model_id=guard_model,
             provider="openrouter",
             capability=capability,
             guard=guard or FreeModelGuard(),
@@ -148,3 +168,38 @@ def build_provider_gateway(
 
     # ----- all other capabilities: no live provider -----
     return None
+
+
+_CATALOGS: dict[tuple[str, str, str, int, int], OpenRouterFreeModelCatalog] = {}
+
+
+def resolve_model_cache_path(settings: Settings) -> Path | None:
+    """Configured cache file, the per-user default, or ``None`` when disabled ('off')."""
+
+    raw = (settings.openrouter_model_cache_path or "").strip()
+    if raw.lower() in ("off", "none", "disabled", "0"):
+        return None
+    return Path(raw).expanduser() if raw else default_cache_path()
+
+
+def _shared_catalog(settings: Settings) -> OpenRouterFreeModelCatalog:
+    """One catalog per process+config so text and vision gateways share discovery/probing."""
+
+    assert settings.openrouter_api_key is not None
+    path = resolve_model_cache_path(settings)
+    # In-memory key only: a key fingerprint (never persisted) keeps different accounts apart.
+    fingerprint = hashlib.sha256(settings.openrouter_api_key.get_secret_value().encode()).hexdigest()[:16]
+    key = (fingerprint, settings.openrouter_base_url, str(path or ""), settings.openrouter_model_cache_seconds,
+           settings.openrouter_probe_count)
+    catalog = _CATALOGS.get(key)
+    if catalog is None:
+        catalog = OpenRouterFreeModelCatalog(
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+            cache_ttl_seconds=float(settings.openrouter_model_cache_seconds),
+            cache_path=path,
+            probe_count=settings.openrouter_probe_count,
+            probe_timeout=settings.openrouter_probe_timeout_seconds,
+        )
+        _CATALOGS[key] = catalog
+    return catalog

@@ -114,3 +114,20 @@ reports/
 
 # Cache directories for tools
 .cache/
+
+# Free-model selection cache (if DEEP_RESEARCH_OPENROUTER_MODEL_CACHE_PATH points inside the repo)
+data/.model_cache.json
+.model_cache.json
+openrouter_free_models.json
+
+# demo data folder is not user data
+!examples/demo-data/data/
+
+# Stray process files
+*.pid
+
+# dashboard run history (local only)
+dashboard_runs/
+
+# Phase 3 local vector store (Chroma / JSON fallback)
+data/vector_store/

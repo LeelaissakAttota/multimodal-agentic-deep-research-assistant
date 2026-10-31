@@ -1,12 +1,37 @@
 """
 Tests for the API endpoints.
 """
-from fastapi.testclient import TestClient
+import asyncio
+from typing import Any
+
+import httpx
 
 from deep_research.api.main import app
 
 
-client = TestClient(app)
+class _SyncASGIClient:
+    """Minimal sync client over httpx.ASGITransport.
+
+    Replaces ``fastapi.testclient.TestClient``, whose httpx backend is
+    deprecated in Starlette (it now wants the separate ``httpx2`` package).
+    """
+
+    def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        async def _send() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+                return await c.request(method, url, **kwargs)
+
+        return asyncio.run(_send())
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("POST", url, **kwargs)
+
+
+client = _SyncASGIClient()
 
 
 def test_health_check():

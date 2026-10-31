@@ -3,23 +3,32 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from deep_research.core.agents.analysis_agent import DeterministicAnalysisAgent
+from deep_research.core.agents.analysis_agent import AnalysisAgent, DeterministicAnalysisAgent
 from deep_research.core.agents.deterministic_research_agent import (
     DeterministicResearchAgent,
 )
-from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent
-from deep_research.core.agents.planning_agent import DeterministicPlanningAgent
+from deep_research.core.agents.research_agent import ResearchAgent
+from deep_research.core.agents.evaluation_agent import DeterministicEvaluationAgent, EvaluationAgent
+from deep_research.core.agents.planning_agent import DeterministicPlanningAgent, PlanningAgent
 from deep_research.core.agents.report_agent import DeterministicReportAgent
+from deep_research.verification.fact_check import ClaimVerifier
 from deep_research.core.config import Settings
 from deep_research.core.orchestration.master_research_orchestrator import (
     MasterResearchOrchestrator,
 )
+from deep_research.core.orchestration.step_gate import StepGate
 from deep_research.domain.research.research_state import ResearchState
-from deep_research.domain.research_request import ResearchRequest
+from deep_research.domain.research_request import ResearchAttachment, ResearchRequest
+from deep_research.context.context_builder import ResearchContextBuilder
+from deep_research.memory.factory import LongTermMemory, build_long_term_memory
+from deep_research.models.model_gateway import ModelGateway
+from deep_research.runtime.contracts import OperationKind
 from deep_research.runtime.harness import ExecutionHarness, InMemoryRuntimeObserver
 from deep_research.security import find_sensitive_data_path
 
@@ -34,6 +43,7 @@ class ResearchSubmission(BaseModel):
         default_factory=dict,
         max_length=50,
     )
+    attachments: list[ResearchAttachment] = Field(default_factory=list, max_length=5)
 
     @field_validator("objective")
     @classmethod
@@ -83,14 +93,48 @@ class ResearchApplication:
         self.settings = settings
         self.max_sessions = max_sessions
         self._states: dict[UUID, ResearchState] = {}
+        self._run_gateway: ModelGateway | None = None
+        self._run_budget_hook: Callable[[str], None] | None = None
+        self._memory: LongTermMemory | None = None
+        self._memory_built = False
+        self._learning: Any = None
+        self._learning_run: Any = None
 
-    async def submit(self, submission: ResearchSubmission) -> ResearchRunResponse:
+    async def submit(
+        self, submission: ResearchSubmission, *, step_gate: StepGate | None = None, run_id: str | None = None
+    ) -> ResearchRunResponse:
+        """Run one research. ``run_id`` (the control run id) tags every span for the local trace timeline."""
+        learning = self.learning
+        sources = self.settings.enabled_source_tools() if self.settings.research_mode == "live" else []
+        self._learning_run = learning.before_run(submission.objective, sources) if learning else None
         orchestrator = self._build_orchestrator()
+        orchestrator.step_gate = step_gate
         request = ResearchRequest(
             objective=submission.objective.strip(),
             metadata=dict(submission.metadata),
+            attachments=list(submission.attachments),
         )
-        state = await orchestrator.start_research(request)
+        from deep_research.scale.tracing import aspan, run_context
+
+        with run_context(run_id):
+            async with aspan("mdra.run", **{"mdra.mode": self.settings.research_mode, "mdra.agentic": self.agentic,
+                                            "mdra.objective_chars": len(request.objective),
+                                            "mdra.attachments": [a.kind for a in request.attachments]}) as run_span:
+                state = await orchestrator.start_research(request)
+                run_span.set("mdra.status", str(state.status))
+                run_span.set("mdra.iterations", int(getattr(state, "iteration", 0) or 0))
+        report = state.metadata.get("report")
+        if isinstance(report, dict):
+            report["agent_mode"] = "llm_with_fallback" if self.agentic else "deterministic"
+        if learning is not None and self._learning_run is not None:
+            summary = await learning.after_run(
+                self._learning_run, run_id=run_id or str(state.id), objective=request.objective,
+                status=str(state.status), report=report if isinstance(report, dict) else None,
+                runtime=state.metadata.get("runtime"), metadata=state.metadata, gateway=self._run_gateway,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds)
+            state.metadata["learning"] = summary
+            if isinstance(report, dict):
+                report["learning"] = summary
         self._states[state.id] = state.model_copy(deep=True)
         while len(self._states) > self.max_sessions:
             oldest_session_id = next(iter(self._states))
@@ -103,18 +147,168 @@ class ResearchApplication:
 
     def _build_orchestrator(self) -> MasterResearchOrchestrator:
         limits = self.settings.runtime_limits()
+        if self.agentic:
+            # LLM tool choice runs inside one research task: leave room for its decision window
+            # plus search, page reads and synthesis so the harness does not cut it off.
+            floor = self.settings.agent_decision_budget_seconds + 45.0
+            if limits.max_tool_call_time_seconds < floor:
+                limits = limits.model_copy(update={"max_tool_call_time_seconds": floor})
         harness = ExecutionHarness(
             limits,
             observer=InMemoryRuntimeObserver(max_events=1_000),
         )
+        gateway = self._agent_gateway()
+        sources = self.settings.enabled_source_tools() if self.settings.research_mode == "live" else []
+        run = self._learning_run
+        if run is not None:  # learned tool reliability: reorder, and skip tools that keep failing
+            sources = [t for t in run.tool_order if t in sources]
+        preamble = run.preamble if run is not None else ""
+        planning_agent: PlanningAgent = DeterministicPlanningAgent(sources, self.settings.preferred_sources(),
+                                                                    self.settings.saved_topic_list())
+        evaluation_agent: EvaluationAgent = DeterministicEvaluationAgent()
+        if gateway is not None:
+            from deep_research.core.agents.llm_agents import LlmEvaluationAgent, LlmPlanningAgent
+
+            planning_agent = LlmPlanningAgent(
+                gateway, max_tasks=self.settings.agent_max_plan_tasks,
+                max_iterations=limits.max_research_iterations,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds,
+                source_tools=sources, preferred=self.settings.preferred_sources(),
+                saved_topics=self.settings.saved_topic_list(),
+                style=self.settings.agent_plan_style,
+                preamble=preamble,
+            )
+            evaluation_agent = LlmEvaluationAgent(
+                gateway, max_iterations=limits.max_research_iterations,
+                timeout_seconds=self.settings.agent_llm_timeout_seconds,
+            )
+
+        def charge_model_call(operation: str) -> None:
+            harness.budget.before_call(OperationKind.MODEL, operation=operation)
+
+        self._run_gateway, self._run_budget_hook = gateway, charge_model_call
+        memory = self.long_term_memory
+
         return MasterResearchOrchestrator(
-            planning_agent=DeterministicPlanningAgent(),
-            research_agent=DeterministicResearchAgent(),
-            analysis_agent=DeterministicAnalysisAgent(),
-            evaluation_agent=DeterministicEvaluationAgent(),
-            report_agent=DeterministicReportAgent(),
+            planning_agent=planning_agent,
+            research_agent=self._wrap_research_agent(self._build_research_agent()),
+            analysis_agent=self._analysis_agent(gateway, charge_model_call, preamble),
+            evaluation_agent=evaluation_agent,
+            report_agent=DeterministicReportAgent(
+                verifier=ClaimVerifier(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
+                                       budget_hook=charge_model_call if gateway is not None else None)
+            ),
             max_iterations=limits.max_research_iterations,
             execution_harness=harness,
+            session_repository=memory.repository if memory else None,
+            context_builder=ResearchContextBuilder(memory.memory) if memory else None,
+        )
+
+    def _wrap_research_agent(self, agent: ResearchAgent) -> ResearchAgent:
+        learning, run = self.learning, self._learning_run
+        return learning.wrap(agent, run) if learning is not None and run is not None else agent
+
+    @property
+    def learning(self) -> Any:
+        """Lazily built self-improvement loop (``None`` when ``self_improvement`` is off)."""
+        if self._learning is None and self.settings.self_improvement:
+            from pathlib import Path
+
+            from deep_research.learning import SelfImprovement
+
+            self._learning = SelfImprovement(Path(self.settings.memory_dir) / "learning.db",
+                                             top_k=self.settings.self_improvement_top_k,
+                                             max_lessons=self.settings.self_improvement_max_lessons)
+        return self._learning
+
+    def _analysis_agent(self, gateway: Any, charge: Any, preamble: str = "") -> AnalysisAgent:
+        """Live runs get source-grounded claims (LLM when configured, extractive otherwise)."""
+        if self.settings.research_mode != "live":
+            return DeterministicAnalysisAgent()
+        from deep_research.core.agents.live_analysis_agent import LiveAnalysisAgent
+
+        return LiveAnalysisAgent(gateway, timeout_seconds=self.settings.agent_llm_timeout_seconds,
+                                 budget_hook=charge if gateway is not None else None, preamble=preamble)
+
+    @property
+    def long_term_memory(self) -> LongTermMemory | None:
+        """Lazily built, cached long-term memory (``None`` when ``long_term_memory=off``)."""
+        if not self._memory_built:
+            self._memory = build_long_term_memory(self.settings.long_term_memory, self.settings.memory_dir)
+            self._memory_built = True
+        return self._memory
+
+    def build_research_agent(self) -> ResearchAgent:
+        """Public accessor used by the control API to re-run a single step."""
+        return self._build_research_agent()
+
+    @property
+    def agentic(self) -> bool:
+        """True when LLM agents decide planning, evaluation and tool choice for this run."""
+        if self.settings.research_mode != "live" or self.settings.agent_mode == "deterministic":
+            return False
+        key = self.settings.openrouter_api_key
+        return bool(key and key.get_secret_value().strip())
+
+    def _agent_gateway(self) -> ModelGateway | None:
+        if not self.agentic:
+            return None
+        from deep_research.core.free_model_guard import ModelCapability
+        from deep_research.core.provider_wiring import build_provider_gateway
+
+        return build_provider_gateway(self.settings, capability=ModelCapability.TEXT_GENERATION)
+
+    def _build_research_agent(self) -> ResearchAgent:
+        """Pick the research agent from ``settings.research_mode``.
+
+        ``offline`` (default) keeps the deterministic, network-free agent.
+        ``live`` uses real web search/fetch plus optional LLM synthesis via the
+        free-model-guarded OpenRouter gateway (snippet summary when no key).
+        """
+        if self.settings.research_mode != "live":
+            return DeterministicResearchAgent()
+        from deep_research.core.agents.live_research_agent import LiveResearchAgent
+        from deep_research.core.free_model_guard import ModelCapability
+        from deep_research.core.provider_wiring import build_provider_gateway
+        from deep_research.tools.document_tool import DocumentReaderTool
+        from deep_research.tools.image_tool import ImageAnalysisTool
+        from deep_research.tools.pdf_tool import PdfReaderTool
+        from deep_research.tools.web_page_tool import WebPageReaderTool
+        from deep_research.tools.media_tool import MediaAnalysisTool
+        from deep_research.tools.registry import build_source_tools
+        from deep_research.tools.web_tools import WebFetchTool, WebSearchTool
+
+        vision = build_provider_gateway(self.settings, capability=ModelCapability.VISION)
+        run = self._learning_run  # learned tool order/skips and identity preamble, when self-improvement is on
+        sources = self.settings.enabled_source_tools()
+        sources = [t for t in run.tool_order if t in sources] if run is not None else sources
+        preamble = run.preamble if run is not None else ""
+
+        return LiveResearchAgent(
+            search_tool=WebSearchTool(
+                provider=self.settings.search_provider,
+                tavily_api_key=self.settings.tavily_api_key,
+            ),
+            fetch_tool=WebFetchTool(),
+            gateway=build_provider_gateway(self.settings, capability=ModelCapability.TEXT_GENERATION),
+            max_results=self.settings.live_max_search_results,
+            max_fetch=self.settings.live_max_fetch_pages,
+            max_tokens=self.settings.max_tokens_per_call,
+            media_tools={
+                "pdf_reader": PdfReaderTool(vision_gateway=vision),
+                "image_analyzer": ImageAnalysisTool(gateway=vision, use_settings=False),
+                "document_parser": DocumentReaderTool(),
+                "web_page_reader": WebPageReaderTool(WebFetchTool(max_chars=60_000)),
+                "media_analyzer": MediaAnalysisTool(vision_gateway=vision),
+            },
+            tool_gateway=self._run_gateway if self.settings.agent_tool_steps > 0 else None,
+            tool_steps=self.settings.agent_tool_steps,
+            max_searches=2,
+            decision_budget_seconds=self.settings.agent_decision_budget_seconds,
+            budget_hook=self._run_budget_hook,
+            source_tools=build_source_tools(sources),
+            blocked_domains=self.settings.blocked_domain_list(),
+            preamble=preamble,
         )
 
     @staticmethod

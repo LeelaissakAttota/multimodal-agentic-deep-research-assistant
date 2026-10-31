@@ -1,0 +1,14 @@
+{
+  "api": "research",
+  "method": "POST",
+  "path": "/research",
+  "expect_status": 200,
+  "auth": true,
+  "body": {
+    "objective": "Explain round-trip efficiency in home batteries.",
+    "metadata": {
+      "demo": true,
+      "topic": "batteries"
+    }
+  }
+}

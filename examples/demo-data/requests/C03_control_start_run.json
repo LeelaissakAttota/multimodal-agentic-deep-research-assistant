@@ -1,0 +1,13 @@
+{
+  "api": "control",
+  "method": "POST",
+  "path": "/control/runs",
+  "expect_status": 201,
+  "auth": true,
+  "body": {
+    "params": {
+      "objective": "What risks or open questions remain for ZetaCell?",
+      "mode": "offline"
+    }
+  }
+}
