@@ -24,13 +24,6 @@ You give it a research question, and optionally a PDF or an image. It plans the 
 
 ## See it working
 
-<!-- DEMO VIDEO LINK: replace both occurrences of https://VIDEO_LINK below with the shared video link
-     (for a Drive file use https://drive.google.com/file/d/<FILE_ID>/preview so it plays directly). -->
-[![Watch the demo](https://img.shields.io/badge/%E2%96%B6%20Watch%20the%20demo-Deep%20Research%20walkthrough-red?style=for-the-badge)](https://VIDEO_LINK)
-
-▶ [Watch the Deep Research demo video](https://VIDEO_LINK)
-<!-- END DEMO VIDEO LINK -->
-
 | Swagger UI | `POST /research` |
 | --- | --- |
 | ![Swagger UI with the research and monitoring endpoints](docs/images/swagger-ui.png) | ![A completed research run with report title, claims and evidence](docs/images/post-research.png) |
