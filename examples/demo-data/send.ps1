@@ -40,7 +40,7 @@ try {
 }
 $ok = ($status -eq [int]$spec.expect_status)
 if ($ok -and $spec.expect_contains) { $ok = $content -like "*$($spec.expect_contains)*" }
-if ($ok -and $content -like "*DEMO-NOT-A-SECRET-123*") { $ok = $false; $content = "LEAK: response echoed the submitted secret-like value" }
+if ($ok -and $content -like "*demo-echo-marker*") { $ok = $false; $content = "LEAK: response echoed the submitted secret-like value" }
 $result = [pscustomobject]@{ Name = [IO.Path]::GetFileNameWithoutExtension($File); Api = $spec.api; Status = $status; Expected = $spec.expect_status; Pass = $ok; Body = $content }
 if (-not $Quiet) {
     "{0}  HTTP {1} (expected {2})  {3}" -f $result.Name, $status, $spec.expect_status, $(if ($ok) { "PASS" } else { "FAIL" })

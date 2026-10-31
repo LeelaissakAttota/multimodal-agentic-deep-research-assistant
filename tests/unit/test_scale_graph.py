@@ -104,6 +104,7 @@ def test_sync_neo4j_with_fake_driver() -> None:
 
 
 def test_neo4j_status_and_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("neo4j")  # needs the optional `graph` extra (not installed in CI)
     assert _row()["state"] == "off"
     with pytest.raises(RuntimeError, match="not configured"):
         sync_neo4j(build_graph([]))

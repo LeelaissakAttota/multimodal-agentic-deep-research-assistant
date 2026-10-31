@@ -65,20 +65,22 @@ anonymous pull, amd64 + arm64), so `docker compose pull` is reproducible:
 
 To upgrade, change tag and digest together (`docker buildx imagetools inspect <image:tag>` prints the digest).
 
-The compose file uses local development passwords (`mdra-local-dev`); override them with
-`MDRA_PG_PASSWORD`, `MDRA_MINIO_USER`, `MDRA_MINIO_PASSWORD`, `MDRA_NEO4J_PASSWORD`. Matching `.env` entries:
+The compose file has no built-in passwords: set `MDRA_PG_PASSWORD`, `MDRA_MINIO_PASSWORD` (and, for the `graph`
+profile, `MDRA_NEO4J_PASSWORD`) in `.env` before `docker compose up` (compose stops with a clear message if one is
+missing). `<local-password>` below stands for the value you chose. An existing `postgres-data` volume keeps the
+password it was created with, so reuse that value. Matching `.env` entries:
 
 ```dotenv
 MDRA_REDIS_URL=redis://localhost:6379/0
-MDRA_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5433/mdra
+MDRA_DATABASE_URL=postgresql://mdra:<local-password>@localhost:5433/mdra
 MDRA_S3_BUCKET=mdra-artifacts
 MDRA_S3_ENDPOINT=http://localhost:9000
 MDRA_S3_ACCESS_KEY=mdra-local
-MDRA_S3_SECRET_KEY=mdra-local-dev
+MDRA_S3_SECRET_KEY=<local-password>
 MDRA_OTEL_EXPORTER=otlp
 MDRA_OTEL_ENDPOINT=http://localhost:4318/v1/traces
 MDRA_NEO4J_URI=bolt://localhost:7687
-MDRA_NEO4J_PASSWORD=mdra-local-dev
+MDRA_NEO4J_PASSWORD=<local-password>
 ```
 
 On Windows without Docker, Redis-compatible **Memurai** (free developer edition) or Redis under WSL work for the
@@ -368,9 +370,9 @@ skipped unless you point them at one:
 
 ```bash
 MDRA_TEST_REDIS_URL=redis://localhost:6379/15 \
-MDRA_TEST_DATABASE_URL=postgresql://mdra:mdra-local-dev@localhost:5433/mdra \
+MDRA_TEST_DATABASE_URL=postgresql://mdra:<local-password>@localhost:5433/mdra \
 MDRA_TEST_S3_BUCKET=mdra-test MDRA_TEST_S3_ENDPOINT=http://localhost:9000 \
-MDRA_TEST_S3_ACCESS_KEY=mdra-local MDRA_TEST_S3_SECRET_KEY=mdra-local-dev \
-MDRA_TEST_NEO4J_URI=bolt://localhost:7687 MDRA_TEST_NEO4J_PASSWORD=mdra-local-dev \
+MDRA_TEST_S3_ACCESS_KEY=mdra-local MDRA_TEST_S3_SECRET_KEY=<local-password> \
+MDRA_TEST_NEO4J_URI=bolt://localhost:7687 MDRA_TEST_NEO4J_PASSWORD=<local-password> \
 pytest tests/unit/test_scale_*.py tests/unit/test_rag.py   # test_rag's pgvector test needs the extension
 ```

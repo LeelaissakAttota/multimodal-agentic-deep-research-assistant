@@ -174,6 +174,7 @@ def test_chat_graph_expansion_errors_are_swallowed(monkeypatch: pytest.MonkeyPat
 
 
 def test_sync_runs_and_auto_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("neo4j")  # needs the optional `graph` extra (not installed in CI)
     driver = FakeDriver()
     res = sync_runs([{"run_id": "r1", "result": {"report": REPORT}}, {"run_id": "r2", "status": "failed"}], driver)
     assert res["runs"] == 1 and res["nodes"] > 5
@@ -194,6 +195,7 @@ def test_sync_runs_and_auto_sync(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_graph_sync_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    pytest.importorskip("neo4j")  # needs the optional `graph` extra (not installed in CI)
     import json
 
     from deep_research.cli import main

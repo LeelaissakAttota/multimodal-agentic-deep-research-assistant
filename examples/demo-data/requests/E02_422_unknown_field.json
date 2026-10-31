@@ -6,7 +6,7 @@
   "auth": true,
   "body": {
     "objective": "x",
-    "password": "DEMO-NOT-A-SECRET-123"
+    "unexpected_field": "demo-echo-marker"
   },
   "note": "response must not echo the value"
 }
